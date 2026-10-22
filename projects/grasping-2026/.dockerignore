@@ -1,0 +1,7 @@
+episodes/
+__pycache__/
+*.pyc
+.git/
+.gitignore
+Dockerfile
+.dockerignore

@@ -1,0 +1,54 @@
+<mujoco model="whole_arm_grasp">
+  <!--
+    Planar 3-link arm for whole-arm grasping, viewed top-down.
+    Joints rotate about z (vertical); links sweep the horizontal plane
+    above the table. Objects are spawned programmatically (see
+    whole_arm_grasp.py) as free boxes on the table.
+  -->
+  <compiler angle="radian"/>
+
+  <option timestep="0.005" gravity="0 0 -9.81"/>
+
+  <visual>
+    <map fogstart="3" fogend="8"/>
+    <rgba haze="0.15 0.25 0.35 1"/>
+  </visual>
+
+  <asset>
+    <texture name="grid" type="2d" builtin="checker" width="512" height="512"
+             rgb1="0.9 0.9 0.9" rgb2="0.75 0.75 0.75"/>
+    <material name="grid" texture="grid" texrepeat="4 4" reflectance="0.2"/>
+  </asset>
+
+  <worldbody>
+    <geom name="table" type="plane" size="1.5 1.5 0.05" material="grid"/>
+    <light name="top" pos="0 0 3" dir="0 0 -1"/>
+    <camera name="top" pos="0 0 2.4" xyaxes="1 0 0 0 1 0"/>
+
+    <body name="base" pos="0 0 0.09">
+      <geom name="base_geom" type="cylinder" size="0.06 0.06"
+            rgba="0.3 0.3 0.35 1"/>
+      <body name="link1" pos="0 0 0">
+        <joint name="j1" type="hinge" axis="0 0 1" range="-2.6 2.6" damping="0.5"/>
+        <geom name="link1_geom" type="capsule" fromto="0 0 0 0.30 0 0"
+              size="0.035" rgba="0.2 0.5 0.8 1"/>
+        <body name="link2" pos="0.30 0 0">
+          <joint name="j2" type="hinge" axis="0 0 1" range="-2.6 2.6" damping="0.4"/>
+          <geom name="link2_geom" type="capsule" fromto="0 0 0 0.25 0 0"
+                size="0.03" rgba="0.2 0.5 0.8 1"/>
+          <body name="link3" pos="0.25 0 0">
+            <joint name="j3" type="hinge" axis="0 0 1" range="-2.6 2.6" damping="0.3"/>
+            <geom name="link3_geom" type="capsule" fromto="0 0 0 0.20 0 0"
+                  size="0.025" rgba="0.2 0.5 0.8 1"/>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+
+  <actuator>
+    <position name="a1" joint="j1" kp="40"/>
+    <position name="a2" joint="j2" kp="30"/>
+    <position name="a3" joint="j3" kp="20"/>
+  </actuator>
+</mujoco>
