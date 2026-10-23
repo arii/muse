@@ -12,6 +12,7 @@ dependencies = [
 
 [project.optional-dependencies]
 rl = ["gymnasium", "stable-baselines3"]
+test = ["pytest"]
 
 [build-system]
 requires = ["setuptools"]
