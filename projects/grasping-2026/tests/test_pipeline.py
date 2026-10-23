@@ -153,3 +153,27 @@ def test_nebius_labeller_rejects_non_json(monkeypatch):
     lab, _ = _mock_labeller(monkeypatch, "I cannot see any image.")
     with pytest.raises(ValueError):
         lab.label(env.render(), env.objects, "grasp the red box")
+
+
+def test_singulation_improves_isolation():
+    """scripted_singulate pushes a crowding object away (seed 7)."""
+    from scripts.demo_vlm_grasp import scripted_singulate
+    env = WholeArmGraspEnv(seed=7)
+    env.reset(seed=7)
+    env.target_index = 0
+    assert env.target_isolation() < 0.15  # seed 7 starts crowded
+    iso_before, iso_after = scripted_singulate(env, 0, frames=[])
+    assert iso_after > iso_before + 0.05, \
+        f"isolation did not improve: {iso_before:.3f} -> {iso_after:.3f}"
+
+
+def test_singulation_never_regresses():
+    """Across seeds, singulation never reduces isolation (revert on harm)."""
+    from scripts.demo_vlm_grasp import scripted_singulate
+    for seed in range(6):
+        env = WholeArmGraspEnv(seed=seed)
+        env.reset(seed=seed)
+        env.target_index = 0
+        iso_before, iso_after = scripted_singulate(env, 0, frames=[])
+        assert iso_after >= iso_before - 1e-9, \
+            f"seed {seed}: isolation regressed {iso_before:.3f} -> {iso_after:.3f}"

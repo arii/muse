@@ -15,10 +15,11 @@ fine-tuning — the point is the integration.
 | Stage | Module | What it does | Status |
 |---|---|---|---|
 | 1. Language grounding | `perception/grounding.py` | VLM: instruction + image → target object | ✅ working (+ offline fallback) |
-| 2. Segmentation | `perception/segment.py` | SAM: detection → pixel mask | 🟡 interface fixed, SAM wiring TODO |
-| 3. Grasp synthesis | `perception/grasp.py` | mask → ranked antipodal grasps | 🟡 interface fixed, sampler TODO |
-| 4. Motion planning | `planning/motion.py` | q_start → q_goal trajectory | ✅ interpolation; RRT TODO |
-| 5. Execution | `env/` (MuJoCo) | planar 3-link arm, randomized objects, contact-based reward | ✅ working |
+| 2. Singulation | `scripts/demo_vlm_grasp.py` | push crowding objects away from the target; `isolation` metric in `env/`; pushes reverted if they hurt | ✅ scripted |
+| 3. Segmentation | `perception/segment.py` | SAM: detection → pixel mask | 🟡 interface fixed, SAM wiring TODO |
+| 4. Grasp synthesis | `perception/grasp.py` | mask → ranked antipodal grasps | 🟡 interface fixed, sampler TODO |
+| 5. Motion planning | `planning/motion.py` | q_start → q_goal trajectory | ✅ interpolation; RRT TODO |
+| 6. Execution | `env/` (MuJoCo) | planar 3-link arm, randomized objects, contact-based reward | ✅ working |
 
 ## Quickstart
 

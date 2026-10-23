@@ -8,7 +8,8 @@ Checks:
   2. Segmentation — STUB (M2), reported as not-yet-verifiable.
   3. Grasp synthesis — STUB (M3), reported as not-yet-verifiable.
   4. Motion planning — plan() trajectory shape/continuity + executes in env.
-  5. Execution — full demo loop; screenshots saved to verification/.
+  5. Execution — full demo loop (grounding -> singulation -> cage);
+     screenshots saved to verification/.
 
 Screenshots land in verification/<stamp>/ as PNGs.
 """
@@ -24,7 +25,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 from env.whole_arm_grasp import WholeArmGraspEnv
 from perception.grounding import make_labeller
 from planning.motion import plan
-from scripts.demo_vlm_grasp import scripted_cage
+from scripts.demo_vlm_grasp import scripted_cage, scripted_singulate
 
 COLORS = ("red", "blue", "green")
 
@@ -77,6 +78,9 @@ def run_demo_screenshots(seed, outdir):
     env.target_index = target_idx
     print(f"  instruction 'grasp the red box' -> object {target_idx} "
           f"({env.objects[target_idx]['color']})")
+    iso_before, iso_after = scripted_singulate(env, target_idx, frames)
+    post_singulate = frames[-1]
+    print(f"  singulation: isolation {iso_before:.3f} -> {iso_after:.3f} m")
     rewards, info = scripted_cage(env, target_idx, frames)
     frames.append(env.render())
     print(f"  links touching: {info['links_touching']}, "
@@ -86,7 +90,7 @@ def run_demo_screenshots(seed, outdir):
     n = len(frames)
     picks = {
         "00_initial": frames[0],
-        "01_approach": frames[n // 3],
+        "01_singulated": post_singulate,
         "02_caging": frames[2 * n // 3],
         "03_final": frames[-1],
     }

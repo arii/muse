@@ -6,6 +6,10 @@ object using the whole arm — contacts on >=2 distinct links counts as a cage.
 
 Reward (starting point — tune freely):
     r = 0.5 * (# distinct arm links touching target) + 2.0 * caged
+
+info also carries "isolation": min xy center-distance from the target
+object to any other object — the singulation objective (push clutter
+away before grasping).
 """
 import pathlib
 
@@ -70,6 +74,11 @@ class WholeArmGraspEnv:
             ]
             for jn in JOINT_NAMES
         ]
+        self._obj_qposadr = {
+            o["index"]: self.model.jnt_qposadr[mujoco.mj_name2id(
+                self.model, mujoco.mjtObj.mjOBJ_JOINT, f"{o['name']}_free")]
+            for o in self.objects
+        }
         mujoco.mj_forward(self.model, self.data)
         self.target_index = None
         return self._obs()
@@ -87,18 +96,37 @@ class WholeArmGraspEnv:
         self.renderer.update_scene(self.data, camera="top")
         return self.renderer.render()
 
+    def snapshot(self):
+        """Opaque physics snapshot, for restore()."""
+        return (self.data.qpos.copy(), self.data.qvel.copy())
+
+    def restore(self, snap):
+        """Restore a snapshot() — reverts physics to the saved state."""
+        self.data.qpos[:], self.data.qvel[:] = snap
+        mujoco.mj_forward(self.model, self.data)
+
     # ---------- helpers ----------
     def _obs(self):
         qpos = self.data.qpos[self._arm_qpos].copy()
         qvel = self.data.qvel[:3].copy()
         obj_poses = {}
         for o in self.objects:
-            jid = mujoco.mj_name2id(
-                self.model, mujoco.mjtObj.mjOBJ_JOINT, f"{o['name']}_free")
-            adr = self.model.jnt_qposadr[jid]
+            adr = self._obj_qposadr[o["index"]]
             obj_poses[o["index"]] = self.data.qpos[adr:adr + 7].copy()
         return {"qpos": qpos, "qvel": qvel, "objects": obj_poses,
                 "target": self.target_index}
+
+    def target_isolation(self):
+        """Min xy center-distance from the target object to any other
+        object (None when no target is set). Grows as the target gets
+        isolated from clutter — the singulation objective."""
+        if self.target_index is None:
+            return None
+        xy = {i: self.data.qpos[adr:adr + 2].copy()
+              for i, adr in self._obj_qposadr.items()}
+        t = xy[self.target_index]
+        return min(float(np.linalg.norm(xy[i] - t))
+                   for i in xy if i != self.target_index)
 
     def _geom_name(self, gid):
         n = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, gid)
@@ -118,4 +146,5 @@ class WholeArmGraspEnv:
         n = len(touching)
         caged = n >= 2
         return 0.5 * n + (2.0 if caged else 0.0), {
-            "links_touching": n, "caged": caged}
+            "links_touching": n, "caged": caged,
+            "isolation": self.target_isolation()}
