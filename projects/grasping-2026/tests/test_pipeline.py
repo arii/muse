@@ -34,6 +34,22 @@ def test_grounding_picks_correct_color():
             f"instruction said {color}, labeller chose {env.objects[idx]['color']}"
 
 
+def test_heuristic_plan_parses_push_instruction():
+    """'push the blue ... away' -> push_away names the blue object."""
+    from perception.grounding import HeuristicLabeller
+    env = WholeArmGraspEnv(seed=0)
+    env.reset(seed=0)
+    lab = HeuristicLabeller()
+    plan = lab.plan(env.render(), env.objects,
+                    "grasp the red box, first push the blue box away "
+                    "without moving the red box")
+    assert plan["grasp_target"] == 0  # red
+    assert plan["push_away"] == [1]  # blue
+    # plain grasp instruction: no push_away, grasp still parsed
+    plan2 = lab.plan(env.render(), env.objects, "grasp the green box")
+    assert plan2["grasp_target"] == 2 and plan2["push_away"] == []
+
+
 def test_motion_plan_endpoints_and_continuity():
     """plan() returns a (T, 3) trajectory from q_start to q_goal."""
     env = WholeArmGraspEnv(seed=0)
@@ -124,11 +140,12 @@ def test_nebius_labeller_request_shape_and_parse(monkeypatch):
     env.reset(seed=0)
     lab, sent = _mock_labeller(
         monkeypatch,
-        'Sure! {"target_index": 0, "rationale": "the red box"} done.')
+        'Sure! {"grasp_target": 0, "push_away": [1], '
+        '"rationale": "the red box"} done.')
 
-    idx, rationale = lab.label(env.render(), env.objects, "grasp the red box")
-
-    assert (idx, rationale) == (0, "the red box")
+    plan = lab.label(env.render(), env.objects, "grasp the red box")
+    # label() stays back-compat: (grasp_target, rationale)
+    assert plan == (0, "the red box")
     assert lab.last_raw.startswith("Sure!")
     assert sent["url"] == \
         "https://api.tokenfactory.nebius.com/v1/chat/completions"
@@ -141,9 +158,26 @@ def test_nebius_labeller_request_shape_and_parse(monkeypatch):
     text = next(c["text"] for c in content if c["type"] == "text")
     assert "grasp the red box" in text
     assert "index 0: red box" in text
+    assert "push_away" in text
     img_url = next(c["image_url"]["url"] for c in content
                    if c["type"] == "image_url")
     assert img_url.startswith("data:image/png;base64,")
+
+
+def test_nebius_labeller_plan_parses_push_away(monkeypatch):
+    """plan() returns grasp_target + push_away list; rejects bad indices."""
+    env = WholeArmGraspEnv(seed=0)
+    env.reset(seed=0)
+    lab, _ = _mock_labeller(
+        monkeypatch,
+        '{"grasp_target": 0, "push_away": [1, 2], "rationale": "clear it"}')
+    plan = lab.plan(env.render(), env.objects, "grasp the red box")
+    assert plan == {"grasp_target": 0, "push_away": [1, 2],
+                    "rationale": "clear it"}
+
+    lab2, _ = _mock_labeller(monkeypatch, '{"grasp_target": 9, "push_away": []}')
+    with pytest.raises(ValueError):
+        lab2.plan(env.render(), env.objects, "grasp the red box")
 
 
 def test_nebius_labeller_rejects_non_json(monkeypatch):

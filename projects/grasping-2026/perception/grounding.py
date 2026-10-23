@@ -1,4 +1,9 @@
-"""VLM grounding: natural-language instruction + top-down image -> target object.
+"""VLM grounding: natural-language instruction + top-down image -> action plan.
+
+The plan names which object to grasp and which to push away first (to
+isolate the grasp target), e.g.:
+    "grasp the red box, first push the blue box away without moving the red box"
+-> {"grasp_target": 0, "push_away": [1], "rationale": "..."}.
 
 NebiusVLMLabeller talks to an OpenAI-compatible chat-completions endpoint
 (Nebius Token Factory by default). Set:
@@ -13,6 +18,7 @@ import base64
 import io
 import json
 import os
+import re
 
 import numpy as np
 from PIL import Image
@@ -20,8 +26,10 @@ from PIL import Image
 PROMPT = (
     "You see a top-down view of a robot arm and several colored boxes on a table. "
     "The boxes are: {objects}. The task instruction is: \"{instruction}\". "
-    "Which box should the robot grasp? Reply with ONLY a JSON object like "
-    '{{"target_index": 2, "rationale": "short reason"}}.'
+    "Which box should the robot grasp? Are there boxes it should push away first "
+    "to isolate the grasp target? Reply with ONLY a JSON object like "
+    '\'{{"grasp_target": 2, "push_away": [0], "rationale": "short reason"}}\'. '
+    "Use an empty push_away list if no pushing is needed."
     # NOTE: doubled braces — they are literal in the formatted prompt.
 )
 
@@ -48,7 +56,8 @@ class NebiusVLMLabeller:
             "NEBIUS_BASE_URL", "https://api.tokenfactory.nebius.com/v1")
         ).rstrip("/")
 
-    def label(self, rgb, objects, instruction):
+    def plan(self, rgb, objects, instruction):
+        """Instruction -> {"grasp_target": idx, "push_away": [idxs], "rationale": str}."""
         desc = ", ".join(
             f"index {o['index']}: {o['color']} box" for o in objects)
         content = [
@@ -70,18 +79,58 @@ class NebiusVLMLabeller:
         # be liberal: find the first {...} in the reply
         start, end = text.index("{"), text.rindex("}") + 1
         out = json.loads(text[start:end])
-        return int(out["target_index"]), out.get("rationale", "")
+        valid = {o["index"] for o in objects}
+        grasp = int(out["grasp_target"])
+        push = [int(i) for i in out.get("push_away", [])]
+        if grasp not in valid or any(i not in valid for i in push):
+            raise ValueError(f"VLM returned out-of-range indices: {out}")
+        return {"grasp_target": grasp, "push_away": push,
+                "rationale": out.get("rationale", "")}
+
+    def label(self, rgb, objects, instruction):
+        """Back-compat: (grasp_target_index, rationale)."""
+        plan = self.plan(rgb, objects, instruction)
+        return plan["grasp_target"], plan["rationale"]
 
 
 class HeuristicLabeller:
-    """Offline fallback: match a color word in the instruction."""
+    """Offline fallback: match color words in the instruction.
+
+    Understands "grasp/pick up/grab the <color>" and
+    "push the <color> ... away".
+    """
+
+    def plan(self, rgb, objects, instruction):
+        instr = instruction.lower()
+        colors = {o["color"]: o["index"] for o in objects}
+        grasp_idx = None
+        m = re.search(r"(grasp|pick up|grab)\s+(the\s+)?(\w+)", instr)
+        if m and m.group(3) in colors:
+            grasp_idx = colors[m.group(3)]
+        push_idxs = []
+        for m in re.finditer(r"push\s+(the\s+)?(\w+)", instr):
+            if m.group(2) in colors and colors[m.group(2)] not in push_idxs:
+                push_idxs.append(colors[m.group(2)])
+        if grasp_idx is None:
+            for color, idx in colors.items():
+                if color in instr:
+                    grasp_idx = idx
+                    break
+            else:
+                grasp_idx = objects[0]["index"]
+        # don't push the grasp target itself
+        push_idxs = [i for i in push_idxs if i != grasp_idx]
+        rationale = f"heuristic: grasp '{objects[grasp_idx]['color']}'"
+        if push_idxs:
+            pushed = ", ".join(f"'{objects[i]['color']}'" for i in push_idxs)
+            rationale += f", push away {pushed}"
+        return {"grasp_target": grasp_idx, "push_away": push_idxs,
+                "rationale": rationale}
 
     def label(self, rgb, objects, instruction):
-        instr = instruction.lower()
-        for o in objects:
-            if o["color"] in instr:
-                return o["index"], f"heuristic: matched '{o['color']}'"
-        return objects[0]["index"], "heuristic: defaulted to first object"
+        """Back-compat: (grasp_target_index, rationale)."""
+        plan = self.plan(rgb, objects, instruction)
+        return plan["grasp_target"], plan["rationale"]
 
 
 def make_labeller():

@@ -32,7 +32,8 @@ has never been exercised against a live model. It needs two things:
 
 ## The data flow, step by step
 
-`NebiusVLMLabeller.label(rgb, objects, instruction)`:
+`NebiusVLMLabeller.plan(rgb, objects, instruction)` returns
+`{"grasp_target": idx, "push_away": [idxs], "rationale": str}`:
 
 1. **Render.** `rgb` is the 480×640 top-down MuJoCo frame. Top-down matters:
    the scene is planar, so a single orthographic-ish view shows every
@@ -47,37 +48,52 @@ has never been exercised against a live model. It needs two things:
      boxes"),
    - lists the candidates,
    - quotes the instruction verbatim,
-   - demands **only** a JSON object `{"target_index": N, "rationale": "..."}`.
+   - demands **only** a JSON object
+     `{"grasp_target": N, "push_away": [M], "rationale": "..."}` —
+     which box to grasp, and which to push away first to isolate it.
 4. **Send image + text.** The frame is PNG-encoded, base64'd, and sent as an
    `image_url` data URL alongside the text in one OpenAI-compatible
    `chat/completions` call (`temperature=0`, `max_tokens=200`).
-5. **Parse liberally.** The reply's first `{...}` substring is JSON-decoded.
-   Models add prose around the JSON despite being told not to; the parser
-   tolerates that, but a reply with no braces raises `ValueError` instead of
-   guessing.
+5. **Parse liberally, validate strictly.** The reply's first `{...}`
+   substring is JSON-decoded (models add prose despite being told not to),
+   but the indices are validated against the known objects — an
+   out-of-range index raises `ValueError` instead of guessing.
+
+`label()` is kept for back-compat and returns `(grasp_target, rationale)`.
+The heuristic fallback (`HeuristicLabeller.plan`) parses
+"grasp/pick up/grab the \<color\>" and "push the \<color\> ... away" with
+regexes, so the full instruction-driven loop runs offline.
 
 ## Worked example
 
-Instruction: `"grasp the red box"`, seed 0 (objects: red, blue, green, yellow).
+Instruction: `"grasp the red box, first push the blue box away"`, seed 0
+(objects: red, blue, green, yellow).
 
 The exact text sent (besides the image):
 
 ```
 You see a top-down view of a robot arm and several colored boxes on a table.
 The boxes are: index 0: red box, index 1: blue box, index 2: green box,
-index 3: yellow box. The task instruction is: "grasp the red box".
-Which box should the robot grasp? Reply with ONLY a JSON object like
-'{"target_index": 2, "rationale": "short reason"}'.
+index 3: yellow box. The task instruction is: "grasp the red box, first
+push the blue box away". Which box should the robot grasp? Are there boxes
+it should push away first to isolate the grasp target? Reply with ONLY a
+JSON object like '{"grasp_target": 2, "push_away": [0],
+"rationale": "short reason"}'. Use an empty push_away list if no pushing
+is needed.
 ```
 
 A good reply:
 
 ```
-{"target_index": 0, "rationale": "index 0 is the red box"}
+{"grasp_target": 0, "push_away": [1], "rationale": "push blue aside, grasp red"}
 ```
 
-`label()` returns `(0, "index 0 is the red box")` and stashes the raw reply
-on `labeller.last_raw` for inspection.
+`plan()` returns
+`{"grasp_target": 0, "push_away": [1], "rationale": "push blue aside, grasp red"}`
+and stashes the raw reply on `labeller.last_raw` for inspection. The demo
+then singulates exactly the listed objects; "without moving the red box" in
+the instruction switches the push-revert to strict mode (target must stay
+within 10 cm).
 
 ## Design decisions worth knowing
 

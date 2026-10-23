@@ -44,16 +44,19 @@ def _extension_for(target_reach):
     return 0.5 * (lo + hi)
 
 
-def scripted_singulate(env, target_idx, frames, push_radius=0.35):
+def scripted_singulate(env, target_idx, frames, push_radius=0.35,
+                      push_targets=None, strict=False):
     """Push-away phase: isolate the target before grasping.
 
-    For each non-target object crowding the target (nearest first): curl
-    the arm (small swept disc), yaw to face the object, extend just far
-    enough for the tip to reach it, then nudge it tangentially in the
-    direction that increases its distance from the target. Each push is
-    tried optimistically and REVERTED (physics snapshot + dropped frames)
-    if it hurts: isolation decreased, the target moved > 5 cm, or any
-    object flew > 50 cm. Everything moves slowly — yawing or sweeping the
+    For each non-target object crowding the target (nearest first), or for
+    each index in push_targets when explicitly given: curl the arm (small
+    swept disc), yaw to face the object, extend so the tip just reaches it,
+    then nudge it tangentially in the direction that increases its distance
+    from the target. Each push is tried optimistically and REVERTED
+    (physics snapshot + dropped frames) if it hurts: isolation decreased,
+    the target moved more than the distractor (or at all, when strict=True
+    e.g. "without moving the red block"), the distractor barely moved, or
+    something launched. Everything moves slowly — yawing or sweeping the
     fully-extended arm is what launches boxes across the table.
     Returns (isolation_before, isolation_after) in meters.
     """
@@ -66,9 +69,15 @@ def scripted_singulate(env, target_idx, frames, push_radius=0.35):
     done = set()
     while True:
         t = xy(target_idx)
-        cands = sorted(
-            (float(np.linalg.norm(xy(i) - t)), i) for i in others
-            if i not in done and float(np.linalg.norm(xy(i) - t)) < push_radius)
+        if push_targets is not None:
+            # explicit instruction: push exactly these, no distance filter
+            cands = [(0.0, i) for i in push_targets
+                     if i in others and i not in done]
+        else:
+            cands = sorted(
+                (float(np.linalg.norm(xy(i) - t)), i) for i in others
+                if i not in done
+                and float(np.linalg.norm(xy(i) - t)) < push_radius)
         if not cands:
             break
         _, i = cands[0]
@@ -93,7 +102,9 @@ def scripted_singulate(env, target_idx, frames, push_radius=0.35):
             env.step(np.array([q0[0] + _ang_diff(face, q0[0]) * a, 1.4, 1.4]))
             frames.append(env.render())
         # 3. extend so the tip just reaches the object (no bulldozing through)
-        qe = _extension_for(max(r_d - 0.02, 0.2))
+        # strict ("without moving"): stop shorter, nudge gentler
+        ext = max(r_d - (0.06 if strict else 0.02), 0.2)
+        qe = _extension_for(ext)
         for a in np.linspace(0, 1, 15):
             q23 = 1.4 - (1.4 - qe) * a
             env.step(np.array([face, q23, q23]))
@@ -102,8 +113,9 @@ def scripted_singulate(env, target_idx, frames, push_radius=0.35):
         d = xy(i)  # re-read: extension may have shifted it
         that = np.array([-np.sin(face), np.cos(face)])
         s = 1.0 if float(np.dot(that, d - t)) >= 0 else -1.0
+        nudge = 0.03 if strict else 0.08
         for a in np.linspace(0, 1, 16):
-            env.step(np.array([face + s * 0.08 * a, qe, qe]))
+            env.step(np.array([face + s * nudge * a, qe, qe]))
             frames.append(env.render())
         # evaluate: keep the push only if it moved the DISTRACTOR away
         # (not the target), without launching anything
@@ -111,8 +123,9 @@ def scripted_singulate(env, target_idx, frames, push_radius=0.35):
         tmove = float(np.linalg.norm(xy(target_idx) - t))
         dmove = float(np.linalg.norm(xy(i) - p0[i]))
         maxmove = max(float(np.linalg.norm(xy(j) - p0[j])) for j in p0)
+        tmove_limit = 0.10 if strict else dmove + 0.05
         if (iso_new < iso_before - 1e-9 or maxmove > 0.6 or dmove < 0.03
-                or tmove > dmove + 0.05):
+                or tmove > tmove_limit):
             env.restore(snap)
             del frames[nframes0:]
             print(f"[singulate] reverted push on obj{i} ({color}): "
@@ -162,14 +175,22 @@ def main():
     frames = [env.render()]
 
     labeller = make_labeller()
-    target_idx, rationale = labeller.label(
-        frames[0], env.objects, args.instruction)
+    plan = labeller.plan(frames[0], env.objects, args.instruction)
+    target_idx = plan["grasp_target"]
     env.target_index = target_idx
     print(f"[demo] instruction: {args.instruction!r}")
-    print(f"[demo] labeller chose object {target_idx} "
-          f"({env.objects[target_idx]['color']}) — {rationale}")
+    print(f"[demo] plan: grasp object {target_idx} "
+          f"({env.objects[target_idx]['color']}), push away "
+          f"{plan['push_away']} — {plan['rationale']}")
 
-    iso_before, iso_after = scripted_singulate(env, target_idx, frames)
+    # Explicit "push ..." in the instruction -> push exactly those objects.
+    # Otherwise fall back to auto-detecting crowding. "without moving"
+    # makes the revert strict: any target motion fails the push.
+    explicit_push = "push" in args.instruction.lower()
+    push_targets = plan["push_away"] if explicit_push else None
+    strict = "without moving" in args.instruction.lower()
+    iso_before, iso_after = scripted_singulate(
+        env, target_idx, frames, push_targets=push_targets, strict=strict)
     print(f"[demo] singulation: isolation {iso_before:.3f} -> "
           f"{iso_after:.3f} m")
 
@@ -186,7 +207,8 @@ def main():
         "instruction": args.instruction,
         "target_index": target_idx,
         "target_color": env.objects[target_idx]["color"],
-        "rationale": rationale,
+        "rationale": plan["rationale"],
+        "push_away": plan["push_away"],
         "isolation_before": iso_before,
         "isolation_after": iso_after,
         "links_touching": info["links_touching"],
