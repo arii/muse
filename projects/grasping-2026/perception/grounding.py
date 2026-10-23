@@ -1,8 +1,9 @@
 """VLM grounding: natural-language instruction + top-down image -> action plan.
 
-The plan names which object to grasp and which to push away first (to
-isolate the grasp target), e.g.:
-    "grasp the red box, first push the blue box away without moving the red box"
+The task is framed as "grasp the target IN ISOLATION". The VLM reasons about
+preconditions: which box to grasp, and which boxes must be pushed away first
+for the grasp to succeed. E.g.:
+    "grasp the red box in isolation"
 -> {"grasp_target": 0, "push_away": [1], "rationale": "..."}.
 
 NebiusVLMLabeller talks to an OpenAI-compatible chat-completions endpoint
@@ -25,11 +26,15 @@ from PIL import Image
 
 PROMPT = (
     "You see a top-down view of a robot arm and several colored boxes on a table. "
-    "The boxes are: {objects}. The task instruction is: \"{instruction}\". "
-    "Which box should the robot grasp? Are there boxes it should push away first "
-    "to isolate the grasp target? Reply with ONLY a JSON object like "
+    "The boxes are: {objects}. "
+    "The goal is: \"{instruction}\". "
+    "The grasp must happen IN ISOLATION — no other box within reach of the "
+    "grasp target when the arm closes around it. "
+    "What preconditions must be satisfied before grasping can succeed? "
+    "Which box is the grasp target, and are there boxes that must be pushed "
+    "away first to isolate it? Reply with ONLY a JSON object like "
     '\'{{"grasp_target": 2, "push_away": [0], "rationale": "short reason"}}\'. '
-    "Use an empty push_away list if no pushing is needed."
+    "Use an empty push_away list if no preconditions are needed."
     # NOTE: doubled braces — they are literal in the formatted prompt.
 )
 

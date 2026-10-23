@@ -30,6 +30,30 @@ has never been exercised against a live model. It needs two things:
    `nvidia/Nemotron-3.5-Super-VL` (verify against `GET /v1/models`;
    the catalog changes).
 
+## The problem setup: goal, preconditions, gate
+
+The task isn't "grasp the red box" — it's "grasp the red box **in isolation**".
+That framing matters because it turns an open-ended instruction into a
+well-posed problem with three parts:
+
+1. **Goal.** What the user wants: `grasp the red box in isolation`. The
+   "in isolation" is a success criterion, not decoration — it tells the
+   system what "done" looks like.
+2. **Preconditions.** Before grasping can succeed, the VLM reasons about
+   what must be true first: which boxes crowd the target and must be pushed
+   away. This is the `push_away` list in the plan — not a user command, but
+   the VLM's own scene analysis. The prompt explicitly asks: "What
+   preconditions must be satisfied before grasping can succeed?"
+3. **Gate.** After the pushes, the demo checks the `isolation` metric
+   against a threshold (0.15 m). Only if the preconditions are met does the
+   grasp start. The result (`preconditions_met`) is logged to every episode.
+
+This is deliberately not full loop closure (no re-planning mid-execution).
+It's the minimal structure that makes the problem well-posed: the VLM
+decides *what must happen*, the metric decides *whether it happened*, and
+the controllers execute. If the preconditions fail, the episode log says so
+instead of silently attempting a doomed grasp.
+
 ## The data flow, step by step
 
 `NebiusVLMLabeller.plan(rgb, objects, instruction)` returns

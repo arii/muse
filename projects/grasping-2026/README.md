@@ -49,7 +49,10 @@ without touching the rest.
 
 ## Follow one instruction through the code
 
-Instruction: `"grasp the red box, first push the blue box away"` (seed 7).
+Instruction: `"grasp the red box in isolation"` (seed 7). The task is framed
+as a goal with preconditions: the VLM decides *what must happen first*, the
+isolation metric decides *whether it happened*, and only then does the grasp
+start.
 
 ![pipeline](docs/img/pipeline.png)
 
@@ -61,7 +64,7 @@ source of truth: `[{index: 0, color: 'red', ...}, ...]`.
 singulation matters here.*
 
 **1. Grounding** (`perception/grounding.py`). `labeller.plan(image, objects,
-instruction)` returns:
+instruction)` reasons about preconditions and returns:
 
 ```python
 {"grasp_target": 0, "push_away": [1], "rationale": "..."}
@@ -73,14 +76,19 @@ replies with JSON; the offline fallback (`HeuristicLabeller`) parses
 validated — an out-of-range index raises instead of guessing. Full worked
 example in `docs/vlm-grounding-tutorial.md`.
 
-**2. Singulation** (`scripts/demo_vlm_grasp.py: scripted_singulate`). For each
-object in `push_away` (or auto-detected crowding, if the instruction doesn't
-name any): curl the arm, yaw to face it, extend the tip to it, nudge it
-tangentially away from the grasp target. Each push is tried optimistically
-and **reverted** (physics snapshot + dropped frames) if isolation drops, the
-target moves more than the distractor, or anything launches. Tracked by the
-`isolation` metric (`env.target_isolation()`): min distance from the grasp
-target to any other object.
+**2. Singulation** (`scripts/demo_vlm_grasp.py: scripted_singulate`). Executes
+the preconditions: for each object in `push_away` (or auto-detected crowding,
+if the instruction doesn't name any), curl the arm, yaw to face it, extend
+the tip to it, nudge it tangentially away from the grasp target. Each push is
+tried optimistically and **reverted** (physics snapshot + dropped frames) if
+isolation drops, the target moves more than the distractor, or anything
+launches. Tracked by the `isolation` metric (`env.target_isolation()`): min
+distance from the grasp target to any other object.
+
+**Isolation gate.** After the pushes, the demo checks
+`isolation >= 0.15 m`. Only if the preconditions are met does the grasp
+start; otherwise it's logged (`preconditions_met: false`) and the grasp is
+attempted anyway as a fallback.
 
 **3–4. Segmentation / grasp synthesis** (`perception/segment.py`,
 `perception/grasp.py`). STUBs — interfaces fixed, SAM wiring (M2) and the
@@ -97,15 +105,16 @@ on cage.
 
 ```bash
 pip install -e .
-python scripts/demo_vlm_grasp.py --instruction "grasp the red box, first push the blue box away" --seed 7
+python scripts/demo_vlm_grasp.py --instruction "grasp the red box in isolation" --seed 7
 ```
 
 Expected output:
 
 ```
-[demo] plan: grasp object 0 (red), push away [1] — heuristic: grasp 'red', push away 'blue'
+[demo] plan: grasp object 0 (red), push away [] — heuristic: grasp 'red'
 [singulate] pushed obj1 (blue): iso 0.159 m
 [demo] singulation: isolation 0.106 -> 0.159 m
+[demo] preconditions met (isolation 0.159 m >= 0.15 m) — starting grasp
 [demo] links touching: 0, caged: False, total reward: 2.5
 [demo] episode saved to episodes/20261023_112926
 ```

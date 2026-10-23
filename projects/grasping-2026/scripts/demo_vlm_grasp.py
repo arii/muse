@@ -1,13 +1,16 @@
-"""Demo loop: instruction -> VLM grounding -> singulation -> scripted caging.
+"""Demo loop: goal -> VLM preconditions -> singulation -> isolation gate -> cage.
+
+The task is "grasp the target IN ISOLATION". The VLM sees the initial scene
+and reasons about preconditions (which boxes must be pushed away first).
+After the pushes, an isolation gate checks the preconditions are met before
+the grasp starts.
 
 Usage:
-    python scripts/demo_vlm_grasp.py --instruction "grasp the red box"
+    python scripts/demo_vlm_grasp.py --instruction "grasp the red box in isolation"
 
-Singulation (new): before caging, the arm shoves aside any non-target
-objects crowding the target, isolating it. The controller here is SCRIPTED
-(a placeholder). It demonstrates the full loop; replace it with a learned
-policy (see train_rl_baseline.py) or a VLM-driven motion plan. Episodes
-land in episodes/<timestamp>/.
+The controller here is SCRIPTED (a placeholder). It demonstrates the full
+loop; replace it with a learned policy (see train_rl_baseline.py) or a
+VLM-driven motion plan. Episodes land in episodes/<timestamp>/.
 """
 import argparse
 import datetime
@@ -164,7 +167,7 @@ def scripted_cage(env, target_idx, frames):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--instruction", default="grasp the red box")
+    ap.add_argument("--instruction", default="grasp the red box in isolation")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--frame-every", type=int, default=4,
                     help="save every Nth frame (1 = full rate, for video)")
@@ -194,6 +197,18 @@ def main():
     print(f"[demo] singulation: isolation {iso_before:.3f} -> "
           f"{iso_after:.3f} m")
 
+    # Isolation gate: the task is "grasp IN ISOLATION". Only start the grasp
+    # once preconditions are met (or log that they weren't).
+    ISOLATION_THRESHOLD = 0.15  # meters of clearance
+    preconditions_met = iso_after >= ISOLATION_THRESHOLD
+    if preconditions_met:
+        print(f"[demo] preconditions met (isolation {iso_after:.3f} m "
+              f">= {ISOLATION_THRESHOLD} m) — starting grasp")
+    else:
+        print(f"[demo] WARNING: preconditions NOT met (isolation "
+              f"{iso_after:.3f} m < {ISOLATION_THRESHOLD} m) — "
+              f"attempting grasp anyway")
+
     rewards, info = scripted_cage(env, target_idx, frames)
     print(f"[demo] links touching: {info['links_touching']}, "
           f"caged: {info['caged']}, total reward: {sum(rewards):.1f}")
@@ -211,6 +226,7 @@ def main():
         "push_away": plan["push_away"],
         "isolation_before": iso_before,
         "isolation_after": iso_after,
+        "preconditions_met": preconditions_met,
         "links_touching": info["links_touching"],
         "caged": info["caged"],
         "total_reward": float(sum(rewards)),
