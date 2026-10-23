@@ -1,38 +1,126 @@
 # Language-Conditioned Grasping in Simulation
 
-Foundation models wired into a real robotics pipeline: an instruction like
-"pick up the red mug" flows through language grounding → segmentation →
-grasp synthesis → motion planning → execution in MuJoCo. No hardware, no
-fine-tuning — the point is the integration.
+A robot arm that understands instructions like *"grasp the red box, first push
+the blue box away"* — and does it in simulation. The VLM handles language
+(which object? what to push?), classical robotics handles geometry (where it
+is, how to move). No hardware, no fine-tuning; the point is the integration.
+
+![singulation demo](docs/img/singulation-demo.gif)
+*Seed 7: the arm shoves the blue box away from the red box (isolation
+0.106 → 0.159 m), then moves in to grasp.*
 
 > This is the **non-thesis** version: a general VLM foundation-model demo and
 > portfolio piece (not the 2014 thesis redo). The VLM backend is swappable —
 > local open models (Qwen-VL/LLaVA) for the portfolio, or Nemotron via Nebius
 > Token Factory if targeting the Nebius hackathon.
 
-## The pipeline
+## How the code is set up
 
-| Stage | Module | What it does | Status |
-|---|---|---|---|
-| 1. Language grounding | `perception/grounding.py` | VLM: instruction + image → target object | ✅ working (+ offline fallback) |
-| 2. Singulation | `scripts/demo_vlm_grasp.py` | push crowding objects away from the target; `isolation` metric in `env/`; pushes reverted if they hurt | ✅ scripted |
-| 3. Segmentation | `perception/segment.py` | SAM: detection → pixel mask | 🟡 interface fixed, SAM wiring TODO |
-| 4. Grasp synthesis | `perception/grasp.py` | mask → ranked antipodal grasps | 🟡 interface fixed, sampler TODO |
-| 5. Motion planning | `planning/motion.py` | q_start → q_goal trajectory | ✅ interpolation; RRT TODO |
-| 6. Execution | `env/` (MuJoCo) | planar 3-link arm, randomized objects, contact-based reward | ✅ working |
+```
+grasping-2026/
+├── env/                    # the world: MuJoCo sim + reward + metrics
+│   ├── arm.xml             #   3-link planar arm, top-down camera, table
+│   └── whole_arm_grasp.py  #   env: reset/step/render, contact reward,
+│                           #   isolation metric, snapshot/restore
+├── perception/             # the VLM front end (semantics)
+│   ├── grounding.py        #   instruction + image -> {grasp_target, push_away}
+│   ├── segment.py          #   STUB (M2): detection -> pixel mask
+│   └── grasp.py            #   STUB (M3): mask -> ranked grasps
+├── planning/
+│   └── motion.py           #   joint-space trajectory interpolation
+├── scripts/
+│   ├── demo_vlm_grasp.py   #   the main loop: plan -> singulate -> cage
+│   ├── smoke_vlm.py        #   live VLM check (needs NEBIUS_API_KEY)
+│   ├── verify_pipeline.py  #   exercises every stage, saves screenshots
+│   └── make_video.py       #   episode frames -> captioned GIF
+├── tests/
+│   └── test_pipeline.py    #   11 tests, all runnable headless in CI
+├── docs/
+│   ├── img/                #   diagrams, labeled scenes, demo GIFs
+│   └── vlm-grounding-tutorial.md   # deep dive on the grounding stage
+├── episodes/               # logged runs (frames.npz + meta.json)
+└── Dockerfile              # headless container (MUJOCO_GL=osmesa)
+```
+
+The split is deliberate: `perception/` answers *what/which* (language),
+`planning/` + `env/` answer *where/how* (geometry/physics), `scripts/`
+wires them together. The two STUBs have fixed interfaces so M2/M3 slot in
+without touching the rest.
+
+## Follow one instruction through the code
+
+Instruction: `"grasp the red box, first push the blue box away"` (seed 7).
+
+![pipeline](docs/img/pipeline.png)
+
+**0. The scene.** `env.reset(seed=7)` spawns 4 boxes. `env.objects` is the
+source of truth: `[{index: 0, color: 'red', ...}, ...]`.
+
+![labeled scene](docs/img/scene-labeled.png)
+*What the top-down camera sees. Red crowds blue (0.106 m apart) — that's why
+singulation matters here.*
+
+**1. Grounding** (`perception/grounding.py`). `labeller.plan(image, objects,
+instruction)` returns:
+
+```python
+{"grasp_target": 0, "push_away": [1], "rationale": "..."}
+```
+
+The VLM (`NebiusVLMLabeller`) gets the image + the object list as text and
+replies with JSON; the offline fallback (`HeuristicLabeller`) parses
+"push the \<color\>" / "grasp the \<color\>" with regexes. Indices are
+validated — an out-of-range index raises instead of guessing. Full worked
+example in `docs/vlm-grounding-tutorial.md`.
+
+**2. Singulation** (`scripts/demo_vlm_grasp.py: scripted_singulate`). For each
+object in `push_away` (or auto-detected crowding, if the instruction doesn't
+name any): curl the arm, yaw to face it, extend the tip to it, nudge it
+tangentially away from the grasp target. Each push is tried optimistically
+and **reverted** (physics snapshot + dropped frames) if isolation drops, the
+target moves more than the distractor, or anything launches. Tracked by the
+`isolation` metric (`env.target_isolation()`): min distance from the grasp
+target to any other object.
+
+**3–4. Segmentation / grasp synthesis** (`perception/segment.py`,
+`perception/grasp.py`). STUBs — interfaces fixed, SAM wiring (M2) and the
+antipodal sampler (M3) are next.
+
+**5–6. Motion + execution** (`planning/motion.py`, `env/`). The scripted
+placeholder yaws at the target, reaches, and curls the links around it. The
+goal metric is **caging**: ≥2 distinct arm links in contact with the target
+(one link is a poke; two is an enveloping grasp). Checked every physics step
+in `env._reward()` from raw MuJoCo contacts; reward = `0.5 × links + 2.0`
+on cage.
 
 ## Quickstart
 
 ```bash
 pip install -e .
-python scripts/demo_vlm_grasp.py --instruction "grasp the red box"
+python scripts/demo_vlm_grasp.py --instruction "grasp the red box, first push the blue box away" --seed 7
 ```
 
-Episodes (frames + metadata) land in `episodes/`. Without `NEBIUS_API_KEY`
-the grounding stage uses an offline color-matching fallback.
+Expected output:
 
-Set `NEBIUS_API_KEY` + `NEBIUS_VLM_MODEL` to run grounding through a
-Nemotron vision model on Nebius Token Factory instead of a local VLM.
+```
+[demo] plan: grasp object 0 (red), push away [1] — heuristic: grasp 'red', push away 'blue'
+[singulate] pushed obj1 (blue): iso 0.159 m
+[demo] singulation: isolation 0.106 -> 0.159 m
+[demo] links touching: 0, caged: False, total reward: 2.5
+[demo] episode saved to episodes/20261023_112926
+```
+
+Episodes land in `episodes/<stamp>/` (`frames.npz` + `meta.json`). Without
+`NEBIUS_API_KEY` the grounding stage uses the offline fallback; set
+`NEBIUS_API_KEY` + `NEBIUS_VLM_MODEL` to run it through a Nemotron vision
+model on Nebius Token Factory instead.
+
+Verify everything works:
+
+```bash
+MUJOCO_GL=osmesa pytest -v          # 11 tests, headless
+MUJOCO_GL=osmesa python scripts/verify_pipeline.py --seed 7   # stage-by-stage + screenshots
+```
 
 ## Container
 
@@ -52,14 +140,17 @@ never baked into the image. Secrets go via `-e` (`NEBIUS_API_KEY`,
 Episodes render to animated GIFs (Pillow-only, no extra deps):
 
 ```bash
-python scripts/demo_vlm_grasp.py --instruction "grasp the red box" --seed 1 --frame-every 1
+python scripts/demo_vlm_grasp.py --instruction "grasp the red box" --seed 7 --frame-every 1
 python scripts/make_video.py episodes/<stamp>/ --out demo.gif --fps 10
 ```
 
 Each GIF gets a caption bar with the instruction, target color, and whether
 the episode caged the object. `--frame-every 1` keeps full-rate frames for
-smooth video; the default `4` keeps episode files small. A live interactive
-viewer is out of scope — the container story is headless.
+smooth video; the default `4` keeps episode files small.
+
+![cage demo](docs/img/cage-demo.gif)
+*The scripted cage on an uncrowded seed: yaw, reach, curl — 2 links in
+contact = caged.*
 
 ### Pinned working versions
 Recorded 2026-10-22 from a green dependency resolution
@@ -76,8 +167,9 @@ Recorded 2026-10-22 from a green dependency resolution
 | torch | 2.14.1 | via SB3 (CPU wheel in container) |
 | setuptools | 84.2.1 | build backend |
 
-System packages (Debian trixie, both stages): `libglfw3`, `libgl1`,
-`libosmesa6`; builder adds `build-essential`.
+System packages (both stages): `libglfw3`, `libgl1`, `libosmesa6`;
+builder adds `build-essential`. (Note: this VM wipes apt packages on
+restart — reinstall if `import mujoco` fails with an OSMesa error.)
 
 ## What's next
 
@@ -86,8 +178,9 @@ System packages (Debian trixie, both stages): `libglfw3`, `libgl1`,
 3. Generalize the sim backend from the planar arm to a 3D tabletop
    arm+gripper (`env/` is the v1 backend; interfaces above don't care).
 4. RL baseline (`scripts/train_rl_baseline.py`) for the learned-vs-classical
-   comparison.
-5. 60-second demo video + public repo.
+   comparison — and a learned singulation policy (the scripted push helps
+   ~13% of crowded scenes; a policy should do much better).
+5. Demo video + public repo (needs: Nemotron wiring, LICENSE ✅ done).
 
 ## Blog post
 
@@ -96,6 +189,7 @@ Draft: `../goals/learn-llm-driven-grasping-tutorial/files/language-conditioned-g
 
 ## Tutorials
 
-- `docs/vlm-grounding-tutorial.md` — the VLM grounding stage worked end to
-  end: prompt, request shape, parsing, failure modes, and how to verify it
-  (mock tests in CI + `scripts/smoke_vlm.py` against the live model).
+- `docs/vlm-grounding-tutorial.md` — the grounding stage worked end to end:
+  prompt, request shape, plan parsing (`grasp_target` + `push_away`),
+  failure modes, and how to verify it (mock tests in CI +
+  `scripts/smoke_vlm.py` against the live model).
