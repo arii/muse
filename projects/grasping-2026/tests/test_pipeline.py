@@ -90,3 +90,66 @@ def test_make_video_writes_gif(tmp_path):
     assert out.exists()
     with Image.open(out) as img:
         assert img.n_frames == 5
+
+
+# --- NebiusVLMLabeller, offline (HTTP layer mocked) ---
+
+def _mock_labeller(monkeypatch, reply_text):
+    """NebiusVLMLabeller with a canned HTTP response; returns (labeller, sent)."""
+    from perception.grounding import NebiusVLMLabeller
+    monkeypatch.setenv("NEBIUS_VLM_MODEL", "nvidia/Nemotron-3.5-Super-VL")
+    monkeypatch.setenv("NEBIUS_API_KEY", "test-key")
+    sent = {}
+
+    class FakeResp:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"choices": [{"message": {"content": reply_text}}]}
+
+    class FakeRequests:
+        def post(self, url, headers=None, json=None, timeout=None):
+            sent.update(url=url, headers=headers, json=json, timeout=timeout)
+            return FakeResp()
+
+    lab = NebiusVLMLabeller()
+    lab._requests = FakeRequests()
+    return lab, sent
+
+
+def test_nebius_labeller_request_shape_and_parse(monkeypatch):
+    """The VLM request carries text+image and the noisy JSON reply parses."""
+    env = WholeArmGraspEnv(seed=0)
+    env.reset(seed=0)
+    lab, sent = _mock_labeller(
+        monkeypatch,
+        'Sure! {"target_index": 0, "rationale": "the red box"} done.')
+
+    idx, rationale = lab.label(env.render(), env.objects, "grasp the red box")
+
+    assert (idx, rationale) == (0, "the red box")
+    assert lab.last_raw.startswith("Sure!")
+    assert sent["url"] == \
+        "https://api.tokenfactory.nebius.com/v1/chat/completions"
+    assert sent["headers"]["Authorization"] == "Bearer test-key"
+    body = sent["json"]
+    assert body["model"] == "nvidia/Nemotron-3.5-Super-VL"
+    assert body["temperature"] == 0
+    content = body["messages"][0]["content"]
+    assert {c["type"] for c in content} == {"text", "image_url"}
+    text = next(c["text"] for c in content if c["type"] == "text")
+    assert "grasp the red box" in text
+    assert "index 0: red box" in text
+    img_url = next(c["image_url"]["url"] for c in content
+                   if c["type"] == "image_url")
+    assert img_url.startswith("data:image/png;base64,")
+
+
+def test_nebius_labeller_rejects_non_json(monkeypatch):
+    """A reply with no JSON object raises instead of guessing."""
+    env = WholeArmGraspEnv(seed=0)
+    env.reset(seed=0)
+    lab, _ = _mock_labeller(monkeypatch, "I cannot see any image.")
+    with pytest.raises(ValueError):
+        lab.label(env.render(), env.objects, "grasp the red box")

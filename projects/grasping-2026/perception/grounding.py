@@ -21,7 +21,8 @@ PROMPT = (
     "You see a top-down view of a robot arm and several colored boxes on a table. "
     "The boxes are: {objects}. The task instruction is: \"{instruction}\". "
     "Which box should the robot grasp? Reply with ONLY a JSON object like "
-    '{"target_index": 2, "rationale": "short reason"}.'
+    '{{"target_index": 2, "rationale": "short reason"}}.'
+    # NOTE: doubled braces — they are literal in the formatted prompt.
 )
 
 
@@ -36,6 +37,7 @@ class NebiusVLMLabeller:
     def __init__(self, model=None, api_key=None, base_url=None):
         import requests  # deferred so offline use never needs it
         self._requests = requests
+        self.last_raw = None  # raw model reply from the last label() call
         self.model = model or os.environ.get("NEBIUS_VLM_MODEL", "")
         if not self.model:
             raise ValueError(
@@ -64,6 +66,7 @@ class NebiusVLMLabeller:
             timeout=60)
         r.raise_for_status()
         text = r.json()["choices"][0]["message"]["content"]
+        self.last_raw = text
         # be liberal: find the first {...} in the reply
         start, end = text.index("{"), text.rindex("}") + 1
         out = json.loads(text[start:end])

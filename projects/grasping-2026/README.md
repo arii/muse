@@ -92,3 +92,9 @@ System packages (Debian trixie, both stages): `libglfw3`, `libgl1`,
 
 Draft: `../goals/learn-llm-driven-grasping-tutorial/files/language-conditioned-grasping-blog-draft.md`
 (in the grasping goal's files — placement TBD: arii.github.io vs BoomTick).
+
+## Tutorials
+
+- `docs/vlm-grounding-tutorial.md` — the VLM grounding stage worked end to
+  end: prompt, request shape, parsing, failure modes, and how to verify it
+  (mock tests in CI + `scripts/smoke_vlm.py` against the live model).
