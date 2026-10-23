@@ -10,12 +10,14 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from PIL import Image
 
 os.environ.setdefault("MUJOCO_GL", "osmesa")
 
 from env.whole_arm_grasp import WholeArmGraspEnv  # noqa: E402
 from perception.grounding import make_labeller  # noqa: E402
 from planning.motion import plan  # noqa: E402
+from scripts.make_video import make_gif  # noqa: E402
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -76,3 +78,15 @@ def test_demo_end_to_end(tmp_path):
     assert (epi / "frames.npz").exists()
     frames = np.load(epi / "frames.npz")["frames"]
     assert frames.ndim == 4 and frames.shape[1:] == (480, 640, 3)
+
+
+def test_make_video_writes_gif(tmp_path):
+    """make_gif renders an animated GIF with one frame per input frame."""
+    frames = np.random.randint(0, 255, (5, 48, 64, 3), dtype=np.uint8)
+    meta = {"instruction": "grasp the red box",
+            "target_color": "red", "caged": True}
+    out = tmp_path / "demo.gif"
+    make_gif(frames, meta, out, fps=8, scale=1.0)
+    assert out.exists()
+    with Image.open(out) as img:
+        assert img.n_frames == 5

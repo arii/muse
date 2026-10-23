@@ -47,6 +47,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--instruction", default="grasp the red box")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--frame-every", type=int, default=4,
+                    help="save every Nth frame (1 = full rate, for video)")
     args = ap.parse_args()
 
     env = WholeArmGraspEnv(seed=args.seed)
@@ -69,7 +71,7 @@ def main():
     out = pathlib.Path("episodes") / stamp
     out.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(out / "frames.npz",
-                        frames=np.stack(frames)[::4])  # subsampled
+                        frames=np.stack(frames)[::args.frame_every])
     (out / "meta.json").write_text(json.dumps({
         "instruction": args.instruction,
         "target_index": target_idx,

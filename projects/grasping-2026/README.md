@@ -46,8 +46,21 @@ display needed. The SAM checkpoint (M2) is mounted at runtime with `-v`,
 never baked into the image. Secrets go via `-e` (`NEBIUS_API_KEY`,
 `NEBIUS_VLM_MODEL`), never into the image.
 
-### Pinned working versions
+## Visualizer
 
+Episodes render to animated GIFs (Pillow-only, no extra deps):
+
+```bash
+python scripts/demo_vlm_grasp.py --instruction "grasp the red box" --seed 1 --frame-every 1
+python scripts/make_video.py episodes/<stamp>/ --out demo.gif --fps 10
+```
+
+Each GIF gets a caption bar with the instruction, target color, and whether
+the episode caged the object. `--frame-every 1` keeps full-rate frames for
+smooth video; the default `4` keeps episode files small. A live interactive
+viewer is out of scope — the container story is headless.
+
+### Pinned working versions
 Recorded 2026-10-22 from a green dependency resolution
 (`pip install ".[rl]"` dry-run; base image `python:3.11-slim`):
 
