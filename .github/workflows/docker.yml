@@ -1,0 +1,50 @@
+name: docker
+on:
+  push:
+    branches: [main]
+    paths:
+      - "projects/grasping-2026/Dockerfile"
+      - "projects/grasping-2026/.dockerignore"
+      - "projects/grasping-2026/pyproject.toml"
+      - "projects/grasping-2026/env/**"
+      - "projects/grasping-2026/perception/**"
+      - "projects/grasping-2026/planning/**"
+      - "projects/grasping-2026/scripts/**"
+      - "projects/grasping-2026/tests/**"
+      - ".github/workflows/docker.yml"
+  pull_request:
+    paths:
+      - "projects/grasping-2026/Dockerfile"
+      - "projects/grasping-2026/.dockerignore"
+      - "projects/grasping-2026/pyproject.toml"
+      - "projects/grasping-2026/env/**"
+      - "projects/grasping-2026/perception/**"
+      - "projects/grasping-2026/planning/**"
+      - "projects/grasping-2026/scripts/**"
+      - "projects/grasping-2026/tests/**"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: arii/BoomTick/.github/actions/setup-docker-buildx@main
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ghcr.io/arii/grasping-2026
+          tags: |
+            type=ref,event=branch
+            type=sha
+            type=raw,value=latest,enable={{is_default_branch}}
+      - uses: docker/build-push-action@v6
+        with:
+          context: projects/grasping-2026
+          push: ${{ github.event_name == 'push' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
