@@ -32,8 +32,20 @@ checkpoints stay loadable under the defaults):
   directly observable.
 - step_penalty: subtracted from the reward every step. The base
   reward pays 0.5/link/step with no time cost, so resting against
-  the box for 200 steps scores ~200 without grasping; a penalty
-  makes stalling cost.
+  the box for 200 steps scores ~200 without grasping. A penalty
+  only fixes the ranking if it exceeds the max per-step contact
+  reward (1.5 for 3 links): at 0.5, a 2-link camp still nets
+  (1.0-0.5)*200 = 100 vs ~2 for a 2-step force closure. Use
+  1.5-2.0 (2.0 gives margin); at 2.0 a camp nets -200 while a
+  2-step FC nets about -1, so FC wins and stalling is punished.
+- max_delta_q: cap on the per-step joint-target change (radians,
+  None = off). Random actions command full-range swings (up to
+  5.2 rad in one step), which is what spikes the MuJoCo solver
+  (QACC warnings). The cap limits the commanded target, not the
+  contact physics, so it preserves grasp mechanics. Default off:
+  a tight cap would also slow the 1-2 step pinches, so opt in
+  per run (1.0 is a reasonable value) and keep it identical
+  across train/eval/collect for a given policy.
 """
 import gymnasium as gym
 import numpy as np
@@ -45,13 +57,15 @@ class GraspGymWrapper(gym.Env):
     metadata = {"render_modes": ["rgb_array"]}
 
     def __init__(self, seed=None, target_index=0, max_steps=200,
-                 n_objects=4, contact_obs=False, step_penalty=0.0):
+                 n_objects=4, contact_obs=False, step_penalty=0.0,
+                 max_delta_q=None):
         super().__init__()
         self.env = WholeArmGraspEnv(n_objects=n_objects, seed=seed)
         self.target_index = target_index
         self.max_steps = max_steps
         self.contact_obs = contact_obs
         self.step_penalty = step_penalty
+        self.max_delta_q = max_delta_q
         self._steps = 0
         # Obs: q(3) + qvel(3) + target xy(2) + target half(2)
         #      + (n_objects-1) distractors x (dx, dy)
@@ -96,8 +110,12 @@ class GraspGymWrapper(gym.Env):
 
     def step(self, action):
         # Policy outputs [-1, 1]; scale to the joint limits.
-        _, reward, _, info = self.env.step(
-            np.asarray(action, dtype=np.float64) * 2.6)
+        target = np.asarray(action, dtype=np.float64) * 2.6
+        if self.max_delta_q is not None:
+            prev_q = self.env._obs()["qpos"].astype(np.float64)
+            target = np.clip(target, prev_q - self.max_delta_q,
+                             prev_q + self.max_delta_q)
+        _, reward, _, info = self.env.step(target)
         self._steps += 1
         terminated = bool(info["force_closure"])
         truncated = self._steps >= self.max_steps

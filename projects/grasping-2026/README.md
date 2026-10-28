@@ -235,7 +235,15 @@ docker compose run --build --rm --entrypoint python demo scripts/eval_policy.py 
   `--step-penalty` subtracts a per-step cost (the base reward pays
   for resting against the box); `--n-objects` sets clutter count
   (1 = single-target curriculum; base env's target_isolation returns
-  inf with no distractors instead of crashing on min() of empty).
+  inf with no distractors instead of crashing on min() of empty);
+  `--max-delta-q` caps the per-step joint-target change (see below).
+  Anti-camping recipe (verified — see below): train with
+  `--contact-obs --step-penalty 2.0 --max-delta-q 1.0`. The penalty
+  must exceed 1.5, the max per-step contact reward (3 links × 0.5):
+  at 0.5 a 2-link camp still nets (1.0−0.5)×200 = 100 vs ~2 for a
+  2-step force closure; at 2.0 the camp nets −200 and FC wins.
+  Eval/collect must repeat `--contact-obs` and `--max-delta-q`
+  (obs dim and dynamics must match training).
 - `scripts/eval_policy.py` reports force_closure rate, caged rate,
   mean reward, mean length — the same headline numbers as
   compare_planners.py.
@@ -261,9 +269,16 @@ sample a chunk, execute the first K, replan.
 
 ```bash
 docker compose run --build --rm --entrypoint python demo scripts/collect_ppo_demos.py --model models/grasp_ppo_500k --seeds 0-99 --keep fc --out data/demos_ppo_fc
-docker compose run --build --rm --entrypoint python demo scripts/train_diffusion.py --demos data/demos_ppo_fc --epochs 50 --chunk 8 --out models/diffusion
+docker compose run --build --rm --entrypoint python demo scripts/train_diffusion.py --demos data/demos_ppo_fc --epochs 50 --chunk 8 --lr 3e-4 --out models/diffusion
 docker compose run --build --rm --entrypoint python demo scripts/eval_diffusion.py --model models/diffusion --episodes 10 --seeds 0-9 --n-objects 4
 ```
+
+Training uses a floor of 50 optimizer steps per epoch
+(`--min-steps-per-epoch`): with 15 short demos the pair count is
+only ~135, so the old `pairs // batch` gave 2 steps/epoch and 50
+epochs = 100 gradient steps, which is why the loss sat at ~1.0.
+The floor makes 50 epochs = 2500 steps; `--epochs 500` is the
+option for a full run.
 
 - `scripts/diffusion_policy.py`: DiffusionMLP + DDIM sampling.
 - `scripts/collect_demos.py`: scripted demonstrators (cage/envelop),
@@ -277,8 +292,15 @@ docker compose run --build --rm --entrypoint python demo scripts/eval_diffusion.
   rollouts (16/100 seeds reach FC). FC episodes are 1–7 steps, so
   training uses FC-anchored windows (chunks ending at the FC step,
   repeated) plus hold-last padding ("reach this config and stay").
-- Eval wrapper flags (`--n-objects`, `--contact-obs`) must match the
-  demos' collection flags, or the obs dim won't fit the model.
+- Eval wrapper flags (`--n-objects`, `--contact-obs`,
+  `--max-delta-q`) must match the demos' collection flags, or the
+  obs dim won't fit the model and the dynamics won't match.
+- QACC solver warnings (Nan/Inf in QACC) come from random actions
+  commanding full-range joint swings in one step; they are benign
+  (training runs fine through them). `--max-delta-q 1.0` caps the
+  commanded change and quiets them without touching contact
+  physics (solimp/solref softening would change the grasp itself).
+  Default off: a tight cap would also slow the 1-2 step pinches.
 
 ## VLM call ledger (audit + cache)
 

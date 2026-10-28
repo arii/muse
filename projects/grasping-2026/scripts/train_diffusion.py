@@ -59,11 +59,21 @@ class ChunkDataset:
                 torch.from_numpy(a).float())
 
 
+def steps_per_epoch(n_pairs, batch, min_steps):
+    """Optimizer steps per epoch: at least min_steps, so a small demo
+    set isn't starved (e.g. 135 pairs // batch 64 = 2 steps/epoch
+    meant 50 epochs = 100 gradient steps and the loss never moved).
+    Sampling is with replacement (ChunkDataset.sample), so a floor
+    above n_pairs // batch just reuses pairs within the epoch."""
+    return max(min_steps, n_pairs // batch)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--demos", required=True)
     ap.add_argument("--epochs", type=int, default=50)
     ap.add_argument("--batch", type=int, default=64)
+    ap.add_argument("--min-steps-per-epoch", type=int, default=50)
     ap.add_argument("--chunk", type=int, default=16)
     ap.add_argument("--hidden", type=int, default=256)
     ap.add_argument("--lr", type=float, default=1e-4)
@@ -90,10 +100,12 @@ def main():
                          hidden=args.hidden)
     sched = DDPMScheduler(num_train_timesteps=100)
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr)
-    steps_per_epoch = max(1, len(ds.pairs) // args.batch)
+    steps = steps_per_epoch(len(ds.pairs), args.batch,
+                            args.min_steps_per_epoch)
+    print(f"[train] {len(ds.pairs)} pairs, {steps} steps/epoch")
     for ep in range(args.epochs):
         tot = 0.0
-        for _ in range(steps_per_epoch):
+        for _ in range(steps):
             o, a = ds.sample(args.batch)
             noise = torch.randn_like(a)
             t = torch.randint(0, 100, (args.batch,))
@@ -105,7 +117,7 @@ def main():
             opt.step()
             tot += loss.item()
         if ep % 10 == 0 or ep == args.epochs - 1:
-            print(f"[train] epoch {ep}: loss {tot / steps_per_epoch:.4f}")
+            print(f"[train] epoch {ep}: loss {tot / steps:.4f}")
 
     out = pathlib.Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)

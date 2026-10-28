@@ -87,7 +87,12 @@ def test_demo_end_to_end(tmp_path):
     )
     assert proc.returncode == 0, proc.stderr[-2000:]
     assert "episode saved to" in proc.stdout
-    epi = sorted((REPO / "episodes").glob("*"))[-1]
+    # Parse the episode dir from the demo's own output — globbing
+    # episodes/ is fragile (compare runs leave compare-*.html/dirs
+    # there that sort after the date-stamped episode dirs).
+    epi = next(REPO / line.rsplit("episode saved to ", 1)[1].strip()
+               for line in proc.stdout.splitlines()
+               if "episode saved to" in line)
     meta = json.loads((epi / "meta.json").read_text())
     assert meta["instruction"] == "grasp the red box"
     assert meta["target_color"] == "red"
@@ -598,3 +603,308 @@ def test_push_moves_object_along_theta():
     # primitive moves the box in the push direction (exact distance varies
     # with contact dynamics; singulate's revert logic handles the rest)
     assert moved[0] > 0.015, f"push did not move +x: {moved}"
+
+
+def test_gym_wrapper_spaces_and_api():
+    """Gymnasium wrapper: 5-tuple step, correct spaces, target=red."""
+    from env.gym_wrapper import GraspGymWrapper
+    env = GraspGymWrapper(seed=0, max_steps=50)
+    obs, info = env.reset(seed=0)
+    assert isinstance(info, dict)
+    assert obs.shape == (16,) and obs.dtype == np.float32
+    assert env.observation_space.contains(obs)
+    action = env.action_space.sample()
+    assert action.shape == (3,)
+    assert env.action_space.low.tolist() == [-1.0] * 3
+    assert env.action_space.high.tolist() == [1.0] * 3
+    obs2, reward, terminated, truncated, info2 = env.step(action)
+    assert obs2.shape == (16,)
+    assert isinstance(reward, float)
+    assert isinstance(terminated, bool) and isinstance(truncated, bool)
+    assert "force_closure" in info2 and "caged" in info2
+
+
+def test_gym_wrapper_truncates_on_max_steps():
+    """Truncation fires at max_steps without a force-closure success."""
+    from env.gym_wrapper import GraspGymWrapper
+    env = GraspGymWrapper(seed=0, max_steps=3)
+    env.reset(seed=0)
+    for i in range(3):
+        _, _, terminated, truncated, _ = env.step(np.zeros(3))
+        if i < 2:
+            assert not truncated
+        else:
+            assert truncated and not terminated
+
+
+def test_gym_wrapper_passes_sb3_check_env():
+    """SB3's env checker validates the wrapper (spaces, reset, step)."""
+    from stable_baselines3.common.env_checker import check_env
+    from env.gym_wrapper import GraspGymWrapper
+    check_env(GraspGymWrapper(seed=0, max_steps=10), warn=True)
+
+
+def test_gym_wrapper_contact_obs_and_penalty():
+    """contact_obs appends [links/3, enclosed]; step_penalty shifts
+    reward by exactly the penalty on identical trajectories."""
+    from env.gym_wrapper import GraspGymWrapper
+    env = GraspGymWrapper(seed=0, max_steps=10, contact_obs=True)
+    obs, _ = env.reset(seed=0)
+    assert obs.shape == (18,)
+    # No contact yet at reset: contact features are zeros.
+    assert obs[-2] == 0.0 and obs[-1] == 0.0
+    obs2, _, _, _, info = env.step(np.zeros(3))
+    assert obs2.shape == (18,)
+    assert obs2[-2] == info["links_touching"] / 3.0
+    assert obs2[-1] == (1.0 if info["enclosed"] else 0.0)
+
+    plain = GraspGymWrapper(seed=0, max_steps=10)
+    taxed = GraspGymWrapper(seed=0, max_steps=10, step_penalty=0.1)
+    plain.reset(seed=0)
+    taxed.reset(seed=0)
+    for _ in range(5):
+        _, r0, _, _, _ = plain.step(np.zeros(3))
+        _, r1, _, _, _ = taxed.step(np.zeros(3))
+        assert r1 == r0 - 0.1
+
+
+def test_gym_wrapper_single_object_obs():
+    """n_objects=1: no distractors, 10-dim obs (12 with contacts)."""
+    from env.gym_wrapper import GraspGymWrapper
+    env = GraspGymWrapper(seed=0, n_objects=1)
+    obs, _ = env.reset(seed=0)
+    assert obs.shape == (10,)
+    env2 = GraspGymWrapper(seed=0, n_objects=1, contact_obs=True)
+    obs2, _ = env2.reset(seed=0)
+    assert obs2.shape == (12,)
+
+
+def test_single_object_isolation_is_inf_not_crash():
+    """n_objects=1: target_isolation is inf (vacuously isolated),
+    and the wrapper steps without crashing."""
+    import math
+    env = WholeArmGraspEnv(n_objects=1, seed=0)
+    env.reset(seed=0)
+    env.target_index = 0
+    assert math.isinf(env.target_isolation())
+    env.step([0.0, 0.0, 0.0])  # must not raise
+    from env.gym_wrapper import GraspGymWrapper
+    w = GraspGymWrapper(seed=0, n_objects=1)
+    w.reset(seed=0)
+    _, _, _, _, info = w.step(np.zeros(3))
+    assert math.isinf(info["isolation"])
+
+
+def test_frame_info_aligns_with_frames():
+    """run_episode frame_info is 1:1 with frames (incl. singulate
+    reverts on crowded seed 7) and its last entry matches the metrics."""
+    from perception.grounding import HeuristicLabeller
+    from scripts.demo_vlm_grasp import run_episode
+    env = WholeArmGraspEnv(seed=7)
+    env.reset(seed=7)
+    plan = HeuristicLabeller().plan(env.render(), env.objects,
+                                    "grasp the red box in isolation")
+    metrics, frames, _ = run_episode(
+        env, plan, "grasp the red box in isolation", verbose=False)
+    fi = metrics["frame_info"]
+    assert len(fi) == len(frames), f"{len(fi)} status vs {len(frames)} frames"
+    for s in fi:
+        assert set(s) == {"links", "enclosed", "caged", "fc"}
+        assert 0 <= s["links"] <= 3
+    last = fi[-1]
+    assert last["links"] == metrics["links_touching"]
+    assert last["enclosed"] == metrics["enclosed"]
+    assert last["caged"] == metrics["caged"]
+    assert last["fc"] == metrics["force_closure"]
+
+
+def test_overlay_status_and_gifs_with_info(tmp_path):
+    """Status bar draws on frames without changing size; GIF builders
+    accept per-frame info (single + side-by-side)."""
+    from scripts.make_video import (make_gif, make_side_by_side_gif,
+                                    overlay_status, status_text)
+    frame = np.zeros((40, 60, 3), dtype=np.uint8)
+    frame[:, :] = (200, 200, 200)
+    status = {"links": 2, "enclosed": True, "caged": True, "fc": False}
+    assert status_text(status) == "links:2 enc:Y cage:Y FC:N"
+    over = overlay_status(Image.fromarray(frame), status)
+    assert over.size == (60, 40)
+    assert np.asarray(over).tobytes() != frame.tobytes()
+    frames = [frame] * 5
+    infos = [{"links": i % 3, "enclosed": False, "caged": False,
+              "fc": False} for i in range(5)]
+    out = make_gif(frames, {"instruction": "x", "target_color": "red"},
+                   tmp_path / "single.gif", fps=15, scale=1.0,
+                   frame_info=infos)
+    assert out.exists()
+    sbs = make_side_by_side_gif(
+        frames, frames, "vlm", "heuristic", "cap1", "cap2",
+        tmp_path / "sbs.gif", fps=15, scale=1.0,
+        left_info=infos, right_info=infos)
+    assert sbs.exists()
+    # Same geometry as the no-info composite: 60+4+60 wide, 28+40+28 high.
+    assert Image.open(sbs).size == (124, 96)
+
+
+def test_write_html_report(tmp_path):
+    """HTML report: aggregates, per-seed plans (escaped), GIF links."""
+    from scripts.compare_planners import write_html_report
+    rows = [
+        {"seed": 0, "planner": "vlm", "planner_error": None,
+         "force_closure": False, "caged": False, "preconditions_met": True,
+         "total_reward": 1.5, "isolation_before": 0.1,
+         "isolation_after": 0.1, "target_index": 0, "target_color": "red",
+         "push_away": [], "rationale": "already <isolated> & clear",
+         "api_call": True, "tokens": 1153},
+        {"seed": 0, "planner": "heuristic", "planner_error": None,
+         "force_closure": False, "caged": False, "preconditions_met": True,
+         "total_reward": 1.5, "isolation_before": 0.1,
+         "isolation_after": 0.1, "target_index": 0, "target_color": "red",
+         "push_away": [], "rationale": "scripted", "api_call": False,
+         "tokens": 0},
+    ]
+    gif_dir = tmp_path / "compare-0"
+    gif_dir.mkdir()
+    (gif_dir / "side_by_side.gif").write_bytes(b"GIF")
+    gif_map = {0: {"vlm": str(gif_dir / "vlm.gif"),
+                    "heuristic": str(gif_dir / "heuristic.gif"),
+                    "side_by_side": str(gif_dir / "side_by_side.gif")}}
+    out = write_html_report(rows, gif_map, tmp_path / "report.html",
+                            "grasp the red box in isolation",
+                            ["vlm", "heuristic"])
+    html = out.read_text()
+    assert "vlm" in html and "heuristic" in html
+    assert "seed 0" in html
+    assert "already &lt;isolated&gt; &amp; clear" in html
+    assert "compare-0/side_by_side.gif" in html
+    assert "0.00" in html  # FC rate 0/1
+
+
+def test_diffusion_denoiser_and_sampling_shapes():
+    """MLP denoiser: noise prediction matches chunk shape; DDIM
+    sampling returns a chunk in [-1, 1]."""
+    import torch
+    from diffusers import DDIMScheduler
+    from scripts.diffusion_policy import (DiffusionMLP, sample_chunk)
+    torch.manual_seed(0)
+    model = DiffusionMLP(obs_dim=16, chunk=16, hidden=64, depth=2)
+    noisy = torch.randn(4, 16, 3)
+    obs = torch.randn(4, 16)
+    t = torch.randint(0, 100, (4,))
+    pred = model(noisy, obs, t)
+    assert pred.shape == (4, 16, 3)
+    sched = DDIMScheduler(num_train_timesteps=100)
+    chunk = sample_chunk(model, sched, torch.randn(16), 16,
+                         num_steps=5)
+    assert chunk.shape == (16, 3)
+    assert chunk.min() >= -1.0 and chunk.max() <= 1.0
+
+
+def test_chunk_dataset_sampling():
+    """ChunkDataset samples (obs, chunk) pairs within true lengths."""
+    import numpy as np
+    from scripts.train_diffusion import ChunkDataset
+    obs = np.random.randn(3, 20, 16).astype(np.float32)
+    act = np.random.randn(3, 20, 3).astype(np.float32)
+    ds = ChunkDataset(obs, act, np.array([20, 10, 5]), chunk=4)
+    o, a = ds.sample(8)
+    assert o.shape == (8, 16) and a.shape == (8, 4, 3)
+
+
+def test_collect_scripted_demos_smoke(tmp_path):
+    """Scripted collection writes padded demos + metadata (keep=all,
+    envelop, 2 seeds — pipeline check, not a quality claim)."""
+    from scripts.collect_demos import collect_one
+    import json
+    obs, act, info = collect_one(0, "envelop", 1, False)
+    assert obs.shape[1] == 10  # n_objects=1 -> 10-dim obs
+    assert act.shape == (len(obs), 3)
+    assert np.all(act >= -1.0) and np.all(act <= 1.0)
+    assert set(info) >= {"force_closure", "caged"}
+
+
+def test_collect_ppo_demo_fc_seed9(tmp_path):
+    """PPO collection keeps the known FC episode (seed 9) with keep=fc."""
+    import subprocess
+    out = tmp_path / "ppo_demo"
+    proc = subprocess.run(
+        [sys.executable, "scripts/collect_ppo_demos.py",
+         "--model", "models/grasp_ppo_500k", "--seeds", "9",
+         "--keep", "fc", "--out", str(out)],
+        cwd=REPO, capture_output=True, text=True, timeout=300,
+        env={**os.environ, "MUJOCO_GL": "osmesa",
+             "PYTHONDONTWRITEBYTECODE": "1"})
+    assert proc.returncode == 0, proc.stderr[-2000:]
+    assert "kept 1/1" in proc.stdout
+    data = np.load(out.with_suffix(".npz"))
+    assert data["lengths"][0] == 2  # seed 9 passes in 2 steps
+    assert data["obs"].shape[2] == 16
+
+
+def test_chunk_dataset_fc_anchored_pairs():
+    """FC-anchored windows end at the FC step and repeat."""
+    import numpy as np
+    from scripts.train_diffusion import ChunkDataset
+    obs = np.random.randn(2, 10, 16).astype(np.float32)
+    act = np.random.randn(2, 10, 3).astype(np.float32)
+    ds = ChunkDataset(obs, act, np.array([10, 10]), chunk=4,
+                      fc_steps=np.array([5, -1]), anchor_repeat=4)
+    anchored = [p for p in ds.pairs if p == (0, 2)]
+    # (0, 2) is both a sliding window and the FC-anchored window
+    # ([2..5] ends at FC step 5), so it appears 1 + anchor_repeat times.
+    assert len(anchored) == 5
+    assert (1, 0) in ds.pairs  # sliding windows still present
+
+
+def test_diffusion_steps_per_epoch_floor():
+    """Small demo sets get a floor on steps/epoch, not 2."""
+    from scripts.train_diffusion import steps_per_epoch
+    assert steps_per_epoch(135, 64, 50) == 50  # the S5 case: was 2
+    assert steps_per_epoch(1000, 64, 50) == 50  # floor still binds
+    assert steps_per_epoch(5000, 64, 50) == 78  # floor stops binding
+    assert steps_per_epoch(6, 64, 50) == 50
+
+
+def test_diffusion_train_small_data_uses_floor(tmp_path):
+    """End-to-end wiring: a 6-pair dataset trains 50 steps/epoch."""
+    import subprocess
+    demos = tmp_path / "tiny"
+    obs = np.random.randn(2, 6, 16).astype(np.float32)
+    act = np.random.randn(2, 6, 3).astype(np.float32)
+    np.savez(demos.with_suffix(".npz"), obs=obs, actions=act,
+             lengths=np.array([6, 6]))
+    proc = subprocess.run(
+        [sys.executable, "scripts/train_diffusion.py",
+         "--demos", str(demos), "--epochs", "1", "--chunk", "4",
+         "--out", str(tmp_path / "tiny_model")],
+        cwd=REPO, capture_output=True, text=True, timeout=300,
+        env={**os.environ, "MUJOCO_GL": "osmesa",
+             "PYTHONDONTWRITEBYTECODE": "1"})
+    assert proc.returncode == 0, proc.stderr[-2000:]
+    assert "6 pairs, 50 steps/epoch" in proc.stdout
+    assert (tmp_path / "tiny_model.pt").exists()
+
+
+def test_wrapper_max_delta_q_caps_target():
+    """A tight cap limits the joint target the wrapper sends."""
+    from env.gym_wrapper import GraspGymWrapper
+    w = GraspGymWrapper(seed=0, max_delta_q=0.5)
+    w.reset(seed=0)
+    prev_q = w.env._obs()["qpos"].astype(np.float64)
+    seen = {}
+
+    def fake_step(target):
+        seen["target"] = np.asarray(target, dtype=np.float64)
+        return None, 0.0, False, {"force_closure": False,
+                                  "links_touching": 0, "enclosed": False}
+
+    w.env.step = fake_step
+    w.step(np.array([1.0, 1.0, 1.0]))
+    assert np.all(seen["target"] <= prev_q + 0.5 + 1e-9)
+    assert np.all(seen["target"] >= prev_q - 0.5 - 1e-9)
+    # Without a cap the full scaled target passes through.
+    w2 = GraspGymWrapper(seed=0)
+    w2.reset(seed=0)
+    w2.env.step = fake_step
+    w2.step(np.array([1.0, 1.0, 1.0]))
+    assert np.allclose(seen["target"], 2.6)
