@@ -137,7 +137,17 @@ def main():
     frames = [env.render()]
 
     labeller = make_labeller()
-    plan = labeller.plan(frames[0], env.objects, args.instruction)
+    try:
+        plan = labeller.plan(frames[0], env.objects, args.instruction)
+    except Exception as e:
+        # VLM failed (bad model id, null content, API error, ...) — print
+        # the full diagnostic so the failure is debuggable, then fall back
+        # to the offline heuristic so the demo still runs.
+        print(f"[demo] VLM plan failed — diagnostic:\n{e}")
+        print("[demo] falling back to heuristic")
+        from perception.grounding import HeuristicLabeller
+        plan = HeuristicLabeller().plan(frames[0], env.objects,
+                                        args.instruction)
     target_idx = plan["grasp_target"]
     env.target_index = target_idx
     print(f"[demo] instruction: {args.instruction!r}")

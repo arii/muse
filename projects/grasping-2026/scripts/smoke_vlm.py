@@ -45,7 +45,15 @@ def main():
         env = WholeArmGraspEnv(seed=seed)
         env.reset(seed=seed)
         rgb = env.render()
-        idx, rationale = labeller.label(rgb, env.objects, instruction)
+        try:
+            idx, rationale = labeller.label(rgb, env.objects, instruction)
+        except Exception as e:
+            failed += 1
+            print(f"[FAIL] seed={seed} instruction={instruction!r} — "
+                  f"VLM error:\n{e}")
+            print(f"  last_response: "
+                  f"{__import__('json').dumps(labeller.last_response)[:1500]}")
+            continue
         got = env.objects[idx]["color"]
         ok = got == want
         passed, failed = passed + ok, failed + (not ok)

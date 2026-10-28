@@ -189,6 +189,60 @@ def test_nebius_labeller_rejects_non_json(monkeypatch):
         lab.label(env.render(), env.objects, "grasp the red box")
 
 
+def test_nebius_labeller_null_content_diagnostic(monkeypatch):
+    """content=None raises a diagnostic (not AttributeError), and
+    reasoning_content is used as a fallback."""
+    from perception.grounding import NebiusVLMLabeller
+    monkeypatch.setenv("NEBIUS_VLM_MODEL", "nvidia/Nemotron-3.5-Super-VL")
+    monkeypatch.setenv("NEBIUS_API_KEY", "test-key")
+
+    class FakeRespNull:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"choices": [{"message": {"content": None,
+                                             "role": "assistant"}}]}
+
+    class FakeRequestsNull:
+        def post(self, url, headers=None, json=None, timeout=None):
+            return FakeRespNull()
+
+    env = WholeArmGraspEnv(seed=0)
+    env.reset(seed=0)
+    lab = NebiusVLMLabeller()
+    lab._requests = FakeRequestsNull()
+    with pytest.raises(ValueError) as exc:
+        lab.plan(env.render(), env.objects, "grasp the red box")
+    # diagnostic names the model and the likely cause, not just "None"
+    assert "nvidia/Nemotron-3.5-Super-VL" in str(exc.value)
+    assert "vision" in str(exc.value).lower()
+
+    # reasoning_content fallback works
+    class FakeRespReasoning:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"choices": [{"message": {
+                "content": None,
+                "reasoning_content": '{"grasp_target": 0, "push_away": []}',
+                "role": "assistant"}}]}
+
+    class FakeRequestsReasoning:
+        def post(self, url, headers=None, json=None, timeout=None):
+            return FakeRespReasoning()
+
+    lab2 = NebiusVLMLabeller()
+    lab2._requests = FakeRequestsReasoning()
+    plan = lab2.plan(env.render(), env.objects, "grasp the red box")
+    assert plan["grasp_target"] == 0
+
+
 def test_singulation_improves_isolation():
     """scripted_singulate pushes a crowding object away (seed 7)."""
     from scripts.demo_vlm_grasp import scripted_singulate

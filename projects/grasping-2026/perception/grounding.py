@@ -50,7 +50,9 @@ class NebiusVLMLabeller:
     def __init__(self, model=None, api_key=None, base_url=None):
         import requests  # deferred so offline use never needs it
         self._requests = requests
-        self.last_raw = None  # raw model reply from the last label() call
+        self.last_raw = None  # raw model reply text from the last plan() call
+        self.last_response = None  # full API response JSON (for debugging)
+        self.last_status = None  # HTTP status of the last API call
         self.model = model or os.environ.get("NEBIUS_VLM_MODEL", "")
         if not self.model:
             raise ValueError(
@@ -60,6 +62,47 @@ class NebiusVLMLabeller:
         self.base_url = (base_url or os.environ.get(
             "NEBIUS_BASE_URL", "https://api.tokenfactory.nebius.com/v1")
         ).rstrip("/")
+
+    def _diagnose_null_content(self, msg, data):
+        """Build a diagnostic block explaining why content is None.
+
+        Categorizes the failure so the user can fix it without guessing:
+        reasoning model, tool calls, non-vision model, empty response, etc.
+        """
+        lines = [
+            f"VLM returned no text content.",
+            f"  model: {self.model}",
+            f"  endpoint: {self.base_url}/chat/completions",
+            f"  HTTP status: {self.last_status}",
+            f"  message keys: {sorted(msg.keys())}",
+        ]
+        if msg.get("reasoning_content"):
+            lines.append(
+                "  -> reasoning model: output is in reasoning_content, "
+                "not content. (This labeller now reads reasoning_content "
+                "as a fallback — if you see this, that fallback also "
+                "returned empty.)")
+        if msg.get("tool_calls"):
+            lines.append(
+                f"  -> model returned tool_calls instead of text: "
+                f"{json.dumps(msg['tool_calls'])[:300]}. The model wants "
+                "to call a tool; this prompt expects a plain JSON reply.")
+        if msg.get("refusal"):
+            lines.append(f"  -> model refused: {msg['refusal'][:300]}")
+        if not msg.get("content") and not msg.get("reasoning_content"):
+            lines.append(
+                "  -> content AND reasoning_content are both null. Likely "
+                "causes: (a) NEBIUS_VLM_MODEL is not a vision model, or "
+                "doesn't support image_url in chat completions; (b) the "
+                "model id is wrong/retired; (c) the provider returned an "
+                "empty completion. Verify the model id with "
+                "GET /v1/models and check it lists vision support.")
+        lines.append(f"  full message: {json.dumps(msg)[:1000]}")
+        # usage hints (rate limits, token counts) if present
+        usage = data.get("usage")
+        if usage:
+            lines.append(f"  usage: {json.dumps(usage)}")
+        return "\n".join(lines)
 
     def plan(self, rgb, objects, instruction):
         """Instruction -> {"grasp_target": idx, "push_away": [idxs], "rationale": str}."""
@@ -78,9 +121,17 @@ class NebiusVLMLabeller:
                 {"role": "user", "content": content}],
                 "max_tokens": 200, "temperature": 0},
             timeout=60)
+        self.last_status = r.status_code
         r.raise_for_status()
-        text = r.json()["choices"][0]["message"]["content"]
+        data = r.json()
+        self.last_response = data
+        msg = data["choices"][0]["message"]
+        # Some models return content=None (reasoning models put output in
+        # reasoning_content; non-vision models may null it entirely).
+        text = msg.get("content") or msg.get("reasoning_content")
         self.last_raw = text
+        if text is None:
+            raise ValueError(self._diagnose_null_content(msg, data))
         # be liberal: find the first {...} in the reply
         start, end = text.index("{"), text.rindex("}") + 1
         out = json.loads(text[start:end])
