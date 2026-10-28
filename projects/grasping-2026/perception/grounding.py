@@ -249,13 +249,15 @@ class NebiusVLMLabeller:
         plan if found — no API call, no cost. Every invocation (API call
         or cache hit) is appended to the ledger.
         """
-        from perception.ledger import image_hash, make_key
+        from perception.ledger import image_hash, make_key, \
+            is_canonical_plan
         import datetime
         desc = ", ".join(
             f"index {o['index']}: {o['color']} box" for o in objects)
         prompt = PROMPT.format(objects=desc, instruction=instruction)
         img_hash = image_hash(rgb)
-        key = make_key(self.model, instruction, objects, img_hash)
+        key = make_key(self.model, instruction, objects, img_hash,
+                       prompt=prompt)
         base_entry = {
             "timestamp": datetime.datetime.now(
                 datetime.timezone.utc).isoformat(),
@@ -267,16 +269,24 @@ class NebiusVLMLabeller:
             "prompt": prompt,
             "cache_key": key,
         }
-        # Cache hit: same scene + instruction seen before — reuse, no API.
+        # Cache hit: same scene + instruction + prompt + schema seen
+        # before — reuse, no API. A stored plan in legacy shape
+        # (bare push_away ints, no approach_side) is NOT a hit: it
+        # would default to clear/near and is exactly how the
+        # 2026-10-28 rerun got 0 API calls and identical VLM/heuristic
+        # trajectories. Fall through to a fresh API call instead.
         if self.ledger is not None and self.ledger.enabled:
             cached = self.ledger.lookup(key)
-            if cached is not None:
+            if cached is not None and is_canonical_plan(cached):
                 print(f"[vlm] ledger cache hit ({key}) — no API call")
                 self.last_cache_hit = True
                 self.ledger.record({**base_entry, "response": None,
                                     "plan": cached, "usage": None,
                                     "cache_hit": True})
                 return cached
+            if cached is not None:
+                print(f"[vlm] ledger entry ({key}) is legacy-shaped — "
+                      "ignoring cache, calling API")
         self.last_cache_hit = False
         content = [
             {"type": "text", "text": prompt},

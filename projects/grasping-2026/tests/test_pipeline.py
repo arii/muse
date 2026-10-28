@@ -544,9 +544,9 @@ def test_cage_requires_enclosure_not_just_contact():
     env.reset(seed=0)
     env.target_index = 0
     env.data.qpos[env._arm_qpos] = [0, 0, 0]  # straight along +x
-    adr = env._obj_qposadr[0]
-    env.data.qpos[adr:adr + 3] = [0.30, 0.05, 0.06]
-    mujoco.mj_forward(env.model, env.data)
+    # Planar joints: place via spawn-relative slides, not raw qpos
+    # (qpos is now [slide_x, slide_y, yaw], not [x, y, z, quat]).
+    env.set_object_pose(0, [0.30, 0.05], yaw=0.0)
     _, info = env._reward()
     assert info["links_touching"] == 2, \
         f"test setup broken: expected 2 links touching, got {info}"
@@ -610,11 +610,28 @@ def test_ik_reaches_targets():
 
 
 def test_push_moves_object_along_theta():
-    """push() displaces the object in the push direction."""
+    """push() displaces the object in the push direction.
+
+    Geometry matters (2026-10-28): the old seed-7 target sits at
+    distance 0.448 from the base, so a tip push from its west face
+    needs a wrist at distance 0.706 — outside the 0.55 m reach of
+    the first two links. A tip push there is geometrically
+    impossible without link3 crossing the box, and the old test
+    only passed because the freejoint box tipped/rolled east.
+    This test uses a feasible geometry instead: target at
+    (0.45, 0), others moved away, oriented link3 (see
+    ik_tip_oriented) — push +x must move the box +x. Exact
+    distance varies with contact dynamics and approach sweep;
+    singulate's revert logic handles the rest.
+    """
     import numpy as np
     from planning.primitives import push
     env = WholeArmGraspEnv(seed=7)
     env.reset(seed=7)
+    for idx, xy in [(1, [-0.5, -0.5]), (2, [0.5, 0.5]),
+                    (3, [-0.5, 0.5])]:
+        env.set_object_pose(idx, xy)
+    env.set_object_pose(0, [0.45, 0.0])
     p0 = env._obs()["objects"][0][:2].copy()
     sx = env.objects[0]["half"][0]
     theta = 0.0  # +x
@@ -623,8 +640,6 @@ def test_push_moves_object_along_theta():
     start = p0 - direction * (sx + 0.025 + 0.015)
     push(env, start, theta, 0.15, frames=[])
     moved = env._obs()["objects"][0][:2] - p0
-    # primitive moves the box in the push direction (exact distance varies
-    # with contact dynamics; singulate's revert logic handles the rest)
     assert moved[0] > 0.015, f"push did not move +x: {moved}"
 
 
@@ -847,7 +862,15 @@ def test_collect_scripted_demos_smoke(tmp_path):
 
 
 def test_collect_ppo_demo_fc_seed9(tmp_path):
-    """PPO collection keeps the known FC episode (seed 9) with keep=fc."""
+    """PPO seed 9 under PLANAR physics: no force closure.
+
+    The old test locked in seed 9 passing in 2 steps — but that
+    pass was a 3D tipping jam (freejoint box wedged on a link),
+    not a planar grasp. Under slide/yaw joints the same 500k
+    model runs 200 steps with no FC. This test locks the honest
+    result until PPO is retrained on the planar env; do not
+    "fix" it by restoring freejoint boxes.
+    """
     import subprocess
     out = tmp_path / "ppo_demo"
     proc = subprocess.run(
@@ -858,10 +881,8 @@ def test_collect_ppo_demo_fc_seed9(tmp_path):
         env={**os.environ, "MUJOCO_GL": "osmesa",
              "PYTHONDONTWRITEBYTECODE": "1"})
     assert proc.returncode == 0, proc.stderr[-2000:]
-    assert "kept 1/1" in proc.stdout
-    data = np.load(out.with_suffix(".npz"))
-    assert data["lengths"][0] == 2  # seed 9 passes in 2 steps
-    assert data["obs"].shape[2] == 16
+    assert "seed 9: FC=False" in proc.stdout
+    assert "kept 0/1" in proc.stdout
 
 
 def test_chunk_dataset_fc_anchored_pairs():
@@ -1035,3 +1056,70 @@ def test_normalize_plan_legacy_and_invalid():
         normalize_plan({"grasp_target": 0, "push_away": [],
                         "approach_side": "diagonal",
                         "rationale": "x"}, valid)
+
+
+def test_empty_push_away_means_no_pushes():
+    """Regression (2026-10-28 rerun): run_episode with push_away=[]
+    must push nothing, even on a crowded seed where the old
+    []->None conversion auto-pushed crowding objects (seed 7:
+    auto pushed to isolation 0.197; with [] it must stay 0.106)."""
+    from scripts.demo_vlm_grasp import run_episode
+    env = WholeArmGraspEnv(seed=7)
+    env.reset(seed=7)
+    plan = {"grasp_target": 0, "push_away": [],
+            "approach_side": "near", "rationale": "no preconditions"}
+    m, _, _ = run_episode(env, plan, "grasp the red box in isolation",
+                          verbose=False)
+    assert m["pushes"] == []
+    assert m["isolation_before"] == m["isolation_after"]
+
+
+def test_ledger_key_changes_with_prompt_and_rejects_legacy_plan():
+    """Regression (2026-10-28 rerun): cache key covers prompt +
+    schema version, and a legacy-shaped stored plan is not served."""
+    from perception.ledger import make_key, is_canonical_plan
+    objs = [{"index": 0, "color": "red"}, {"index": 1, "color": "blue"}]
+    k1 = make_key("m", "grasp the red box", objs, "imghash",
+                  prompt="prompt A")
+    k2 = make_key("m", "grasp the red box", objs, "imghash",
+                  prompt="prompt B")
+    assert k1 != k2
+    assert make_key("m", "grasp the red box", objs, "imghash",
+                    prompt="prompt A") == k1
+    # Legacy S5 entry shape: bare ints, no approach_side.
+    assert not is_canonical_plan({"grasp_target": 0, "push_away": [2],
+                                  "rationale": "old"})
+    assert is_canonical_plan({"grasp_target": 0,
+                              "push_away": [{"index": 2,
+                                             "effort": "clear"}],
+                              "approach_side": "near",
+                              "rationale": "new"})
+
+
+def test_boxes_stay_planar_under_hard_push():
+    """Regression for 'physics look off': boxes are slide/yaw only,
+    so a hard swing cannot tip them, lift them, or change their z.
+    Drives the arm through the seed-33 scene with uncapped joint
+    targets (the PPO-style jump that previously launched boxes)."""
+    import mujoco
+    env = WholeArmGraspEnv(seed=33)
+    env.reset(seed=33)
+    env.target_index = 0
+    for q in ([2.6, -2.6, 2.6], [-2.6, 2.6, -2.6], [0, 0, 0]):
+        for _ in range(20):
+            env.step(np.array(q, dtype=float))
+    for o in env.objects:
+        pose = env._obs()["objects"][o["index"]]
+        # z fixed at the box half-height, quaternion pure yaw
+        assert pose[2] == pytest.approx(0.06)
+        assert pose[4] == pytest.approx(0.0, abs=1e-9)
+        assert pose[5] == pytest.approx(0.0, abs=1e-9)
+        # still on the table, not launched to metres away
+        assert abs(pose[0]) < 1.5 and abs(pose[1]) < 1.5
+    # and the direct MuJoCo body orientation agrees: no x/y quat
+    for o in env.objects:
+        xquat = env.data.xquat[env._obj_body_id[o["index"]]]
+        assert xquat[1] == pytest.approx(0.0, abs=1e-9)
+        assert xquat[2] == pytest.approx(0.0, abs=1e-9)
+        assert env.data.xpos[env._obj_body_id[o["index"]]][2] == \
+            pytest.approx(0.06)

@@ -121,6 +121,46 @@ def approach_face(target_xy, side="near"):
     return float((face + np.pi) % (2 * np.pi) - np.pi)
 
 
+def ik_tip_oriented(target_xy, link_angle):
+    """Tip IK with the last link at a fixed absolute angle.
+
+    Why this exists (2026-10-28): plain tip IK (ik_dls, seeded from
+    the current pose) picks whatever branch is nearest, and for a
+    push that branch usually puts link3 *across* the object: the
+    wrist sits east/north of the tip, so the link3 segment overlaps
+    the box, and the solver spins the box south/west instead of
+    pushing it along theta (seed 7 push: box moved -0.10 m in y,
+    not +x). A push needs link3 *behind* the tip, pointing along
+    theta: wrist = tip - 0.20 * (cos theta, sin theta), then a
+    2-link IK for the wrist. Returns None when that wrist is
+    unreachable (distance outside [0.05, 0.55] or a joint limit) —
+    a tip push from that start is geometrically impossible, and
+    the caller must fall back (or the singulate revert must catch
+    it), not silently push with a crossing link.
+    """
+    l0, l1, l2 = LINK_LENGTHS
+    target = np.asarray(target_xy, dtype=float)
+    wrist = target - l2 * np.array([np.cos(link_angle),
+                                    np.sin(link_angle)])
+    d = float(np.linalg.norm(wrist))
+    if d > l0 + l1 or d < abs(l0 - l1):
+        return None
+    cos_q1 = (d * d - l0 * l0 - l1 * l1) / (2 * l0 * l1)
+    if abs(cos_q1) > 1.0:
+        return None
+    for sign in (+1, -1):
+        q1 = sign * float(np.arccos(np.clip(cos_q1, -1, 1)))
+        q0 = float(np.arctan2(wrist[1], wrist[0]) - np.arctan2(
+            l1 * np.sin(q1), l0 + l1 * np.cos(q1)))
+        q2 = float(link_angle - (q0 + q1))
+        # Wrap q2 to [-pi, pi] for the limit check.
+        q2 = (q2 + np.pi) % (2 * np.pi) - np.pi
+        q = np.array([q0, q1, q2])
+        if np.all(np.abs(q) <= JOINT_LIMIT):
+            return q
+    return None
+
+
 def move_tip(env, target_xy, frames, n_interp=25, settle=8,
              frame_info=None):
     """Move the tip to target_xy via IK + joint interpolation, then
@@ -151,14 +191,39 @@ def push(env, start_xy, theta, dist, frames, n_waypoints=12, settle=3,
 
     start_xy should be at the object's near edge (not its center) so the
     tip makes contact instead of interpenetrating.
+
+    The tip path is solved with link3 held at angle theta (see
+    ik_tip_oriented): link3 behind the tip, pointing along the push,
+    so contact is tip-on-face, not link3-across-the-box. When that
+    wrist is unreachable the code falls back to plain ik_dls — the
+    old crossing behaviour — and singulate's revert logic is the
+    guardrail for those pushes.
     """
-    move_tip(env, start_xy, frames, frame_info=frame_info)
     direction = np.array([np.cos(theta), np.sin(theta)])
     start = np.asarray(start_xy, dtype=float)
-    q = _qpos(env)
+    q_oriented = ik_tip_oriented(start, theta)
+    if q_oriented is not None:
+        # Approach to the oriented start pose (joint interpolation,
+        # like move_tip, but to the oriented q, not the DLS q).
+        q_cur = _qpos(env)
+        for a in np.linspace(0.0, 1.0, 25):
+            _, _, _, info = env.step((1 - a) * q_cur + a * q_oriented)
+            frames.append(env.render())
+            if frame_info is not None:
+                frame_info.append(frame_status(info))
+        for _ in range(8):
+            _, _, _, info = env.step(q_oriented)
+            frames.append(env.render())
+            if frame_info is not None:
+                frame_info.append(frame_status(info))
+        q = q_oriented
+    else:
+        move_tip(env, start_xy, frames, frame_info=frame_info)
+        q = _qpos(env)
     for i in range(1, n_waypoints + 1):
         wp = start + direction * (dist * i / n_waypoints)
-        q = ik_dls(wp, q)
+        q_wp = ik_tip_oriented(wp, theta)
+        q = q_wp if q_wp is not None else ik_dls(wp, q)
         for _ in range(settle):
             _, _, _, info = env.step(q)
             frames.append(env.render())

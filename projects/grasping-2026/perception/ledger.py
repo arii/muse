@@ -19,10 +19,12 @@ Format: JSONL, one object per line, append-only. Each entry:
     cache_hit      True if this entry reused a cached plan (no API call)
     cache_key      deterministic key for the (model, instruction, scene)
 
-Cache key: model + instruction + objects + image hash. Same key means
-the VLM saw the same scene and instruction, so the cached plan applies.
-A cache hit still appends an entry (cache_hit=True) so the ledger shows
-every plan() invocation, API call or not.
+Cache key: version + model + instruction + objects + image hash +
+prompt hash. Same key means the VLM saw the same scene, instruction,
+prompt and plan schema, so the cached plan applies. A cache hit still
+appends an entry (cache_hit=True) so the ledger shows every plan()
+invocation, API call or not. Legacy-shaped stored plans are never
+served (see is_canonical_plan), even if their key matches.
 
 Location: episodes/vlm_ledger.jsonl by default (inside the episodes
 volume, so it persists across container runs). Override with
@@ -42,11 +44,51 @@ def image_hash(rgb):
     return hashlib.sha256(np.asarray(rgb).tobytes()).hexdigest()
 
 
-def make_key(model, instruction, objects, img_hash):
-    """Deterministic cache key for one VLM call."""
+# Cache version: bump this whenever the plan schema, the prompt, or
+# the meaning of a cached plan changes. Old keys must NOT be reused —
+# a pre-v2 ledger entry (bare-integer push_away, no approach_side)
+# would otherwise be served as if it were a v2 plan, defaulting to
+# effort="clear" / approach_side="near" and making VLM and heuristic
+# runs identical (2026-10-28 compare rerun: 0 API calls, all cache
+# hits). The prompt hash covers prompt drift within a version.
+CACHE_VERSION = "grasp-plan-v2"
+
+
+def make_key(model, instruction, objects, img_hash, prompt=None):
+    """Deterministic cache key for one VLM call.
+
+    Includes the cache version and, when given, the full prompt text:
+    the same scene/instruction under a different prompt or schema is
+    a different call, not a cache hit.
+    """
     obj_str = ",".join(f"{o['index']}:{o['color']}" for o in objects)
-    raw = f"{model}|{instruction}|{obj_str}|{img_hash}"
+    prompt_hash = hashlib.sha256(prompt.encode()).hexdigest()[:16] \
+        if prompt else "no-prompt"
+    raw = (f"{CACHE_VERSION}|{model}|{instruction}|{obj_str}|"
+           f"{img_hash}|{prompt_hash}")
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+
+def is_canonical_plan(plan):
+    """True if a stored plan already has the v2 shape.
+
+    Legacy entries (push_away as bare ints, or no approach_side) are
+    NOT canonical: serving them would silently default effort/side.
+    They are rejected by the labeller even if their key matches.
+    """
+    if not isinstance(plan, dict):
+        return False
+    if "grasp_target" not in plan or "approach_side" not in plan:
+        return False
+    pushes = plan.get("push_away", [])
+    if not isinstance(pushes, list):
+        return False
+    for item in pushes:
+        if not isinstance(item, dict):
+            return False
+        if "index" not in item or "effort" not in item:
+            return False
+    return True
 
 
 class VLMCallLedger:

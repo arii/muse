@@ -192,9 +192,11 @@ def run_episode(env, plan, instruction, frames=None, verbose=True):
     (metrics dict, frames list, cage info).
     Metrics are the comparison surface: force_closure is the goal
     criterion; caged/enclosed/isolation/reward are diagnostics.
-    The plan DRIVES execution: a non-empty push_away pushes exactly
-    those objects (in order, at their efforts); an empty push_away
-    falls back to the executor's crowding filter as a safety net.
+    The plan DRIVES execution: push_away pushes exactly those
+    objects (in order, at their efforts); an empty push_away means
+    push nothing — it does NOT fall back to the crowding filter
+    (that fallback, via push_targets=None, is only for direct
+    scripted_singulate calls).
     approach_side biases the cage entry yaw. Two different plans on
     the same seed must be able to produce different trajectories —
     otherwise the comparison is vacuous (that was the old bug: the
@@ -222,12 +224,19 @@ def run_episode(env, plan, instruction, frames=None, verbose=True):
               f"[{pushes}], approach {approach_side} — "
               f"{plan['rationale']}")
 
-    # The plan drives the pushes: a non-empty push_away pushes exactly
-    # those objects (in order, at their efforts). An empty push_away
-    # falls back to auto-detecting crowding (the safety net — it does
-    # not override a plan that names objects). "without moving" makes
-    # the revert strict: any target motion fails the push.
-    push_targets = plan["push_away"] if plan["push_away"] else None
+    # The plan drives the pushes: push_away pushes exactly those
+    # objects (in order, at their efforts), and an EMPTY push_away
+    # means push nothing. The old code turned [] into None, which
+    # activated scripted_singulate's <0.35 m auto-crowding fallback —
+    # so a VLM plan that explicitly judged "no preconditions needed"
+    # and a heuristic plan that named no push both auto-pushed the
+    # same crowding objects with the same "clear" effort, and the
+    # 2026-10-28 rerun was identical again. The auto fallback still
+    # exists for direct scripted_singulate calls with
+    # push_targets=None, but run_episode never uses it: a plan is a
+    # decision, including the decision to push nothing. "without
+    # moving" makes the revert strict: any target motion fails a push.
+    push_targets = plan["push_away"]
     strict = "without moving" in instruction.lower()
     push_log = []
     iso_before, iso_after = scripted_singulate(
