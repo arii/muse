@@ -2,7 +2,17 @@
 
 A 3-link arm sweeps a horizontal plane above a table. Each episode spawns
 N randomized box objects within reach. The task: envelop ("cage") a target
-object using the whole arm — contacts on >=2 distinct links counts as a cage.
+object using the whole arm.
+
+Cage = geometric enclosure, NOT just contact. Two links pressing the
+same side of a box is a poke, not a grasp — the box slides away freely.
+So "caged" requires BOTH:
+  (a) >=2 distinct arm links touching the target, AND
+  (b) the target center inside the polygon formed by the arm polyline
+      (base -> joint1 -> joint2 -> tip, closed back to base).
+A straight arm makes a degenerate (zero-area) polygon, so nothing is
+inside it; a curled arm around the box encloses it. This is the planar
+caging test: the object cannot escape without crossing a link.
 
 Reward (starting point — tune freely):
     r = 0.5 * (# distinct arm links touching target) + 2.0 * caged
@@ -132,6 +142,41 @@ class WholeArmGraspEnv:
         n = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, gid)
         return n.decode() if isinstance(n, bytes) else n
 
+    def _arm_joint_xy(self):
+        """Arm polyline vertices (base, joint1, joint2, tip) in world xy.
+
+        Same FK convention as planning/primitives.fk: cumulative angles,
+        link lengths 0.30 / 0.25 / 0.20.
+        """
+        q = self.data.qpos[self._arm_qpos]
+        a0 = q[0]
+        a1 = q[0] + q[1]
+        a2 = q[0] + q[1] + q[2]
+        base = np.array([0.0, 0.0])
+        j1 = base + 0.30 * np.array([np.cos(a0), np.sin(a0)])
+        j2 = j1 + 0.25 * np.array([np.cos(a1), np.sin(a1)])
+        tip = j2 + 0.20 * np.array([np.cos(a2), np.sin(a2)])
+        return [base, j1, j2, tip]
+
+    def _target_xy(self):
+        adr = self._obj_qposadr[self.target_index]
+        return self.data.qpos[adr:adr + 2]
+
+    @staticmethod
+    def _point_in_polygon(point, poly):
+        """Ray casting: True if point is inside polygon poly."""
+        x, y = point
+        inside = False
+        n = len(poly)
+        for i in range(n):
+            x1, y1 = poly[i]
+            x2, y2 = poly[(i + 1) % n]
+            if (y1 > y) != (y2 > y):
+                xinters = (y - y1) * (x2 - x1) / (y2 - y1) + x1
+                if x < xinters:
+                    inside = not inside
+        return inside
+
     def _reward(self):
         touching = set()
         target_geom = (f"obj{self.target_index}_geom"
@@ -144,7 +189,12 @@ class WholeArmGraspEnv:
                 if other in LINK_GEOMS:
                     touching.add(other)
         n = len(touching)
-        caged = n >= 2
+        # Enclosure: target center inside the arm polygon. Contact alone
+        # (e.g. two links on the same face) is a poke, not a cage.
+        enclosed = (self.target_index is not None and
+                    self._point_in_polygon(self._target_xy(),
+                                           self._arm_joint_xy()))
+        caged = n >= 2 and enclosed
         return 0.5 * n + (2.0 if caged else 0.0), {
-            "links_touching": n, "caged": caged,
+            "links_touching": n, "caged": caged, "enclosed": enclosed,
             "isolation": self.target_isolation()}

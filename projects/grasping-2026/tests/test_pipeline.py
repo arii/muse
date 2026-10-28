@@ -360,6 +360,46 @@ def test_vlm_ledger_records_failures_without_caching(monkeypatch, tmp_path):
     assert len(calls) == 1
 
 
+def test_cage_requires_enclosure_not_just_contact():
+    """Two links on the same side is a poke, not a cage.
+
+    Straight arm, box straddling the link1-link2 joint so it touches
+    both links. Old metric (n>=2) called this caged; the enclosure
+    test must reject it — the box is outside the degenerate polygon.
+    """
+    import mujoco
+    env = WholeArmGraspEnv(seed=0)
+    env.reset(seed=0)
+    env.target_index = 0
+    env.data.qpos[env._arm_qpos] = [0, 0, 0]  # straight along +x
+    adr = env._obj_qposadr[0]
+    env.data.qpos[adr:adr + 3] = [0.30, 0.05, 0.06]
+    mujoco.mj_forward(env.model, env.data)
+    _, info = env._reward()
+    assert info["links_touching"] == 2, \
+        f"test setup broken: expected 2 links touching, got {info}"
+    assert info["enclosed"] is False
+    assert info["caged"] is False
+
+
+def test_scripted_cage_achieves_true_enclosure():
+    """The scripted cage still counts as caged under the enclosure test.
+
+    Seed 5: the curl wraps the target with 2 links touching and the
+    target center inside the arm polygon. (The scripted cage is
+    brittle — most seeds miss entirely — but when it wraps, the new
+    metric must credit it.)
+    """
+    from scripts.demo_vlm_grasp import scripted_cage
+    env = WholeArmGraspEnv(seed=5)
+    env.reset(seed=5)
+    env.target_index = 0
+    _, info = scripted_cage(env, 0, frames=[])
+    assert info["caged"] is True, f"scripted cage failed: {info}"
+    assert info["enclosed"] is True
+    assert info["links_touching"] >= 2
+
+
 def test_singulation_improves_isolation():
     """scripted_singulate pushes a crowding object away (seed 7)."""
     from scripts.demo_vlm_grasp import scripted_singulate

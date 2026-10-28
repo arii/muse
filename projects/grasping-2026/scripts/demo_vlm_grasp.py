@@ -115,7 +115,11 @@ def scripted_cage(env, target_idx, frames):
     ]
     rewards = []
     for angles, ticks in phases:
-        for _ in range(ticks // 20):
+        # ticks // 5 (not // 20): the motion is the demo. Fewer steps
+        # made the arm snap between poses and the GIF ran in ~1.5 s.
+        # More steps = smaller increments, settled actuators, and a
+        # watchable ~6 s cage instead of a teleport.
+        for _ in range(ticks // 5):
             _, r, _, info = env.step(np.array(angles))
             rewards.append(r)
             frames.append(env.render())
@@ -186,7 +190,8 @@ def main():
 
     rewards, info = scripted_cage(env, target_idx, frames)
     print(f"[demo] links touching: {info['links_touching']}, "
-          f"caged: {info['caged']}, total reward: {sum(rewards):.1f}")
+          f"enclosed: {info['enclosed']}, caged: {info['caged']}, "
+          f"total reward: {sum(rewards):.1f}")
 
     stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     out = pathlib.Path("episodes") / stamp
