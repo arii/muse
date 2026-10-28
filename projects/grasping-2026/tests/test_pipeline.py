@@ -211,3 +211,35 @@ def test_singulation_never_regresses():
         iso_before, iso_after = scripted_singulate(env, 0, frames=[])
         assert iso_after >= iso_before - 1e-9, \
             f"seed {seed}: isolation regressed {iso_before:.3f} -> {iso_after:.3f}"
+
+
+def test_ik_reaches_targets():
+    """DLS IK solves to <1mm for reachable targets."""
+    import numpy as np
+    from planning.primitives import fk, ik_dls
+    rng = np.random.default_rng(0)
+    for _ in range(10):
+        r = rng.uniform(0.2, 0.7)
+        th = rng.uniform(-2.5, 2.5)
+        target = np.array([r * np.cos(th), r * np.sin(th)])
+        q = ik_dls(target, np.zeros(3))
+        assert np.linalg.norm(fk(q) - target) < 1e-3
+
+
+def test_push_moves_object_along_theta():
+    """push() displaces the object in the push direction."""
+    import numpy as np
+    from planning.primitives import push
+    env = WholeArmGraspEnv(seed=7)
+    env.reset(seed=7)
+    p0 = env._obs()["objects"][0][:2].copy()
+    sx = env.objects[0]["half"][0]
+    theta = 0.0  # +x
+    direction = np.array([np.cos(theta), np.sin(theta)])
+    # start clearly outside: box half + tip radius + margin
+    start = p0 - direction * (sx + 0.025 + 0.015)
+    push(env, start, theta, 0.15, frames=[])
+    moved = env._obs()["objects"][0][:2] - p0
+    # primitive moves the box in the push direction (exact distance varies
+    # with contact dynamics; singulate's revert logic handles the rest)
+    assert moved[0] > 0.015, f"push did not move +x: {moved}"

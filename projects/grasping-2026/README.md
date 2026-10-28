@@ -23,18 +23,24 @@ grasping-2026/
 │   └── whole_arm_grasp.py  #   env: reset/step/render, contact reward,
 │                           #   isolation metric, snapshot/restore
 ├── perception/             # the VLM front end (semantics)
-│   ├── grounding.py        #   instruction + image -> {grasp_target, push_away}
+│   ├── grounding.py        #   goal + image -> {grasp_target, push_away}
+│                           #   (preconditions for "grasp in isolation")
 │   ├── segment.py          #   STUB (M2): detection -> pixel mask
 │   └── grasp.py            #   STUB (M3): mask -> ranked grasps
-├── planning/
-│   └── motion.py           #   joint-space trajectory interpolation
+├── planning/               # geometry: IK + action primitives
+│   ├── motion.py           #   joint-space trajectory interpolation
+│   └── primitives.py       #   Cartesian action space:
+│                           #   move_tip(x, y), push(x, y, theta, dist),
+│                           #   envelop(x, y) — the whole-arm grasp skill
 ├── scripts/
-│   ├── demo_vlm_grasp.py   #   the main loop: plan -> singulate -> cage
+│   ├── demo_vlm_grasp.py   #   the main loop: goal -> preconditions ->
+│                           #   singulation (push primitives) -> isolation
+│                           #   gate -> envelop skill
 │   ├── smoke_vlm.py        #   live VLM check (needs NEBIUS_API_KEY)
 │   ├── verify_pipeline.py  #   exercises every stage, saves screenshots
 │   └── make_video.py       #   episode frames -> captioned GIF
 ├── tests/
-│   └── test_pipeline.py    #   11 tests, all runnable headless in CI
+│   └── test_pipeline.py    #   13 tests, all runnable headless in CI
 ├── docs/
 │   ├── img/                #   diagrams, labeled scenes, demo GIFs
 │   └── vlm-grounding-tutorial.md   # deep dive on the grounding stage
@@ -43,9 +49,12 @@ grasping-2026/
 ```
 
 The split is deliberate: `perception/` answers *what/which* (language),
-`planning/` + `env/` answer *where/how* (geometry/physics), `scripts/`
-wires them together. The two STUBs have fixed interfaces so M2/M3 slot in
-without touching the rest.
+`planning/` answers *where/how* (geometry — IK + Cartesian primitives),
+`env/` is the physics, `scripts/` wires them together. The VLM never
+outputs raw coordinates (it's bad at metric estimation); it outputs
+semantic preconditions, and a resolver turns those into `push()` calls.
+The enveloping grasp is a named skill, not a `(x, y, theta)` tuple —
+wrapping 3 links around an object is a trajectory, not a pose.
 
 ## Follow one instruction through the code
 
@@ -77,9 +86,11 @@ validated — an out-of-range index raises instead of guessing. Full worked
 example in `docs/vlm-grounding-tutorial.md`.
 
 **2. Singulation** (`scripts/demo_vlm_grasp.py: scripted_singulate`). Executes
-the preconditions: for each object in `push_away` (or auto-detected crowding,
-if the instruction doesn't name any), curl the arm, yaw to face it, extend
-the tip to it, nudge it tangentially away from the grasp target. Each push is
+the preconditions using the Cartesian `push()` primitive
+(`planning/primitives.py`): for each object in `push_away`, compute the push
+direction (away from the target), start at the object's target-facing edge,
+and `push(start_xy, theta, dist)` — the tip approaches via IK, then tracks
+a straight Cartesian line while contact forces shove the box. Each push is
 tried optimistically and **reverted** (physics snapshot + dropped frames) if
 isolation drops, the target moves more than the distractor, or anything
 launches. Tracked by the `isolation` metric (`env.target_isolation()`): min
