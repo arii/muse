@@ -15,7 +15,7 @@ PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${PROJECT_DIR}"
 
 SEEDS="2,4"
-PLANNERS="vlm,heuristic,ppo,diffusion"
+PLANNERS="heuristic,vlm,ppo,diffusion"
 RETRAIN_DIFF=0
 EXTRA_ARGS=()
 

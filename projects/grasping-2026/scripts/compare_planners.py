@@ -364,7 +364,7 @@ def write_html_report(rows, gif_map, out_path, instruction, planners):
         "details{margin:6px 0 16px}"
         "summary{cursor:pointer;color:#2563eb;font-size:0.9em;font-weight:500}"
         "</style></head><body>",
-        "<h1>Grasping Comparison: VLM vs Heuristic vs Learned Policies</h1>",
+        "<h1>Grasping Comparison: Heuristic vs VLM vs PPO vs Diffusion</h1>",
         f"<p><strong>Instruction:</strong> <code>{esc(instruction)}</code></p>",
         "<div class='banner'><strong>Read this first:</strong> "
         "<code>force_closure</code> is the goal criterion (contact wrenches "
@@ -585,8 +585,8 @@ def main():
                     default="grasp the red box in isolation")
     ap.add_argument("--seeds", default="2,4",
                     help="seed specification, e.g. '2,4' (default canary seeds: 2 isolated, 4 cluttered) or '0-9'")
-    ap.add_argument("--planners", default="vlm,heuristic,ppo,diffusion",
-                    help="comma-separated subset of vlm,heuristic,ppo,diffusion")
+    ap.add_argument("--planners", default="heuristic,vlm,ppo,diffusion",
+                    help="comma-separated subset of heuristic,vlm,ppo,diffusion")
     ap.add_argument("--ppo-model", default=None,
                     help="path to PPO .zip checkpoint (default auto-detect)")
     ap.add_argument("--diffusion-model", default=None,
