@@ -1,11 +1,11 @@
-.PHONY: help eval eval-cluttered eval-offline eval-all retrain-diffusion collect-demos train-diffusion demo-vlm demo-heuristic
+.PHONY: help eval eval-isolated eval-offline eval-all retrain-diffusion collect-demos train-diffusion demo-vlm demo-heuristic
 
-SEEDS ?= 2,6
+SEEDS ?= 2,4
 
 help:
 	@echo "Available targets:"
-	@echo "  make eval               - Run 4-policy comparison on canary seeds (default SEEDS=2,6; 0 API calls via cache)"
-	@echo "  make eval-cluttered     - Run 4-policy comparison on isolated+cluttered seeds (2,7)"
+	@echo "  make eval               - Run 4-policy comparison on canary seeds (default SEEDS=2,4; 0 API calls via cache)"
+	@echo "  make eval-isolated      - Run 4-policy comparison on isolated seeds (2,6)"
 	@echo "  make eval-offline       - Run offline-only comparison (heuristic,ppo,diffusion) — zero VLM cost"
 	@echo "  make retrain-diffusion  - Collect planar cage demos (seeds 2,6) & retrain models/diffusion_v2.pt"
 	@echo "  make eval-all           - Run full 10-seed comparison (0-9)"
@@ -13,8 +13,8 @@ help:
 eval:
 	./scripts/run_eval.sh --seeds $(SEEDS)
 
-eval-cluttered:
-	./scripts/run_eval.sh --seeds 2,7
+eval-isolated:
+	./scripts/run_eval.sh --seeds 2,6
 
 eval-offline:
 	./scripts/run_eval.sh --no-vlm --seeds $(SEEDS)

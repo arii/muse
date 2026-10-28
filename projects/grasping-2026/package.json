@@ -4,14 +4,14 @@
   "private": true,
   "description": "Planar whole-arm grasping benchmark: VLM, Heuristic, PPO, and Diffusion Policy",
   "scripts": {
-    "eval": "./scripts/run_eval.sh --seeds 2,6",
-    "eval:cluttered": "./scripts/run_eval.sh --seeds 2,7",
-    "eval:offline": "./scripts/run_eval.sh --no-vlm --seeds 2,6",
+    "eval": "./scripts/run_eval.sh --seeds 2,4",
+    "eval:isolated": "./scripts/run_eval.sh --seeds 2,6",
+    "eval:offline": "./scripts/run_eval.sh --no-vlm --seeds 2,4",
     "eval:all": "./scripts/run_eval.sh --seeds 0-9",
-    "retrain:diffusion": "./scripts/run_eval.sh --retrain-diffusion --seeds 2,6",
+    "retrain:diffusion": "./scripts/run_eval.sh --retrain-diffusion --seeds 2,4",
     "collect:demos": "docker compose run --rm -v $(pwd):/workspace --entrypoint python demo scripts/collect_demos.py --demonstrator cage --seeds 2,6 --n-objects 4 --keep fc --out data/demos_cage_planar",
     "train:diffusion": "docker compose run --rm -v $(pwd):/workspace --entrypoint python demo scripts/train_diffusion.py --demos data/demos_cage_planar --epochs 180 --min-steps-per-epoch 60 --lr 5e-4 --out models/diffusion_v2",
-    "demo:vlm": "docker compose run --rm -v $(pwd):/workspace --entrypoint python demo scripts/demo_vlm_grasp.py --planner vlm --seed 2",
-    "demo:heuristic": "docker compose run --rm -v $(pwd):/workspace --entrypoint python demo scripts/demo_vlm_grasp.py --planner heuristic --seed 2"
+    "demo:vlm": "docker compose run --rm -v $(pwd):/workspace --entrypoint python demo scripts/demo_vlm_grasp.py --planner vlm --seed 4",
+    "demo:heuristic": "docker compose run --rm -v $(pwd):/workspace --entrypoint python demo scripts/demo_vlm_grasp.py --planner heuristic --seed 4"
   }
 }

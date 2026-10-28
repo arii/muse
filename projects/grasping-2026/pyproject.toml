@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 [tool.grasping.scripts]
-eval = "./scripts/run_eval.sh --seeds 2,6"
-eval_cluttered = "./scripts/run_eval.sh --seeds 2,7"
-eval_offline = "./scripts/run_eval.sh --no-vlm --seeds 2,6"
-retrain_diffusion = "./scripts/run_eval.sh --retrain-diffusion --seeds 2,6"
+eval = "./scripts/run_eval.sh --seeds 2,4"
+eval_isolated = "./scripts/run_eval.sh --seeds 2,6"
+eval_offline = "./scripts/run_eval.sh --no-vlm --seeds 2,4"
+retrain_diffusion = "./scripts/run_eval.sh --retrain-diffusion --seeds 2,4"

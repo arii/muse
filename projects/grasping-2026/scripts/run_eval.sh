@@ -3,8 +3,8 @@
 # repetitive docker-compose CLI boilerplate or accidental 10-seed VLM API bills.
 #
 # Usage:
-#   ./scripts/run_eval.sh                      # default: canary seeds 2,6 (all policies, HTML + GIFs)
-#   ./scripts/run_eval.sh --seeds 2            # single seed
+#   ./scripts/run_eval.sh                      # default: canary seeds 2,4 (2 isolated, 4 cluttered)
+#   ./scripts/run_eval.sh --seeds 2,6          # isolated seeds only
 #   ./scripts/run_eval.sh --no-vlm             # offline only (heuristic,ppo,diffusion) — zero VLM API risk
 #   ./scripts/run_eval.sh --retrain-diffusion  # collect planar cage demos & retrain diffusion_v2.pt
 
@@ -14,7 +14,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${PROJECT_DIR}"
 
-SEEDS="2,6"
+SEEDS="2,4"
 PLANNERS="vlm,heuristic,ppo,diffusion"
 RETRAIN_DIFF=0
 EXTRA_ARGS=()

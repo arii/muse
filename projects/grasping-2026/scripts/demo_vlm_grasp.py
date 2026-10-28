@@ -223,22 +223,22 @@ def scripted_cage(env, target_idx, frames, frame_info=None,
     q_cur = env.data.qpos[env._arm_qpos].copy()
     f_plus = theta_t - lead
     f_minus = theta_t + lead
-    if abs(f_plus - q_cur[0]) <= abs(f_minus - q_cur[0]):
-        s, face = +1.0, f_plus
-    else:
-        s, face = -1.0, f_minus
-
-    # Bias entry trajectory by approach_side so VLM approach choices
-    # produce distinct trajectories while still wrapping the target:
     open_q = -0.35
-    if approach_side == "left":
-        face -= 0.04 * s
-        open_q = -0.45
-    elif approach_side == "right":
-        face += 0.04 * s
-        open_q = -0.45
+    if approach_side == "right":
+        s, face = +1.0, f_plus
+    elif approach_side == "left":
+        s, face = -1.0, f_minus
     elif approach_side == "far":
-        open_q = -0.55
+        if abs(f_plus - q_cur[0]) <= abs(f_minus - q_cur[0]):
+            s, face = -1.0, f_minus
+        else:
+            s, face = +1.0, f_plus
+        open_q = -0.45
+    else:
+        if abs(f_plus - q_cur[0]) <= abs(f_minus - q_cur[0]):
+            s, face = +1.0, f_plus
+        else:
+            s, face = -1.0, f_minus
 
     if trace_log is not None:
         trace_log.update({
@@ -284,7 +284,14 @@ def scripted_cage(env, target_idx, frames, frame_info=None,
         rewards.append(rew)
         return rewards, info
 
-    waypoints = [
+    waypoints = []
+    # If starting from a post-push configuration (or crossing theta_t),
+    # tuck link2/link3 to the outer (-s) side so the arm stays inside
+    # r <= 0.30m while rotating q1 to face, avoiding sweeping through the target.
+    if np.linalg.norm(q_cur) > 0.05:
+        waypoints.append(([q_cur[0], -2.2 * s, -2.2 * s], 20))
+        waypoints.append(([face, -2.2 * s, -2.2 * s], 25))
+    waypoints += [
         ([face, open_q * s, open_q * s], 30),
         ([face, 0.25 * s, 0.25 * s], 25),
         ([face, 0.85 * s, 1.05 * s], 25),

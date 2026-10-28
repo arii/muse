@@ -583,8 +583,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--instruction",
                     default="grasp the red box in isolation")
-    ap.add_argument("--seeds", default="2,6",
-                    help="seed specification, e.g. '2,6' (default canary seeds) or '0-9'")
+    ap.add_argument("--seeds", default="2,4",
+                    help="seed specification, e.g. '2,4' (default canary seeds: 2 isolated, 4 cluttered) or '0-9'")
     ap.add_argument("--planners", default="vlm,heuristic,ppo,diffusion",
                     help="comma-separated subset of vlm,heuristic,ppo,diffusion")
     ap.add_argument("--ppo-model", default=None,

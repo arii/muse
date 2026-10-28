@@ -75,21 +75,23 @@ Both the **Semantic Plan** and the **Executed Geometric Primitives** (`push(obj,
 
 ---
 
-## 4. Selected 2 Easy Canary Seeds (`Seeds 2 & 6`) & Updated Evaluation
+## 4. Selected 2 Canary Seeds (`Seeds 2 & 4` — 1 Isolated, 1 Cluttered) & Updated Evaluation
 
-Instead of running all 10 seeds (`0–9`), we use **Seeds 2 and 6** (`--seeds 2,6`) as our fast short-term isolated benchmark, plus **Seed 7** (`--seeds 2,7`) when testing cluttered VLM vs. Heuristic divergence:
+Instead of running all 10 seeds (`0–9`), we use **Seeds 2 and 4** (`--seeds 2,4`) as our default 2-seed benchmark so that one seed tests isolated grasping (`Seed 2`) and the other tests **divergent VLM vs. Heuristic precondition pushing + directional approach** (`Seed 4`):
 
-* **Seed 2 (`r = 0.311 m, θ = -55.4°, iso = 0.474 m`):** Isolated red target box in the lower-right quadrant (`iso >= 0.15 m`).
-* **Seed 6 (`r = 0.345 m, θ = -43.1°, iso = 0.357 m`):** Isolated red target box at mid-radius (`iso >= 0.15 m`).
+* **Seed 2 (`r = 0.311 m, θ = -55.4°, iso = 0.474 m` — Isolated):** Red target box is already isolated (`iso >= 0.15 m`). Both VLM and Heuristic plan `push_away=[], approach_side="near"` and achieve **`FC=True, caged=True`** (`disp = 0.087 m`).
+* **Seed 4 (`r = 0.394 m, θ = +3.1°, iso = 0.061 m` — Cluttered):** Green box (`obj2`) is touching the red box (`iso = 0.061 m < 0.15 m`).
+  * **VLM (`Nemotron-3.5-Super-VL`)** plans `push_away=[{"index": 2, "effort": "shove"}], approach_side="right"`, executes `push(obj2:green, start_xy=[0.402, -0.013], theta=+1.84rad/+106°, dist=0.25m)` (`isolation: 0.061 m → 0.314 m`, **`preconditions_met=True`**), then tucks inside `r <= 0.30 m` to rotate to the `right` side (`face = -0.66 rad, curl = CCW(+)`) and achieves **`FC=True, caged=True`** (`disp = 0.195 m`).
+  * **Heuristic (`HeuristicLabeller`)** plans `push_away=[], approach_side="near"`, fails preconditions (`iso = 0.061 m`, **`preconditions_met=False`**), gets blocked by the green box, and fails (`FC=False, caged=False`).
 
-### 4.1 Current Canary Evaluation Summary (`Seeds 2 & 6`)
+### 4.1 Current Canary Evaluation Summary (`Seeds 2 & 4`)
 
-| Planner / Policy | Force Closure (`FC`) | Caged (`loop < 0.15m`) | Preconditions Met | Mean Target `Δxy` | Executed Primitives (Seed 2) | API Calls / Token Cost |
-| :--- | :---: | :---: | :---: | :---: | :--- | :--- |
-| **VLM (`Nemotron-3.5-Super-VL`)** | **`1.00` (2/2)** | **`1.00` (2/2)** | `1.00` (2/2) | `0.103 m` | `singulate: none` → `scripted_cage(face=-0.50rad, lead=0.46rad, curl=CW(-), steps=114)` | `0` live (`13,060` cached: `6,738` + `6,322` tok) |
-| **Heuristic (`HeuristicLabeller`)** | **`1.00` (2/2)** | **`1.00` (2/2)** | `1.00` (2/2) | `0.103 m` | `singulate: none` → `scripted_cage(face=-0.50rad, lead=0.46rad, curl=CW(-), steps=114)` | `no API` |
-| **Diffusion BC (`diffusion_v2.pt`)** | **`0.50–1.00`** | `0.00` | `1.00` (2/2) | `0.21–0.30 m` | `env.step(q_target)` × 200 steps (smooth closed-loop joint trajectory, zero noise) | `no API` |
-| **PPO (`grasp_ppo_500k.zip`)** | `0.00` (0/2) | `0.00` (0/2) | `1.00` (2/2) | `1.897 m` | `env.step(q_target)` × 200 steps (legacy checkpoint sweeps box out of workspace) | `no API` |
+| Planner / Policy | Force Closure (`FC`) | Caged (`loop < 0.15m`) | Preconditions Met | Mean Isolation `Δ` | Mean Target `Δxy` | API Calls / Token Cost |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| **VLM (`Nemotron-3.5-Super-VL`)** | **`1.00` (2/2)** | **`1.00` (2/2)** | **`1.00` (2/2)** | **`+0.126 m`** | `0.141 m` | `0` live (`10,038` cached: `6,738` + `3,300` tok) |
+| **Heuristic (`HeuristicLabeller`)** | `0.50` (1/2) | `0.50` (1/2) | `0.50` (1/2) | `+0.000 m` | `0.118 m` | `no API` |
+| **Diffusion BC (`diffusion_v2.pt`)** | `0.50` (1/2) | `0.00` (0/2) | `0.50` (1/2) | `-0.034 m` | `0.028 m` | `no API` |
+| **PPO (`grasp_ppo_500k.zip`)** | `0.00` (0/2) | `0.00` (0/2) | `1.00` (2/2) | `+1.985 m` | `2.067 m` | `no API` |
 
 ### 4.2 Why VLM and Heuristic Match on `Seeds 2, 6` vs. Diverge on `Seed 7`
 
