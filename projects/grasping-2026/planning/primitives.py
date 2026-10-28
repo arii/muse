@@ -79,21 +79,39 @@ def _qpos(env):
     return env._obs()["qpos"]
 
 
-def move_tip(env, target_xy, frames, n_interp=25, settle=8):
+def frame_status(info):
+    """Compact per-frame grasp status for GIF overlays and traces.
+
+    Shape contract (consumed by scripts/make_video.py): links =
+    distinct arm links touching the target, enclosed/caged/fc booleans.
+    """
+    return {"links": int(info["links_touching"]),
+            "enclosed": bool(info["enclosed"]),
+            "caged": bool(info["caged"]),
+            "fc": bool(info["force_closure"])}
+
+
+def move_tip(env, target_xy, frames, n_interp=25, settle=8,
+             frame_info=None):
     """Move the tip to target_xy via IK + joint interpolation, then
     settle (extra steps at the final q so the actuators catch up)."""
     q_cur = _qpos(env)
     q_tgt = ik_dls(target_xy, q_cur)
     for a in np.linspace(0.0, 1.0, n_interp):
-        env.step((1 - a) * q_cur + a * q_tgt)
+        _, _, _, info = env.step((1 - a) * q_cur + a * q_tgt)
         frames.append(env.render())
+        if frame_info is not None:
+            frame_info.append(frame_status(info))
     for _ in range(settle):
-        env.step(q_tgt)
+        _, _, _, info = env.step(q_tgt)
         frames.append(env.render())
+        if frame_info is not None:
+            frame_info.append(frame_status(info))
     return q_tgt
 
 
-def push(env, start_xy, theta, dist, frames, n_waypoints=12, settle=3):
+def push(env, start_xy, theta, dist, frames, n_waypoints=12, settle=3,
+         frame_info=None):
     """Cartesian push: approach start_xy, then drive the tip along
     direction theta for distance dist. Waypoints are close together and
     each is IK-solved from the previous q, so the tip tracks a straight
@@ -104,7 +122,7 @@ def push(env, start_xy, theta, dist, frames, n_waypoints=12, settle=3):
     start_xy should be at the object's near edge (not its center) so the
     tip makes contact instead of interpenetrating.
     """
-    move_tip(env, start_xy, frames)
+    move_tip(env, start_xy, frames, frame_info=frame_info)
     direction = np.array([np.cos(theta), np.sin(theta)])
     start = np.asarray(start_xy, dtype=float)
     q = _qpos(env)
@@ -112,8 +130,10 @@ def push(env, start_xy, theta, dist, frames, n_waypoints=12, settle=3):
         wp = start + direction * (dist * i / n_waypoints)
         q = ik_dls(wp, q)
         for _ in range(settle):
-            env.step(q)
+            _, _, _, info = env.step(q)
             frames.append(env.render())
+            if frame_info is not None:
+                frame_info.append(frame_status(info))
     return q
 
 

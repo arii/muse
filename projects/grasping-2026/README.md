@@ -194,8 +194,26 @@ docker compose run --build --rm --entrypoint python demo scripts/compare_planner
 docker compose run --build --rm --entrypoint python demo scripts/compare_planners.py --seeds 0-9 --gifs
 ```
 
-## Local RL training (no API key)
+GIFs now carry a live status line per frame — `links:N enc:Y/N
+cage:Y/N FC:Y/N` — so you can watch contact, enclosure, and force
+closure evolve instead of only seeing the final outcome. Single GIFs
+put it in the bottom strip; side-by-side halves put it at the top of
+each half (the header strip is separate, so nothing collides). The
+status trace is also saved in the episode metrics as `frame_info`,
+aligned 1:1 with frames (reverted singulation pushes truncate both).
 
+## HTML comparison report
+
+One page per compare run: aggregate table, then per seed the metrics
+for both planners, each planner's plan (target, push_away, rationale),
+VLM cost, the side-by-side GIF, and links to the single-planner GIFs.
+
+```bash
+docker compose run --build --rm --entrypoint python demo scripts/compare_planners.py --seeds 0-9 --gifs --html
+# -> episodes/compare-report.html (implies --gifs; pass a path to --html to relocate it)
+```
+
+## Local RL training (no API key)
 PPO/SAC via stable-baselines3 on a gymnasium wrapper of the same env
 — the trained policy is a third approach alongside VLM and heuristic,
 evaluated on the same force-closure criterion. No Nebius key, no
@@ -232,6 +250,34 @@ MUJOCO_GL=osmesa python scripts/eval_policy.py --model models/grasp_ppo --episod
   segfaults on this CPU-only VM during PPO setup. Fix: `pip uninstall
   triton` (torch/SB3 don't need it without torch.compile). Also: pip
   needs TMPDIR on home disk, not /tmp (512 MB tmpfs < 554 MB wheel).
+
+## Local diffusion policy (no API key)
+
+Diffusion-type behavior cloning: an MLP denoiser (diffusers DDPM
+schedule for training, DDIM for inference) predicts chunks of joint
+targets conditioned on the wrapper observation. Receding horizon:
+sample a chunk, execute the first K, replan.
+
+```bash
+MUJOCO_GL=osmesa python scripts/collect_ppo_demos.py --model models/grasp_ppo_500k --seeds 0-99 --keep fc --out data/demos_ppo_fc
+MUJOCO_GL=osmesa python scripts/train_diffusion.py --demos data/demos_ppo_fc --epochs 50 --chunk 8 --out models/diffusion
+MUJOCO_GL=osmesa python scripts/eval_diffusion.py --model models/diffusion --episodes 10 --seeds 0-9 --n-objects 4
+```
+
+- `scripts/diffusion_policy.py`: DiffusionMLP + DDIM sampling.
+- `scripts/collect_demos.py`: scripted demonstrators (cage/envelop),
+  rendering patched off, `--keep fc|caged|all`.
+- `scripts/collect_ppo_demos.py`: rollouts of a trained PPO/SAC
+  policy, same npz format, plus per-episode `fc_steps`.
+- Key honesty constraint: behavior cloning cannot exceed its
+  demonstrator. Scripted cage/envelop NEVER achieve force closure
+  (0/10 seeds each; cage 1/10, envelop 1/10) — diffusion from
+  scripted demos caps at caging. The FC demos come from PPO
+  rollouts (16/100 seeds reach FC). FC episodes are 1–7 steps, so
+  training uses FC-anchored windows (chunks ending at the FC step,
+  repeated) plus hold-last padding ("reach this config and stay").
+- Eval wrapper flags (`--n-objects`, `--contact-obs`) must match the
+  demos' collection flags, or the obs dim won't fit the model.
 
 ## VLM call ledger (audit + cache)
 

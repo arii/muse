@@ -87,6 +87,102 @@ def outcome_caption(row):
             f"reward={row.get('total_reward', 0):.1f}")
 
 
+def write_html_report(rows, gif_map, out_path, instruction, planners):
+    """One-page comparison report: aggregates + per-seed GIFs + plans.
+
+    rows: per-episode metric rows (as in --out JSON). gif_map:
+    seed -> {planner: gif path, "side_by_side": gif path}. Paths are
+    made relative to the report's directory so the page works from
+    wherever --html points, as long as the GIFs stay beside it.
+    """
+    import html as _html
+
+    from pathlib import Path
+    out_path = Path(out_path)
+    report_dir = out_path.parent
+
+    def rel(p):
+        try:
+            return Path(p).relative_to(report_dir).as_posix()
+        except ValueError:
+            return Path(p).as_posix()
+
+    def esc(v):
+        return _html.escape("" if v is None else str(v))
+
+    parts = ["<html><head><meta charset='utf-8'>",
+             "<style>body{font-family:sans-serif;max-width:1100px;"
+             "margin:2em auto;padding:0 1em}table{border-collapse:collapse}"
+             "th,td{border:1px solid #ccc;padding:4px 10px;text-align:left}"
+             "img{max-width:100%}.pass{color:green}.fail{color:#888}"
+             "</style></head><body>",
+             f"<h1>VLM vs scripted grasping comparison</h1>",
+             f"<p>instruction: {esc(instruction)}</p>",
+             "<h2>Aggregate</h2><table><tr><th>planner</th>"
+             "<th>episodes</th><th>force_closure</th><th>caged</th>"
+             "<th>preconditions</th><th>mean reward</th>"
+             "<th>mean isolation Δ</th><th>API calls</th>"
+             "<th>tokens</th></tr>"]
+    for planner in planners:
+        agg = aggregate(rows, planner)
+        parts.append(
+            f"<tr><td>{esc(planner)}</td><td>{agg['episodes']}</td>"
+            f"<td>{agg['force_closure_rate']:.2f}</td>"
+            f"<td>{agg['caged_rate']:.2f}</td>"
+            f"<td>{agg['preconditions_rate']:.2f}</td>"
+            f"<td>{agg['mean_reward']:.1f}</td>"
+            f"<td>{agg['mean_isolation_delta']:+.3f} m</td>"
+            f"<td>{agg['api_calls']}</td><td>{agg['total_tokens']}</td>"
+            "</tr>")
+    parts.append("</table>")
+    by_seed = {}
+    for r in rows:
+        by_seed.setdefault(r["seed"], {})[r["planner"]] = r
+    for seed in sorted(by_seed):
+        parts.append(f"<h2>seed {seed}</h2>")
+        parts.append("<table><tr><th>planner</th><th>FC</th>"
+                     "<th>caged</th><th>preconditions</th>"
+                     "<th>reward</th><th>isolation</th>"
+                     "<th>plan</th><th>cost</th></tr>")
+        for planner in planners:
+            r = by_seed[seed].get(planner)
+            if r is None:
+                continue
+            if r["planner_error"]:
+                plan_cell = f"ERROR: {esc(r['planner_error'][:200])}"
+                cost = "-"
+            else:
+                plan_cell = (f"target {r.get('target_index')} "
+                             f"({esc(r.get('target_color'))}), push "
+                             f"{esc(r.get('push_away'))}: "
+                             f"{esc(r.get('rationale'))}")
+                cost = (f"{r['tokens']} tokens" if planner == "vlm"
+                        else "no API")
+            fc_cls = "pass" if r.get("force_closure") else "fail"
+            parts.append(
+                f"<tr><td>{esc(planner)}</td>"
+                f"<td class='{fc_cls}'>{r.get('force_closure')}</td>"
+                f"<td>{r.get('caged')}</td>"
+                f"<td>{r.get('preconditions_met')}</td>"
+                f"<td>{r.get('total_reward', 0):.1f}</td>"
+                f"<td>{r.get('isolation_before', 0):.3f} → "
+                f"{r.get('isolation_after', 0):.3f}</td>"
+                f"<td>{plan_cell}</td><td>{cost}</td></tr>")
+        parts.append("</table>")
+        gifs = gif_map.get(seed, {})
+        if gifs.get("side_by_side"):
+            parts.append(f"<img src='{esc(rel(gifs['side_by_side']))}' "
+                         f"alt='seed {seed} side by side'>")
+        for planner in planners:
+            if gifs.get(planner):
+                parts.append(f"<p><a href='{esc(rel(gifs[planner]))}'>"
+                             f"{esc(planner)} GIF</a></p>")
+    parts.append("</body></html>")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text("\n".join(parts))
+    return out_path
+
+
 def aggregate(rows, planner):
     """Aggregate metrics for one planner's rows."""
     rs = [r for r in rows if r["planner"] == planner]
@@ -129,7 +225,13 @@ def main():
                     help="GIF scale factor (default 0.75)")
     ap.add_argument("--gif-fps", type=float, default=15,
                     help="GIF frame rate (default 15)")
+    ap.add_argument("--html", nargs="?", const="episodes/compare-report.html",
+                    default=None,
+                    help="write a one-page HTML report (implies --gifs; "
+                    "default path episodes/compare-report.html)")
     args = ap.parse_args()
+    if args.html:
+        args.gifs = True
 
     seeds = parse_seeds(args.seeds)
     planners = [p.strip() for p in args.planners.split(",") if p.strip()]
@@ -149,29 +251,41 @@ def main():
 
     if args.gifs:
         from scripts.make_video import make_gif, make_side_by_side_gif
+        gif_map = {}
         for seed, per_planner in frames_by_seed.items():
             out_dir = pathlib.Path("episodes") / f"compare-{seed}"
             out_dir.mkdir(parents=True, exist_ok=True)
+            gif_map[seed] = {}
             for planner, (row, frames) in per_planner.items():
                 meta = {"instruction": args.instruction,
                         "target_color": row.get("target_color", "?"),
                         "force_closure": row.get("force_closure", False)}
-                make_gif(frames, meta, out_dir / f"{planner}.gif",
-                         fps=args.gif_fps, scale=args.gif_scale)
+                gif_path = out_dir / f"{planner}.gif"
+                make_gif(frames, meta, gif_path,
+                         fps=args.gif_fps, scale=args.gif_scale,
+                         frame_info=row.get("frame_info"))
+                gif_map[seed][planner] = str(gif_path)
             if len(per_planner) >= 2:
                 # Side-by-side: first two planners, in --planners order.
                 (p1, (r1, f1)), (p2, (r2, f2)) = [
                     (p, per_planner[p]) for p in planners
                     if p in per_planner][:2]
+                sbs_path = out_dir / "side_by_side.gif"
                 make_side_by_side_gif(
                     f1, f2, p1, p2, outcome_caption(r1),
-                    outcome_caption(r2), out_dir / "side_by_side.gif",
-                    fps=args.gif_fps, scale=args.gif_scale)
-                print(f"seed {seed}: side-by-side GIF -> "
-                      f"{out_dir / 'side_by_side.gif'}")
+                    outcome_caption(r2), sbs_path,
+                    fps=args.gif_fps, scale=args.gif_scale,
+                    left_info=r1.get("frame_info"),
+                    right_info=r2.get("frame_info"))
+                gif_map[seed]["side_by_side"] = str(sbs_path)
+                print(f"seed {seed}: side-by-side GIF -> {sbs_path}")
             else:
                 print(f"seed {seed}: GIFs -> {out_dir}/ "
                       f"(need 2+ planners for side-by-side)")
+        if args.html:
+            report = write_html_report(rows, gif_map, args.html,
+                                       args.instruction, planners)
+            print(f"HTML report -> {report}")
 
     print()
     for planner in planners:

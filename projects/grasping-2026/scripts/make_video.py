@@ -30,9 +30,35 @@ def _load_font(size):
     return ImageFont.load_default()
 
 
+def status_text(status):
+    """One-line live grasp status for a frame overlay.
+
+    status shape (from planning.primitives.frame_status): links =
+    distinct arm links touching the target; enclosed/caged/fc booleans.
+    """
+    yn = lambda b: "Y" if b else "N"
+    return (f"links:{status['links']} enc:{yn(status['enclosed'])} "
+            f"cage:{yn(status['caged'])} FC:{yn(status['fc'])}")
+
+
+def overlay_status(img, status):
+    """Draw a live-status bar across the top of a frame image.
+
+    Drawn ON the frame (not added), so sizes never change and existing
+    layout math still holds.
+    """
+    bar_h = 20
+    d = ImageDraw.Draw(img)
+    d.rectangle([0, 0, img.width, bar_h], fill=(20, 20, 20))
+    d.text((6, 4), status_text(status), font=_load_font(14),
+           fill=(240, 240, 240))
+    return img
+
+
 def make_side_by_side_gif(left_frames, right_frames, left_label,
                           right_label, left_caption, right_caption,
-                          out_path, fps=15, scale=0.75):
+                          out_path, fps=15, scale=0.75,
+                          left_info=None, right_info=None):
     """Stitch two frame sequences side by side into one GIF.
 
     left_frames/right_frames: numpy RGB arrays (H, W, 3) from the same
@@ -41,6 +67,9 @@ def make_side_by_side_gif(left_frames, right_frames, left_label,
     half holds its final pose while the other half keeps moving.
     A header strip labels each half; a footer strip shows each half's
     outcome; a divider separates the halves.
+    left_info/right_info: optional per-frame status lists (same shape
+    as planning.primitives.frame_status); each half's frames get their
+    own live-status bar, padded with the last status like frames.
     """
     if not left_frames or not right_frames:
         raise ValueError("both frame sequences must be non-empty")
@@ -55,17 +84,27 @@ def make_side_by_side_gif(left_frames, right_frames, left_label,
     w, h = left[0].size
     right = [im.resize((w, h)) if im.size != (w, h) else im
              for im in right]
-    # Pad the shorter sequence with its final frame (held pose).
+    # Pad the shorter sequence with its final frame (held pose),
+    # and its status list with its final status.
     n = max(len(left), len(right))
     left += [left[-1]] * (n - len(left))
     right += [right[-1]] * (n - len(right))
+    if left_info:
+        left_info = list(left_info) + [left_info[-1]] * (n - len(left_info))
+    if right_info:
+        right_info = list(right_info) + [right_info[-1]] * (
+            n - len(right_info))
 
     bar_h, divider = 28, 4
     total_w = w * 2 + divider
     total_h = bar_h * 2 + h
     font = _load_font(16)
     gif_frames = []
-    for l, r in zip(left, right):
+    for i, (l, r) in enumerate(zip(left, right)):
+        if left_info and i < len(left_info):
+            l = overlay_status(l.copy(), left_info[i])
+        if right_info and i < len(right_info):
+            r = overlay_status(r.copy(), right_info[i])
         canvas = Image.new("RGB", (total_w, total_h), (20, 20, 20))
         d = ImageDraw.Draw(canvas)
         # Header: label centered in each half.
@@ -104,10 +143,10 @@ def caption_text(meta):
             f"target: {meta.get('target_color', '?')}  |  {status}")
 
 
-def make_gif(frames, meta, out_path, fps=8, scale=0.75):
+def make_gif(frames, meta, out_path, fps=8, scale=0.75, frame_info=None):
     draw_caption = True
     gif_frames = []
-    for fr in frames:
+    for i, fr in enumerate(frames):
         img = Image.fromarray(fr)
         if scale != 1.0:
             img = img.resize((int(img.width * scale),
@@ -119,6 +158,11 @@ def make_gif(frames, meta, out_path, fps=8, scale=0.75):
             canvas.paste(img, (0, 0))
             d = ImageDraw.Draw(canvas)
             d.text((8, 7), caption_text(meta), fill=(240, 240, 240))
+            # Live status goes in the bottom strip, NOT over the frame:
+            # the caption text already occupies the top of the frame.
+            if frame_info is not None and i < len(frame_info):
+                d.text((8, img.height + 7), status_text(frame_info[i]),
+                       font=_load_font(14), fill=(240, 240, 240))
             img = canvas
         gif_frames.append(img)
     gif_frames[0].save(

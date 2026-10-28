@@ -25,11 +25,11 @@ import numpy as np
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 from env.whole_arm_grasp import WholeArmGraspEnv
 from perception.grounding import make_labeller
-from planning.primitives import push
+from planning.primitives import frame_status, push
 
 
 def scripted_singulate(env, target_idx, frames, push_radius=0.35,
-                      push_targets=None, strict=False):
+                      push_targets=None, strict=False, frame_info=None):
     """Push-away phase: isolate the target before grasping.
 
     For each non-target object crowding the target (nearest first), or for
@@ -79,8 +79,10 @@ def scripted_singulate(env, target_idx, frames, push_radius=0.35,
         color = next(o["color"] for o in env.objects if o["index"] == i)
         snap = env.snapshot()
         nframes0 = len(frames)
+        ninfo0 = len(frame_info) if frame_info is not None else 0
         p0 = {o["index"]: xy(o["index"]) for o in env.objects}
-        push(env, start_xy, theta, 0.06 if strict else 0.15, frames)
+        push(env, start_xy, theta, 0.06 if strict else 0.15, frames,
+             frame_info=frame_info)
         # evaluate: keep the push only if it moved the DISTRACTOR away
         # (not the target), without launching anything
         iso_new = env.target_isolation()
@@ -92,6 +94,8 @@ def scripted_singulate(env, target_idx, frames, push_radius=0.35,
                 or tmove > tmove_limit):
             env.restore(snap)
             del frames[nframes0:]
+            if frame_info is not None:
+                del frame_info[ninfo0:]
             print(f"[singulate] reverted push on obj{i} ({color}): "
                   f"iso {iso_before:.3f}->{iso_new:.3f}, "
                   f"distractor moved {dmove:.3f} m, "
@@ -103,7 +107,7 @@ def scripted_singulate(env, target_idx, frames, push_radius=0.35,
     return iso_start, env.target_isolation()
 
 
-def scripted_cage(env, target_idx, frames):
+def scripted_cage(env, target_idx, frames, frame_info=None):
     """Three-phase scripted whole-arm cage around the target object."""
     obs = env._obs()
     pos = obs["objects"][target_idx][:2]
@@ -123,6 +127,8 @@ def scripted_cage(env, target_idx, frames):
             _, r, _, info = env.step(np.array(angles))
             rewards.append(r)
             frames.append(env.render())
+            if frame_info is not None:
+                frame_info.append(frame_status(info))
             # Stop once the grasp is secured by EITHER criterion.
             # Open-loop curling past a good grasp destroys it (seed 5:
             # full curl pushes the object to 0.96 m isolation). The
@@ -150,6 +156,12 @@ def run_episode(env, plan, instruction, frames=None, verbose=True):
         frames = [env.render()]
     target_idx = plan["grasp_target"]
     env.target_index = target_idx
+    # Per-frame grasp status, aligned 1:1 with frames. The initial frame
+    # predates any step, so its status comes from _reward() (a pure
+    # contact read, no physics step). Singulate/cage append one status
+    # per frame they render; reverted pushes truncate both lists.
+    _, init_info = env._reward()
+    frame_info = [frame_status(init_info)]
     if verbose:
         print(f"[demo] instruction: {instruction!r}")
         print(f"[demo] plan: grasp object {target_idx} "
@@ -163,7 +175,8 @@ def run_episode(env, plan, instruction, frames=None, verbose=True):
     push_targets = plan["push_away"] if explicit_push else None
     strict = "without moving" in instruction.lower()
     iso_before, iso_after = scripted_singulate(
-        env, target_idx, frames, push_targets=push_targets, strict=strict)
+        env, target_idx, frames, push_targets=push_targets, strict=strict,
+        frame_info=frame_info)
     if verbose:
         print(f"[demo] singulation: isolation {iso_before:.3f} -> "
               f"{iso_after:.3f} m")
@@ -181,7 +194,8 @@ def run_episode(env, plan, instruction, frames=None, verbose=True):
                   f"{iso_after:.3f} m < {ISOLATION_THRESHOLD} m) — "
                   f"attempting grasp anyway")
 
-    rewards, info = scripted_cage(env, target_idx, frames)
+    rewards, info = scripted_cage(env, target_idx, frames,
+                                  frame_info=frame_info)
     if verbose:
         print(f"[demo] links touching: {info['links_touching']}, "
               f"enclosed: {info['enclosed']}, caged: {info['caged']}, "
@@ -204,6 +218,7 @@ def run_episode(env, plan, instruction, frames=None, verbose=True):
         "caged": info["caged"],
         "force_closure": info["force_closure"],
         "total_reward": float(sum(rewards)),
+        "frame_info": frame_info,
     }
     return metrics, frames, info
 
@@ -268,7 +283,8 @@ def main():
     if not args.no_gif:
         from scripts.make_video import make_gif
         gif_path = make_gif(np.stack(frames), meta, out / "demo.gif",
-                            fps=args.gif_fps, scale=1.0)
+                            fps=args.gif_fps, scale=1.0,
+                            frame_info=metrics["frame_info"])
         print(f"[demo] GIF saved to {gif_path}")
 
 

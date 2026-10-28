@@ -4,5 +4,6 @@ __pycache__/
 .env
 episodes/
 models/
+data/
 *.mp4
 .DS_Store
