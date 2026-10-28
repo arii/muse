@@ -57,7 +57,7 @@ instead of silently attempting a doomed grasp.
 ## The data flow, step by step
 
 `NebiusVLMLabeller.plan(rgb, objects, instruction)` returns
-`{"grasp_target": idx, "push_away": [idxs], "rationale": str}`:
+`{"grasp_target": idx, "push_away": [{"index": j, "effort": "clear"}], "approach_side": "near", "rationale": str}`:
 
 1. **Render.** `rgb` is the 480×640 top-down MuJoCo frame. Top-down matters:
    the scene is planar, so a single orthographic-ish view shows every
@@ -73,7 +73,7 @@ instead of silently attempting a doomed grasp.
    - lists the candidates,
    - quotes the instruction verbatim,
    - demands **only** a JSON object
-     `{"grasp_target": N, "push_away": [M], "rationale": "..."}` —
+     `{"grasp_target": N, "push_away": [{"index": M, "effort": "clear"}], "approach_side": "near", "rationale": "..."}` —
      which box to grasp, and which to push away first to isolate it.
 4. **Send image + text.** The frame is PNG-encoded, base64'd, and sent as an
    `image_url` data URL alongside the text in one OpenAI-compatible
@@ -101,7 +101,7 @@ The boxes are: index 0: red box, index 1: blue box, index 2: green box,
 index 3: yellow box. The task instruction is: "grasp the red box, first
 push the blue box away". Which box should the robot grasp? Are there boxes
 it should push away first to isolate the grasp target? Reply with ONLY a
-JSON object like '{"grasp_target": 2, "push_away": [0],
+JSON object like '{"grasp_target": 2, "push_away": [{"index": 0, "effort": "clear"}], "approach_side": "near",
 "rationale": "short reason"}'. Use an empty push_away list if no pushing
 is needed.
 ```
@@ -109,11 +109,11 @@ is needed.
 A good reply:
 
 ```
-{"grasp_target": 0, "push_away": [1], "rationale": "push blue aside, grasp red"}
+{"grasp_target": 0, "push_away": [{"index": 1, "effort": "clear"}], "approach_side": "near", "rationale": "push blue aside, grasp red"}
 ```
 
 `plan()` returns
-`{"grasp_target": 0, "push_away": [1], "rationale": "push blue aside, grasp red"}`
+`{"grasp_target": 0, "push_away": [{"index": 1, "effort": "clear"}], "approach_side": "near", "rationale": "push blue aside, grasp red"}`
 and stashes the raw reply on `labeller.last_raw` for inspection. The demo
 then singulates exactly the listed objects; "without moving the red box" in
 the instruction switches the push-revert to strict mode (target must stay

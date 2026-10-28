@@ -1,10 +1,22 @@
 """VLM grounding: natural-language instruction + top-down image -> action plan.
 
 The task is framed as "grasp the target IN ISOLATION". The VLM reasons about
-preconditions: which box to grasp, and which boxes must be pushed away first
-for the grasp to succeed. E.g.:
+preconditions AND about how to act: which box to grasp, which boxes to push
+away first (and how hard), and which way the arm should point as it reaches
+in. E.g.:
     "grasp the red box in isolation"
--> {"grasp_target": 0, "push_away": [1], "rationale": "..."}.
+-> {"grasp_target": 0,
+    "push_away": [{"index": 1, "effort": "shove"}],
+    "approach_side": "right",
+    "rationale": "..."}.
+
+The plan is semantic by design: the VLM never estimates coordinates. The
+executor (scripts/demo_vlm_grasp.py) resolves each choice to geometry via
+planning.primitives — effort to a push distance, approach_side to a cage
+yaw — so a plan choice visibly changes the trajectory. Earlier the plan
+only named objects and the executor ignored even that unless the word
+"push" appeared in the instruction, which made VLM and heuristic runs
+frame-for-frame identical.
 
 NebiusVLMLabeller talks to an OpenAI-compatible chat-completions endpoint
 (Nebius Token Factory by default). Set:
@@ -31,6 +43,10 @@ from PIL import Image
 # Caveat: not every model supports JSON mode (check the model card for
 # the "JSON mode" tag). If the API rejects response_format, plan()
 # raises — pick a supporting model instead of degrading silently.
+# Strict mode requires every property in `required`, including the
+# nested push_away items.
+EFFORTS = ("nudge", "clear", "shove")
+APPROACH_SIDES = ("near", "far", "left", "right")
 PLAN_SCHEMA = {
     "name": "grasp_plan",
     "schema": {
@@ -42,16 +58,47 @@ PLAN_SCHEMA = {
             },
             "push_away": {
                 "type": "array",
-                "items": {"type": "integer"},
-                "description": "Indices of boxes to push away first, "
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "index": {
+                            "type": "integer",
+                            "description": "Index of a box to push away",
+                        },
+                        "effort": {
+                            "type": "string",
+                            "enum": list(EFFORTS),
+                            "description": "How hard to push it: nudge "
+                                           "(barely crowding), clear "
+                                           "(close to the target), "
+                                           "shove (touching it)",
+                        },
+                    },
+                    "required": ["index", "effort"],
+                    "additionalProperties": False,
+                },
+                "description": "Boxes to push away first, in order, "
                                "to isolate the grasp target",
+            },
+            "approach_side": {
+                "type": "string",
+                "enum": list(APPROACH_SIDES),
+                "description": "Which way the arm points as it reaches "
+                               "in: near (from the arm's side, default), "
+                               "far (opposite side), left/right (90 "
+                               "degrees around the target from the "
+                               "arm's side, counterclockwise/clockwise "
+                               "as seen in the image). Pick the side "
+                               "whose sweep keeps the arm clear of "
+                               "other boxes.",
             },
             "rationale": {
                 "type": "string",
                 "description": "Short reason for the choice",
             },
         },
-        "required": ["grasp_target", "push_away", "rationale"],
+        "required": ["grasp_target", "push_away", "approach_side",
+                     "rationale"],
         "additionalProperties": False,
     },
     "strict": True,
@@ -63,16 +110,54 @@ PROMPT = (
     "The goal is: \"{instruction}\". "
     "The grasp must happen IN ISOLATION — no other box within reach of the "
     "grasp target when the arm closes around it. "
-    "What preconditions must be satisfied before grasping can succeed? "
-    "Which box is the grasp target, and are there boxes that must be pushed "
-    "away first to isolate it? "
+    "The image is top-down: right is +x, up is +y. "
+    "Decide: which box is the grasp target, which boxes must be pushed "
+    "away first to isolate it (in the order to push them, and how hard: "
+    "nudge if barely crowding, clear if close to the target, shove if "
+    "touching or nearly touching it), and which way the arm should point "
+    "as it reaches in (near = from the arm's side, far = from the opposite "
+    "side, left/right = 90 degrees around the target from the arm's side, "
+    "counterclockwise/clockwise as seen in the image — pick the side whose "
+    "sweep keeps the arm clear of other boxes). "
     "Your ENTIRE reply must be ONLY a JSON object, with no explanation, "
     "no reasoning steps, no markdown, and no text before or after it. "
     "Reply exactly like this (with your own values): "
-    '\'{{"grasp_target": 2, "push_away": [0], "rationale": "short reason"}}\'. '
+    '\'{{"grasp_target": 2, "push_away": [{{"index": 0, "effort": "clear"}}], '
+    '"approach_side": "near", "rationale": "short reason"}}\'. '
     "Use an empty push_away list if no preconditions are needed."
     # NOTE: doubled braces — they are literal in the formatted prompt.
 )
+
+
+def normalize_plan(out, valid):
+    """Validate a raw plan dict into the canonical plan shape.
+
+    Accepts the current shape and the legacy one (push_away as bare
+    indices, no approach_side) so old ledger entries, cached plans,
+    and hand-written plans keep working: a bare index means effort
+    "clear", a missing approach_side means "near". Anything else
+    invalid raises — no silent degradation.
+    """
+    grasp = int(out["grasp_target"])
+    if grasp not in valid:
+        raise ValueError(f"grasp_target out of range: {out}")
+    pushes = []
+    for item in out.get("push_away", []):
+        if isinstance(item, dict):
+            idx, effort = int(item["index"]), item.get("effort", "clear")
+        else:
+            idx, effort = int(item), "clear"
+        if idx not in valid:
+            raise ValueError(f"push_away index out of range: {out}")
+        if effort not in EFFORTS:
+            raise ValueError(f"unknown push effort {effort!r}: {out}")
+        pushes.append({"index": idx, "effort": effort})
+    side = out.get("approach_side", "near")
+    if side not in APPROACH_SIDES:
+        raise ValueError(f"unknown approach_side {side!r}: {out}")
+    return {"grasp_target": grasp, "push_away": pushes,
+            "approach_side": side,
+            "rationale": out.get("rationale", "")}
 
 
 def _rgb_to_data_url(rgb):
@@ -151,7 +236,7 @@ class NebiusVLMLabeller:
         return "\n".join(lines)
 
     def plan(self, rgb, objects, instruction):
-        """Instruction -> {"grasp_target": idx, "push_away": [idxs], "rationale": str}.
+        """Instruction -> canonical plan dict (see normalize_plan).
 
         Uses Nebius structured output (response_format json_schema, strict)
         so the API guarantees the reply matches PLAN_SCHEMA — no prose,
@@ -269,12 +354,7 @@ class NebiusVLMLabeller:
                 "'JSON mode' tag, or accept the heuristic fallback.")
         out = json.loads(text[start:end])
         valid = {o["index"] for o in objects}
-        grasp = int(out["grasp_target"])
-        push = [int(i) for i in out.get("push_away", [])]
-        if grasp not in valid or any(i not in valid for i in push):
-            raise ValueError(f"VLM returned out-of-range indices: {out}")
-        plan = {"grasp_target": grasp, "push_away": push,
-                "rationale": out.get("rationale", "")}
+        plan = normalize_plan(out, valid)
         if self.ledger is not None and self.ledger.enabled:
             usage = data.get("usage") or {}
             self.ledger.record({**base_entry, "response": text,
@@ -326,7 +406,10 @@ class HeuristicLabeller:
         if push_idxs:
             pushed = ", ".join(f"'{objects[i]['color']}'" for i in push_idxs)
             rationale += f", push away {pushed}"
-        return {"grasp_target": grasp_idx, "push_away": push_idxs,
+        return {"grasp_target": grasp_idx,
+                "push_away": [{"index": i, "effort": "clear"}
+                              for i in push_idxs],
+                "approach_side": "near",
                 "rationale": rationale}
 
     def label(self, rgb, objects, instruction):

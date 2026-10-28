@@ -23,8 +23,8 @@ grasping-2026/
 │   └── whole_arm_grasp.py  #   env: reset/step/render, contact reward,
 │                           #   isolation metric, snapshot/restore
 ├── perception/             # the VLM front end (semantics)
-│   ├── grounding.py        #   goal + image -> {grasp_target, push_away}
-│                           #   (preconditions for "grasp in isolation")
+│   ├── grounding.py        #   goal + image -> plan (target, pushes
+│                           #   with effort, approach side, rationale)
 │   ├── segment.py          #   STUB (M2): detection -> pixel mask
 │   └── grasp.py            #   STUB (M3): mask -> ranked grasps
 ├── planning/               # geometry: IK + action primitives
@@ -73,24 +73,41 @@ source of truth: `[{index: 0, color: 'red', ...}, ...]`.
 singulation matters here.*
 
 **1. Grounding** (`perception/grounding.py`). `labeller.plan(image, objects,
-instruction)` reasons about preconditions and returns:
+instruction)` reasons about preconditions AND about how to act, and returns:
 
 ```python
-{"grasp_target": 0, "push_away": [1], "rationale": "..."}
+{"grasp_target": 0,
+ "push_away": [{"index": 1, "effort": "shove"}],
+ "approach_side": "right",
+ "rationale": "..."}
 ```
 
 The VLM (`NebiusVLMLabeller`) gets the image + the object list as text and
-replies with JSON; the offline fallback (`HeuristicLabeller`) parses
-"push the \<color\>" / "grasp the \<color\>" with regexes. Indices are
-validated — an out-of-range index raises instead of guessing. Full worked
-example in `docs/vlm-grounding-tutorial.md`.
+replies with JSON (strict schema); the offline fallback (`HeuristicLabeller`)
+parses "push the \<color\>" / "grasp the \<color\>" with regexes. Indices
+and effort values are validated — an out-of-range index or unknown effort
+raises instead of guessing. The plan stays semantic (the VLM never outputs
+raw coordinates — it's bad at metric estimation), but it now controls the
+execution: push_away names the objects *in order* with an effort each
+(nudge = barely crowding, clear = close, shove = touching), and
+approach_side picks the cage entry yaw (near = from the arm's side,
+far = opposite, left/right = 90 degrees around the target from the arm's
+side, counterclockwise/clockwise as seen in the top-down image). The
+executor resolves effort to a push distance (0.06/0.15/0.25 m) and the
+approach side to a yaw, and records both in the metrics (`pushes`,
+`approach_side`) so the report shows what was actually commanded. Full
+worked example in `docs/vlm-grounding-tutorial.md`.
 
 **2. Singulation** (`scripts/demo_vlm_grasp.py: scripted_singulate`). Executes
-the preconditions using the Cartesian `push()` primitive
-(`planning/primitives.py`): for each object in `push_away`, compute the push
-direction (away from the target), start at the object's target-facing edge,
-and `push(start_xy, theta, dist)` — the tip approaches via IK, then tracks
-a straight Cartesian line while contact forces shove the box. Each push is
+the plan's pushes using the Cartesian `push()` primitive
+(`planning/primitives.py`): for each object in `push_away` (in order),
+compute the push direction (away from the target), start at the object's
+target-facing edge, and `push(start_xy, theta, dist)` — the tip approaches
+via IK, then tracks a straight Cartesian line while contact forces shove
+the box. The distance comes from the entry's effort (0.06/0.15/0.25 m),
+or 0.06 when strict ("without moving" overrides effort). An empty
+push_away falls back to auto-detecting crowding objects as a safety net —
+it never overrides a plan that names objects. Each push is
 tried optimistically and **reverted** (physics snapshot + dropped frames) if
 isolation drops, the target moves more than the distractor, or anything
 launches. Tracked by the `isolation` metric (`env.target_isolation()`): min
@@ -106,7 +123,8 @@ attempted anyway as a fallback.
 antipodal sampler (M3) are next.
 
 **5–6. Motion + execution** (`planning/motion.py`, `env/`). The scripted
-placeholder yaws at the target, reaches, and curls the links around it. The
+placeholder yaws at the target (biased by the plan's `approach_side`),
+reaches, and curls the links around it. The
 goal metric is **caging**: ≥2 distinct arm links in contact with the target
 (one link is a poke; two is an enveloping grasp). Checked every physics step
 in `env._reward()` from raw MuJoCo contacts; reward = `0.5 × links + 2.0`

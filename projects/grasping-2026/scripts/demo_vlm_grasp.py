@@ -25,44 +25,72 @@ import numpy as np
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 from env.whole_arm_grasp import WholeArmGraspEnv
 from perception.grounding import make_labeller
-from planning.primitives import frame_status, push
+from planning.primitives import (EFFORT_DISTANCES, approach_face,
+                                 frame_status, push)
+
+
+def normalize_push_targets(push_targets):
+    """Plan push_away entries -> [(index, effort)].
+
+    Accepts the canonical dicts and legacy bare indices (effort
+    "clear"). Raises on an unknown effort — the planner must pick
+    from the schema's enum, the executor must not guess.
+    """
+    out = []
+    for item in push_targets or []:
+        if isinstance(item, dict):
+            idx, effort = int(item["index"]), item.get("effort", "clear")
+        else:
+            idx, effort = int(item), "clear"
+        if effort not in EFFORT_DISTANCES:
+            raise ValueError(f"unknown push effort {effort!r}")
+        out.append((idx, effort))
+    return out
 
 
 def scripted_singulate(env, target_idx, frames, push_radius=0.35,
-                      push_targets=None, strict=False, frame_info=None):
+                       push_targets=None, strict=False, frame_info=None,
+                       push_log=None):
     """Push-away phase: isolate the target before grasping.
 
-    For each non-target object crowding the target (nearest first), or for
-    each index in push_targets when explicitly given: compute a Cartesian
-    push (start at the object's target-facing edge, direction away from the
-    target) and execute it via planning.primitives.push. Each push is tried
-    optimistically and REVERTED (physics snapshot + dropped frames) if it
-    hurts: isolation decreased, the target moved more than the distractor
-    (or at all, when strict=True e.g. "without moving the red block"), the
-    distractor barely moved, or something launched.
+    For each entry in push_targets (in order) when explicitly given, or
+    for each non-target object crowding the target (nearest first) when
+    push_targets is None: compute a Cartesian push (start at the
+    object's target-facing edge, direction away from the target) and
+    execute it via planning.primitives.push. The push distance comes
+    from the entry's effort (nudge/clear/shove), or 0.06 when strict
+    ("without moving" overrides effort: don't disturb). Each push is
+    tried optimistically and REVERTED (physics snapshot + dropped
+    frames) if it hurts: isolation decreased, the target moved more
+    than the distractor (or at all, when strict), the distractor
+    barely moved, or something launched. Kept pushes are appended to
+    push_log (if given) as {index, effort, distance_m}.
     Returns (isolation_before, isolation_after) in meters.
     """
     def xy(i):
         return env._obs()["objects"][i][:2].copy()
 
     others = [o["index"] for o in env.objects if o["index"] != target_idx]
+    explicit = normalize_push_targets(push_targets) \
+        if push_targets is not None else None
     iso_start = env.target_isolation()
     iso_before = iso_start
     done = set()
     while True:
         t = xy(target_idx)
-        if push_targets is not None:
-            # explicit instruction: push exactly these, no distance filter
-            cands = [(0.0, i) for i in push_targets
+        if explicit is not None:
+            # explicit plan: push exactly these, in order, no filter
+            cands = [(0.0, i, e) for i, e in explicit
                      if i in others and i not in done]
         else:
             cands = sorted(
-                (float(np.linalg.norm(xy(i) - t)), i) for i in others
+                (float(np.linalg.norm(xy(i) - t)), i, "clear")
+                for i in others
                 if i not in done
                 and float(np.linalg.norm(xy(i) - t)) < push_radius)
         if not cands:
             break
-        _, i = cands[0]
+        _, i, effort = cands[0]
         done.add(i)
         d = xy(i)
         t = xy(target_idx)
@@ -81,7 +109,8 @@ def scripted_singulate(env, target_idx, frames, push_radius=0.35,
         nframes0 = len(frames)
         ninfo0 = len(frame_info) if frame_info is not None else 0
         p0 = {o["index"]: xy(o["index"]) for o in env.objects}
-        push(env, start_xy, theta, 0.06 if strict else 0.15, frames,
+        dist = 0.06 if strict else EFFORT_DISTANCES[effort]
+        push(env, start_xy, theta, dist, frames,
              frame_info=frame_info)
         # evaluate: keep the push only if it moved the DISTRACTOR away
         # (not the target), without launching anything
@@ -102,16 +131,26 @@ def scripted_singulate(env, target_idx, frames, push_radius=0.35,
                   f"target moved {tmove:.3f} m")
         else:
             iso_before = iso_new
-            print(f"[singulate] pushed obj{i} ({color}): "
+            if push_log is not None:
+                push_log.append({"index": i, "effort": effort,
+                                 "distance_m": dist})
+            print(f"[singulate] pushed obj{i} ({color}, {effort}): "
                   f"iso {iso_new:.3f} m")
     return iso_start, env.target_isolation()
 
 
-def scripted_cage(env, target_idx, frames, frame_info=None):
-    """Three-phase scripted whole-arm cage around the target object."""
+def scripted_cage(env, target_idx, frames, frame_info=None,
+                  approach_side="near"):
+    """Three-phase scripted whole-arm cage around the target object.
+
+    approach_side biases the entry yaw (see approach_face): near is
+    the historical behavior (yaw toward the target); far/left/right
+    swing the arm in from another side, which matters when a
+    distractor sits on the near side.
+    """
     obs = env._obs()
     pos = obs["objects"][target_idx][:2]
-    face = float(np.arctan2(pos[1], pos[0]))
+    face = approach_face(pos, approach_side)
     phases = [
         ([face, 0.15, 0.15], 120),    # 1. yaw toward the object, arm extended
         ([face, 0.55, 0.55], 120),    # 2. reach: bend elbow toward it
@@ -146,11 +185,21 @@ def run_episode(env, plan, instruction, frames=None, verbose=True):
     """Execute one episode: plan -> singulate -> gate -> cage.
 
     env must already be reset; target_index is set from the plan here.
-    plan: {"grasp_target", "push_away", "rationale"} from any planner
-    (VLM, heuristic, scripted). frames: list to append renders to
-    (created if None). Returns (metrics dict, frames list, cage info).
+    plan: canonical dict from perception.grounding.normalize_plan
+    (grasp_target, push_away [{index, effort}], approach_side,
+    rationale) — from any planner (VLM, heuristic, scripted).
+    frames: list to append renders to (created if None). Returns
+    (metrics dict, frames list, cage info).
     Metrics are the comparison surface: force_closure is the goal
     criterion; caged/enclosed/isolation/reward are diagnostics.
+    The plan DRIVES execution: a non-empty push_away pushes exactly
+    those objects (in order, at their efforts); an empty push_away
+    falls back to the executor's crowding filter as a safety net.
+    approach_side biases the cage entry yaw. Two different plans on
+    the same seed must be able to produce different trajectories —
+    otherwise the comparison is vacuous (that was the old bug: the
+    plan was used only when the word "push" appeared in the
+    instruction, so VLM and heuristic runs were frame-identical).
     """
     if frames is None:
         frames = [env.render()]
@@ -162,21 +211,28 @@ def run_episode(env, plan, instruction, frames=None, verbose=True):
     # per frame they render; reverted pushes truncate both lists.
     _, init_info = env._reward()
     frame_info = [frame_status(init_info)]
+    approach_side = plan.get("approach_side", "near")
     if verbose:
         print(f"[demo] instruction: {instruction!r}")
+        pushes = ", ".join(
+            f"obj{p['index']}({p['effort']})" if isinstance(p, dict)
+            else f"obj{p}" for p in plan["push_away"])
         print(f"[demo] plan: grasp object {target_idx} "
               f"({env.objects[target_idx]['color']}), push away "
-              f"{plan['push_away']} — {plan['rationale']}")
+              f"[{pushes}], approach {approach_side} — "
+              f"{plan['rationale']}")
 
-    # Explicit "push ..." in the instruction -> push exactly those objects.
-    # Otherwise fall back to auto-detecting crowding. "without moving"
-    # makes the revert strict: any target motion fails the push.
-    explicit_push = "push" in instruction.lower()
-    push_targets = plan["push_away"] if explicit_push else None
+    # The plan drives the pushes: a non-empty push_away pushes exactly
+    # those objects (in order, at their efforts). An empty push_away
+    # falls back to auto-detecting crowding (the safety net — it does
+    # not override a plan that names objects). "without moving" makes
+    # the revert strict: any target motion fails the push.
+    push_targets = plan["push_away"] if plan["push_away"] else None
     strict = "without moving" in instruction.lower()
+    push_log = []
     iso_before, iso_after = scripted_singulate(
         env, target_idx, frames, push_targets=push_targets, strict=strict,
-        frame_info=frame_info)
+        frame_info=frame_info, push_log=push_log)
     if verbose:
         print(f"[demo] singulation: isolation {iso_before:.3f} -> "
               f"{iso_after:.3f} m")
@@ -195,7 +251,8 @@ def run_episode(env, plan, instruction, frames=None, verbose=True):
                   f"attempting grasp anyway")
 
     rewards, info = scripted_cage(env, target_idx, frames,
-                                  frame_info=frame_info)
+                                  frame_info=frame_info,
+                                  approach_side=approach_side)
     if verbose:
         print(f"[demo] links touching: {info['links_touching']}, "
               f"enclosed: {info['enclosed']}, caged: {info['caged']}, "
@@ -210,6 +267,8 @@ def run_episode(env, plan, instruction, frames=None, verbose=True):
         "target_color": env.objects[target_idx]["color"],
         "rationale": plan["rationale"],
         "push_away": plan["push_away"],
+        "approach_side": approach_side,
+        "pushes": push_log,
         "isolation_before": iso_before,
         "isolation_after": iso_after,
         "preconditions_met": preconditions_met,

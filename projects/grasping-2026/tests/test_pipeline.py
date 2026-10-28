@@ -44,7 +44,7 @@ def test_heuristic_plan_parses_push_instruction():
                     "grasp the red box, first push the blue box away "
                     "without moving the red box")
     assert plan["grasp_target"] == 0  # red
-    assert plan["push_away"] == [1]  # blue
+    assert plan["push_away"] == [{"index": 1, "effort": "clear"}]  # blue
     # plain grasp instruction: no push_away, grasp still parsed
     plan2 = lab.plan(env.render(), env.objects, "grasp the green box")
     assert plan2["grasp_target"] == 2 and plan2["push_away"] == []
@@ -172,19 +172,39 @@ def test_nebius_labeller_request_shape_and_parse(monkeypatch):
 
 
 def test_nebius_labeller_plan_parses_push_away(monkeypatch):
-    """plan() returns grasp_target + push_away list; rejects bad indices."""
+    """plan() returns the canonical shape; rejects bad indices/effort."""
     env = WholeArmGraspEnv(seed=0)
     env.reset(seed=0)
     lab, _ = _mock_labeller(
         monkeypatch,
         '{"grasp_target": 0, "push_away": [1, 2], "rationale": "clear it"}')
     plan = lab.plan(env.render(), env.objects, "grasp the red box")
-    assert plan == {"grasp_target": 0, "push_away": [1, 2],
+    # Legacy bare indices normalize to effort "clear", missing side
+    # defaults to "near" — old replies and cached plans keep working.
+    assert plan == {"grasp_target": 0,
+                    "push_away": [{"index": 1, "effort": "clear"},
+                                  {"index": 2, "effort": "clear"}],
+                    "approach_side": "near",
                     "rationale": "clear it"}
+
+    lab_new, _ = _mock_labeller(
+        monkeypatch,
+        '{"grasp_target": 0, "push_away": [{"index": 2, "effort": '
+        '"shove"}], "approach_side": "far", "rationale": "jammed"}')
+    plan_new = lab_new.plan(env.render(), env.objects, "grasp the red box")
+    assert plan_new["push_away"] == [{"index": 2, "effort": "shove"}]
+    assert plan_new["approach_side"] == "far"
 
     lab2, _ = _mock_labeller(monkeypatch, '{"grasp_target": 9, "push_away": []}')
     with pytest.raises(ValueError):
         lab2.plan(env.render(), env.objects, "grasp the red box")
+
+    lab3, _ = _mock_labeller(
+        monkeypatch,
+        '{"grasp_target": 0, "push_away": [{"index": 1, "effort": '
+        '"yeet"}], "approach_side": "near", "rationale": "x"}')
+    with pytest.raises(ValueError):
+        lab3.plan(env.render(), env.objects, "grasp the red box")
 
 
 def test_nebius_labeller_rejects_non_json(monkeypatch):
@@ -241,7 +261,7 @@ def test_nebius_labeller_sends_response_format(monkeypatch):
     assert rf["json_schema"]["strict"] is True
     schema = rf["json_schema"]["schema"]
     assert set(schema["required"]) == {"grasp_target", "push_away",
-                                       "rationale"}
+                                       "approach_side", "rationale"}
     assert schema["properties"]["grasp_target"]["type"] == "integer"
 
 
@@ -281,7 +301,10 @@ def test_vlm_ledger_caches_identical_calls(monkeypatch, tmp_path):
 
     plan1 = lab.plan(rgb, env.objects, "grasp the red box")
     plan2 = lab.plan(rgb, env.objects, "grasp the red box")
-    assert plan1 == plan2 == {"grasp_target": 0, "push_away": [1],
+    assert plan1 == plan2 == {"grasp_target": 0,
+                              "push_away": [{"index": 1,
+                                             "effort": "clear"}],
+                              "approach_side": "near",
                               "rationale": "clear it"}
     assert len(calls) == 1, "second identical call must not hit the API"
 
@@ -908,3 +931,107 @@ def test_wrapper_max_delta_q_caps_target():
     w2.env.step = fake_step
     w2.step(np.array([1.0, 1.0, 1.0]))
     assert np.allclose(seen["target"], 2.6)
+
+
+def test_approach_face_offsets():
+    """approach_face: near/far/left/right yaw offsets from the target."""
+    import math
+    from planning.primitives import approach_face
+    # Target on +x axis: base yaw 0.
+    assert approach_face((0.5, 0.0), "near") == 0.0
+    assert abs(abs(approach_face((0.5, 0.0), "far")) - math.pi) < 1e-9
+    assert approach_face((0.5, 0.0), "left") == math.pi / 2
+    assert approach_face((0.5, 0.0), "right") == -math.pi / 2
+    # Target on +y axis: base yaw pi/2; far wraps into [-pi, pi].
+    assert approach_face((0.0, 0.5), "near") == math.pi / 2
+    assert approach_face((0.0, 0.5), "far") == -math.pi / 2
+    with __import__("pytest").raises(ValueError):
+        approach_face((0.5, 0.0), "diagonal")
+
+
+def test_singulate_effort_sets_push_distance(monkeypatch):
+    """A shove commands 0.25 m, a nudge 0.06 m, on the planned object."""
+    import scripts.demo_vlm_grasp as demo
+    env = WholeArmGraspEnv(seed=7)
+    env.reset(seed=7)
+    env.target_index = 0
+    calls = []
+
+    def fake_push(env_, start_xy, theta, dist, frames, frame_info=None):
+        calls.append((np.asarray(start_xy, dtype=float), theta, dist))
+
+    monkeypatch.setattr(demo, "push", fake_push)
+    target_xy = env._obs()["objects"][0][:2]
+    obj2_xy = env._obs()["objects"][2][:2]
+    demo.scripted_singulate(env, 0, [], push_targets=[{"index": 2,
+                                                      "effort": "shove"}])
+    assert len(calls) == 1
+    start_xy, _, dist = calls[0]
+    assert dist == 0.25
+    # Push starts at the planned object's target-facing edge, not
+    # somewhere unrelated: within ~0.15 m of the object's center.
+    assert float(np.linalg.norm(start_xy - obj2_xy)) < 0.15
+    assert float(np.linalg.norm(start_xy - target_xy)) > 0.05
+
+    env2 = WholeArmGraspEnv(seed=7)
+    env2.reset(seed=7)
+    env2.target_index = 0
+    calls.clear()
+    demo.scripted_singulate(env2, 0, [],
+                            push_targets=[{"index": 2, "effort": "nudge"}])
+    assert len(calls) == 1 and calls[0][2] == 0.06
+
+
+def test_different_plans_diverge_on_same_seed():
+    """Regression test for the identical-VLM/heuristic videos: two
+    plans on the same seed must produce different trajectories, and
+    an explicit push_away must not fall back to other objects."""
+    from scripts.demo_vlm_grasp import run_episode
+    base = {"grasp_target": 0, "rationale": "t"}
+    plan_near = {**base, "push_away": [], "approach_side": "near"}
+    plan_far = {**base, "push_away": [], "approach_side": "far"}
+    env_a = WholeArmGraspEnv(seed=5)
+    env_a.reset(seed=5)
+    m_a, frames_a, _ = run_episode(env_a, plan_near,
+                                   "grasp the red box in isolation",
+                                   verbose=False)
+    env_b = WholeArmGraspEnv(seed=5)
+    env_b.reset(seed=5)
+    m_b, frames_b, _ = run_episode(env_b, plan_far,
+                                   "grasp the red box in isolation",
+                                   verbose=False)
+    assert m_a["approach_side"] == "near"
+    assert m_b["approach_side"] == "far"
+    assert len(frames_a) != len(frames_b) or any(
+        not np.array_equal(fa, fb) for fa, fb in zip(frames_a, frames_b))
+
+    # Explicit plan: kept pushes are a subset of the planned objects
+    # (no silent fallback to other objects).
+    plan_push = {**base,
+                 "push_away": [{"index": 2, "effort": "clear"}],
+                 "approach_side": "near"}
+    env_c = WholeArmGraspEnv(seed=7)
+    env_c.reset(seed=7)
+    m_c, _, _ = run_episode(env_c, plan_push,
+                            "grasp the red box in isolation",
+                            verbose=False)
+    assert {p["index"] for p in m_c["pushes"]} <= {2}
+
+
+def test_normalize_plan_legacy_and_invalid():
+    """normalize_plan: legacy ints -> clear, missing side -> near,
+    unknown effort/side raises."""
+    from perception.grounding import normalize_plan
+    valid = {0, 1, 2, 3}
+    plan = normalize_plan({"grasp_target": 0, "push_away": [1],
+                           "rationale": "old"}, valid)
+    assert plan["push_away"] == [{"index": 1, "effort": "clear"}]
+    assert plan["approach_side"] == "near"
+    with __import__("pytest").raises(ValueError):
+        normalize_plan({"grasp_target": 0,
+                        "push_away": [{"index": 1, "effort": "yeet"}],
+                        "approach_side": "near", "rationale": "x"}, valid)
+    with __import__("pytest").raises(ValueError):
+        normalize_plan({"grasp_target": 0, "push_away": [],
+                        "approach_side": "diagonal",
+                        "rationale": "x"}, valid)

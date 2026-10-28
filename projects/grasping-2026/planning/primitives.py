@@ -91,6 +91,36 @@ def frame_status(info):
             "fc": bool(info["force_closure"])}
 
 
+# Push effort (a planner's semantic choice) -> push distance in meters.
+# nudge: barely inside crowding range; clear: the normal push; shove:
+# jammed against the target, needs one long push instead of several.
+EFFORT_DISTANCES = {"nudge": 0.06, "clear": 0.15, "shove": 0.25}
+
+
+def approach_face(target_xy, side="near"):
+    """Cage yaw for an approach side (planner's semantic choice).
+
+    The cage yaws toward the target, then reaches and curls. `side`
+    biases that entry direction: near = toward the target (the
+    historical behavior); far = opposite; left/right = 90° around
+    the target from the arm's side, counterclockwise/clockwise as
+    seen in the top-down image (image up = +y, right = +x, so image
+    CCW is world CCW). This is an entry-direction bias on an
+    open-loop cage, not a tip-placement guarantee — the reach/curl
+    phases are fixed and the arm is rooted at the origin.
+    """
+    base = float(np.arctan2(target_xy[1], target_xy[0]))
+    offsets = {"near": 0.0, "far": np.pi,
+               "left": np.pi / 2, "right": -np.pi / 2}
+    if side not in offsets:
+        raise ValueError(f"unknown approach_side {side!r} "
+                         f"(expected one of {sorted(offsets)})")
+    face = base + offsets[side]
+    # Wrap to [-pi, pi]: the env clips joint targets to +-2.6, and an
+    # unwrapped face+pi (up to 2pi) would clip to a wrong yaw.
+    return float((face + np.pi) % (2 * np.pi) - np.pi)
+
+
 def move_tip(env, target_xy, frames, n_interp=25, settle=8,
              frame_info=None):
     """Move the tip to target_xy via IK + joint interpolation, then

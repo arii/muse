@@ -110,6 +110,18 @@ def write_html_report(rows, gif_map, out_path, instruction, planners):
     def esc(v):
         return _html.escape("" if v is None else str(v))
 
+    def fmt_pushes(push_away):
+        # Plan push_away: [{index, effort}] (or legacy bare indices).
+        if not push_away:
+            return "none"
+        parts = []
+        for p in push_away:
+            if isinstance(p, dict):
+                parts.append(f"{p['index']}({p.get('effort', 'clear')})")
+            else:
+                parts.append(str(p))
+        return ", ".join(parts)
+
     parts = ["<html><head><meta charset='utf-8'>",
              "<style>body{font-family:sans-serif;max-width:1100px;"
              "margin:2em auto;padding:0 1em}table{border-collapse:collapse}"
@@ -154,7 +166,9 @@ def write_html_report(rows, gif_map, out_path, instruction, planners):
             else:
                 plan_cell = (f"target {r.get('target_index')} "
                              f"({esc(r.get('target_color'))}), push "
-                             f"{esc(r.get('push_away'))}: "
+                             f"{esc(fmt_pushes(r.get('push_away')))}, "
+                             f"approach "
+                             f"{esc(r.get('approach_side', 'near'))}: "
                              f"{esc(r.get('rationale'))}")
                 cost = (f"{r['tokens']} tokens" if planner == "vlm"
                         else "no API")
