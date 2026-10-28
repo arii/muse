@@ -360,6 +360,59 @@ def test_vlm_ledger_records_failures_without_caching(monkeypatch, tmp_path):
     assert len(calls) == 1
 
 
+def test_force_closure_math():
+    """_force_closure: positive span of wrenches, no scipy needed."""
+    import math
+    import numpy as np
+    fc = WholeArmGraspEnv._force_closure
+    # tetrahedron around origin -> True
+    tet = [np.array([1, 1, 1.]), np.array([1, -1, -1.]),
+           np.array([-1, 1, -1.]), np.array([-1, -1, 1.])]
+    assert fc(tet) is True
+    # all wrenches in a half-space -> False
+    half = [np.array([-1, 0.2, 0.1]), np.array([-1, -0.3, 0.2]),
+            np.array([-0.5, 1, 0.]), np.array([-0.5, -1, 0.])]
+    assert fc(half) is False
+    # fewer than 4 wrenches cannot span R^3 -> False
+    assert fc(tet[:3]) is False
+    # antipodal pair (normals along the segment, friction cones
+    # overlapping) -> True; same-side pair -> False
+    mu = 0.8
+    a = math.atan(mu)
+
+    def cone(n, c):
+        t = np.array([-n[1], n[0]])
+        out = []
+        for s in (+1, -1):
+            f = n * math.cos(a) + t * (s * math.sin(a))
+            out.append(np.array([f[0], f[1], c[0] * f[1] - c[1] * f[0]]))
+        return out
+
+    anti = (cone(np.array([0., -1.]), np.array([0., 0.05])) +
+            cone(np.array([0., 1.]), np.array([0., -0.05])))
+    assert fc(anti) is True
+    same = (cone(np.array([0., -1.]), np.array([-0.05, 0.])) +
+            cone(np.array([0., -1.]), np.array([0.05, 0.])))
+    assert fc(same) is False
+
+
+def test_force_closure_vs_caging_seed5():
+    """Seed 5 is geometrically caged but NOT force closure.
+
+    Caging and force closure are distinct: the arm wraps the box
+    (enclosed, 2 links) but all contacts sit on adjacent sides, so
+    the wrenches cannot positively span R^3. Documents that the
+    enveloping cage does not yet achieve a true grasp.
+    """
+    from scripts.demo_vlm_grasp import scripted_cage
+    env = WholeArmGraspEnv(seed=5)
+    env.reset(seed=5)
+    env.target_index = 0
+    _, info = scripted_cage(env, 0, frames=[])
+    assert info["caged"] is True
+    assert info["force_closure"] is False
+
+
 def test_cage_requires_enclosure_not_just_contact():
     """Two links on the same side is a poke, not a cage.
 

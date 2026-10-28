@@ -191,6 +191,7 @@ def main():
     rewards, info = scripted_cage(env, target_idx, frames)
     print(f"[demo] links touching: {info['links_touching']}, "
           f"enclosed: {info['enclosed']}, caged: {info['caged']}, "
+          f"force_closure: {info['force_closure']}, "
           f"total reward: {sum(rewards):.1f}")
 
     stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -209,6 +210,7 @@ def main():
         "preconditions_met": preconditions_met,
         "links_touching": info["links_touching"],
         "caged": info["caged"],
+        "force_closure": info["force_closure"],
         "total_reward": float(sum(rewards)),
     }
     (out / "meta.json").write_text(json.dumps(meta, indent=2))

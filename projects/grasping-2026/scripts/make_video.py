@@ -28,7 +28,10 @@ def load_episode(epi_dir):
 
 
 def caption_text(meta):
-    status = "CAGED" if meta.get("caged") else "no cage"
+    # Prefer force_closure (the true grasp metric) when present;
+    # fall back to caged for old episodes that predate it.
+    passed = meta.get("force_closure", meta.get("caged"))
+    status = "FORCE CLOSURE" if passed else "no grasp"
     return (f"{meta.get('instruction', '')}  |  "
             f"target: {meta.get('target_color', '?')}  |  {status}")
 

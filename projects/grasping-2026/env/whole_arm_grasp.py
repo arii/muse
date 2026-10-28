@@ -177,6 +177,82 @@ class WholeArmGraspEnv:
                     inside = not inside
         return inside
 
+    def _contact_wrenches(self):
+        """Planar contact wrenches on the target, one per friction-cone edge.
+
+        Each contact contributes 2 wrenches (the friction cone's edges).
+        Forces are oriented as forces ON the target; moments are about
+        the target center. Friction mu = min(target, link) tangential
+        friction (conservative). Returns a list of (fx, fy, mz) arrays.
+        """
+        if self.target_index is None:
+            return []
+        target_geom = f"obj{self.target_index}_geom"
+        center = self.data.qpos[
+            self._obj_qposadr[self.target_index]:
+            self._obj_qposadr[self.target_index] + 2]
+        wrenches = []
+        for i in range(self.data.ncon):
+            c = self.data.contact[i]
+            g1, g2 = self._geom_name(c.geom1), self._geom_name(c.geom2)
+            if target_geom not in (g1, g2):
+                continue
+            link = g2 if g1 == target_geom else g1
+            if link not in LINK_GEOMS:
+                continue
+            # contact.frame is flat [normal, tangent, tangent2]; normal
+            # points geom1 -> geom2. Orient it as force ON the target.
+            normal = np.asarray(c.frame)[0:3][:2].astype(float)
+            if g1 == target_geom:
+                normal = -normal
+            nn = np.linalg.norm(normal)
+            if nn < 1e-9:
+                continue
+            normal = normal / nn
+            tangent = np.array([-normal[1], normal[0]])
+            mu = min(
+                float(self.model.geom_friction[
+                    mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM,
+                                      target_geom)][0]),
+                float(self.model.geom_friction[
+                    mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM,
+                                      link)][0]))
+            alpha = np.arctan(mu)
+            for s in (+1, -1):
+                f = normal * np.cos(alpha) + tangent * (s * np.sin(alpha))
+                r = np.asarray(c.pos)[:2] - center
+                mz = r[0] * f[1] - r[1] * f[0]
+                wrenches.append(np.array([f[0], f[1], mz]))
+        return wrenches
+
+    @staticmethod
+    def _force_closure(wrenches):
+        """True if contact wrenches positively span R^3 (force closure).
+
+        Equivalent to the origin lying strictly inside the convex hull
+        of the wrenches. No-scipy test: a nonzero separating direction
+        exists iff some pair's cross product (or its negative) has all
+        wrenches on one side — extreme rays of the separating cone are
+        pair intersections. If no such direction exists, the origin is
+        strictly inside and the grasp is force closure. Needs >=4
+        wrenches (2 contacts x 2 cone edges) to span R^3.
+        """
+        W = np.array(wrenches, dtype=float)
+        n = len(W)
+        if n < 4:
+            return False
+        for i in range(n):
+            for j in range(i + 1, n):
+                u = np.cross(W[i], W[j])
+                norm = np.linalg.norm(u)
+                if norm < 1e-9:
+                    continue
+                u = u / norm
+                for s in (u, -u):
+                    if np.min(W @ s) >= -1e-9:
+                        return False
+        return True
+
     def _reward(self):
         touching = set()
         target_geom = (f"obj{self.target_index}_geom"
@@ -195,6 +271,15 @@ class WholeArmGraspEnv:
                     self._point_in_polygon(self._target_xy(),
                                            self._arm_joint_xy()))
         caged = n >= 2 and enclosed
+        # Force closure: the true grasp metric. Contact wrenches
+        # positively spanning R^3 means the grasp resists arbitrary
+        # wrenches. Distinct from caging: a geometric cage traps the
+        # object without necessarily being force closure, and a
+        # force-closure pinch holds without caging. Reported as the
+        # grasp-pass criterion; the reward bonus stays on caged (the
+        # enveloping objective) for now.
+        force_closure = self._force_closure(self._contact_wrenches())
         return 0.5 * n + (2.0 if caged else 0.0), {
             "links_touching": n, "caged": caged, "enclosed": enclosed,
+            "force_closure": force_closure,
             "isolation": self.target_isolation()}
