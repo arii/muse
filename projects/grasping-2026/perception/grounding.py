@@ -324,6 +324,7 @@ class NebiusVLMLabeller:
             if cached is not None and is_canonical_plan(cached):
                 print(f"[vlm] ledger cache hit ({key}) — no API call")
                 self.last_cache_hit = True
+                self.last_cached_usage = self.ledger.lookup_usage(key)
                 self.ledger.record({**base_entry, "response": None,
                                     "plan": cached, "usage": None,
                                     "cache_hit": True})
@@ -332,6 +333,7 @@ class NebiusVLMLabeller:
                 print(f"[vlm] ledger entry ({key}) is legacy-shaped — "
                       "ignoring cache, calling API")
         self.last_cache_hit = False
+        self.last_cached_usage = None
         content = [
             {"type": "text", "text": prompt},
             {"type": "image_url",

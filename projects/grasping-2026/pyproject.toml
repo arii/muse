@@ -1,24 +1,22 @@
 [project]
 name = "grasping-2026"
-version = "0.1.0"
-description = "2026 redo of a 2014 MS thesis: whole-arm grasping with VLM grounding"
-requires-python = ">=3.10"
+version = "1.0.0"
+description = "Planar whole-arm grasping with VLM precondition reasoning, geometric primitives, PPO, and Diffusion Policy"
+readme = "README.md"
+requires-python = ">=3.11"
 dependencies = [
-    "mujoco>=3.2",
-    "numpy",
-    "pillow",
-    "requests",
+    "mujoco>=3.2.0",
+    "numpy>=1.26.0",
+    "pillow>=10.0.0",
+    "requests>=2.31.0",
+    "gymnasium>=0.29.0",
+    "stable-baselines3>=2.3.0",
+    "torch>=2.2.0",
+    "diffusers>=0.27.0",
 ]
 
-[project.optional-dependencies]
-rl = ["gymnasium==1.4.0", "stable-baselines3==2.9.0",
-      "diffusers==0.42.1"]
-test = ["pytest"]
-
-[build-system]
-requires = ["setuptools"]
-build-backend = "setuptools.build_meta"
-
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["env*", "perception*", "planning*"]
+[tool.grasping.scripts]
+eval = "./scripts/run_eval.sh --seeds 2,6"
+eval_cluttered = "./scripts/run_eval.sh --seeds 2,7"
+eval_offline = "./scripts/run_eval.sh --no-vlm --seeds 2,6"
+retrain_diffusion = "./scripts/run_eval.sh --retrain-diffusion --seeds 2,6"

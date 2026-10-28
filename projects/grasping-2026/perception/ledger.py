@@ -99,6 +99,7 @@ class VLMCallLedger:
             "NEBIUS_LEDGER_PATH", "episodes/vlm_ledger.jsonl")
         self.path = pathlib.Path(path) if path else None
         self._index = None  # cache_key -> plan, built lazily
+        self._usage_index = None  # cache_key -> usage dict
 
     @property
     def enabled(self):
@@ -109,6 +110,7 @@ class VLMCallLedger:
         if self._index is not None:
             return self._index
         self._index = {}
+        self._usage_index = {}
         if self.path and self.path.exists():
             for line in self.path.read_text().splitlines():
                 line = line.strip()
@@ -120,6 +122,8 @@ class VLMCallLedger:
                     continue
                 if not entry.get("cache_hit") and entry.get("plan"):
                     self._index[entry["cache_key"]] = entry["plan"]
+                    if entry.get("usage"):
+                        self._usage_index[entry["cache_key"]] = entry["usage"]
         return self._index
 
     def lookup(self, key):
@@ -127,6 +131,13 @@ class VLMCallLedger:
         if not self.enabled:
             return None
         return self._load_index().get(key)
+
+    def lookup_usage(self, key):
+        """Original API usage dict for this cached key, or None."""
+        if not self.enabled:
+            return None
+        self._load_index()
+        return (self._usage_index or {}).get(key)
 
     def record(self, entry):
         """Append one entry to the ledger (creates dirs as needed)."""
@@ -139,3 +150,5 @@ class VLMCallLedger:
         # process sees plans recorded earlier in this process
         if not entry.get("cache_hit") and entry.get("plan"):
             self._load_index()[entry["cache_key"]] = entry["plan"]
+            if entry.get("usage"):
+                self._usage_index[entry["cache_key"]] = entry["usage"]

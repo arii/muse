@@ -232,10 +232,10 @@ def scripted_cage(env, target_idx, frames, frame_info=None,
     # produce distinct trajectories while still wrapping the target:
     open_q = -0.35
     if approach_side == "left":
-        face += 0.04
+        face -= 0.04 * s
         open_q = -0.45
     elif approach_side == "right":
-        face -= 0.04
+        face += 0.04 * s
         open_q = -0.45
     elif approach_side == "far":
         open_q = -0.55
@@ -251,7 +251,7 @@ def scripted_cage(env, target_idx, frames, frame_info=None,
             "curl_sign": int(s),
             "curl_dir": "CCW(+)" if s > 0 else "CW(-)",
             "open_q_rad": round(float(open_q * s), 2),
-            "final_curl_q": [round(float(face), 2),
+            "final_curl_q": [round(float(face + 0.08 * s), 2),
                              round(float(1.85 * s), 2),
                              round(float(2.25 * s), 2)],
         })
@@ -288,7 +288,7 @@ def scripted_cage(env, target_idx, frames, frame_info=None,
         ([face, open_q * s, open_q * s], 30),
         ([face, 0.25 * s, 0.25 * s], 25),
         ([face, 0.85 * s, 1.05 * s], 25),
-        ([face, 1.85 * s, 2.25 * s], 45),
+        ([face + 0.08 * s, 1.85 * s, 2.25 * s], 40),
     ]
     rewards = []
     for angles, n_steps in waypoints:

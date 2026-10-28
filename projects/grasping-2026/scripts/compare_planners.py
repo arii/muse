@@ -205,6 +205,8 @@ def run_one(seed, planner, instruction, ppo_model=None, diffusion_model=None):
             row["api_call"] = labeller.last_cache_hit is False
             usage = (labeller.last_response or {}).get("usage") or {}
             row["tokens"] = usage.get("total_tokens") or 0
+            c_usage = getattr(labeller, "last_cached_usage", None) or {}
+            row["cached_tokens"] = c_usage.get("total_tokens") or 0
     except Exception as e:
         row["planner_error"] = str(e)[:300]
         return row, frames
@@ -384,6 +386,9 @@ def write_html_report(rows, gif_map, out_path, instruction, planners):
     for planner in planners:
         agg = aggregate(rows, planner)
         fc_cls = "pass" if agg["force_closure_rate"] > 0 else ""
+        tok_cell = (f"{agg['total_tokens']} ({agg['cached_tokens']} cached)"
+                    if agg.get("cached_tokens", 0) > 0
+                    else str(agg["total_tokens"]))
         parts.append(
             f"<tr><td><strong>{esc(planner)}</strong></td>"
             f"<td>{agg['episodes']}</td>"
@@ -394,7 +399,7 @@ def write_html_report(rows, gif_map, out_path, instruction, planners):
             f"<td>{agg['mean_reward']:.1f}</td>"
             f"<td>{agg['mean_isolation_delta']:+.3f} m</td>"
             f"<td>{agg['mean_target_disp']:.3f} m</td>"
-            f"<td>{agg['api_calls']}</td><td>{agg['total_tokens']}</td>"
+            f"<td>{agg['api_calls']}</td><td>{tok_cell}</td>"
             "</tr>")
     parts.append("</table>")
 
@@ -429,8 +434,16 @@ def write_html_report(rows, gif_map, out_path, instruction, planners):
                     f"<div style='margin-top:3px;font-size:0.85em;color:#555'>"
                     f"<em>Rationale:</em> {esc(r.get('rationale'))}</div>"
                 )
-                cost = (f"{r['tokens']} tokens" if planner == "vlm"
-                        else "no API")
+                if planner == "vlm":
+                    if r.get("api_call"):
+                        cost = f"{r['tokens']} tokens (live API)"
+                    elif r.get("cached_tokens"):
+                        cost = (f"0 tokens (cached; orig "
+                                f"{r['cached_tokens']} tok)")
+                    else:
+                        cost = f"{r['tokens']} tokens (cached)"
+                else:
+                    cost = "no API"
                 disp = r.get("target_disp")
                 r0 = r.get("target_start_r")
                 r1 = r.get("target_end_r")
@@ -562,6 +575,7 @@ def aggregate(rows, planner):
         "mean_target_disp": mean("target_disp"),
         "api_calls": sum(1 for r in rs if r["api_call"]),
         "total_tokens": sum(r["tokens"] for r in rs),
+        "cached_tokens": sum(r.get("cached_tokens", 0) for r in rs),
     }
 
 
