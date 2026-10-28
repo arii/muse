@@ -402,15 +402,18 @@ def test_force_closure_vs_caging_seed5():
     Caging and force closure are distinct: the arm wraps the box
     (enclosed, 2 links) but all contacts sit on adjacent sides, so
     the wrenches cannot positively span R^3. Documents that the
-    enveloping cage does not yet achieve a true grasp.
+    enveloping cage does not yet achieve a true grasp. The reward
+    bonus follows force_closure (the goal criterion), so the final
+    step earns 0.5*2 = 1.0 with no +2.0 bonus.
     """
     from scripts.demo_vlm_grasp import scripted_cage
     env = WholeArmGraspEnv(seed=5)
     env.reset(seed=5)
     env.target_index = 0
-    _, info = scripted_cage(env, 0, frames=[])
+    rewards, info = scripted_cage(env, 0, frames=[])
     assert info["caged"] is True
     assert info["force_closure"] is False
+    assert rewards[-1] == 1.0
 
 
 def test_cage_requires_enclosure_not_just_contact():

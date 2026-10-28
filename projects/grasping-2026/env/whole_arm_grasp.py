@@ -1,21 +1,20 @@
 """Planar whole-arm grasping environment (MuJoCo).
 
 A 3-link arm sweeps a horizontal plane above a table. Each episode spawns
-N randomized box objects within reach. The task: envelop ("cage") a target
-object using the whole arm.
+N randomized box objects within reach. The task: grasp a target object
+using the whole arm.
 
-Cage = geometric enclosure, NOT just contact. Two links pressing the
-same side of a box is a poke, not a grasp — the box slides away freely.
-So "caged" requires BOTH:
-  (a) >=2 distinct arm links touching the target, AND
-  (b) the target center inside the polygon formed by the arm polyline
-      (base -> joint1 -> joint2 -> tip, closed back to base).
-A straight arm makes a degenerate (zero-area) polygon, so nothing is
-inside it; a curled arm around the box encloses it. This is the planar
-caging test: the object cannot escape without crossing a link.
+GOAL CRITERION: force closure. The grasp passes iff the contact
+wrenches positively span R^3 (the grasp resists arbitrary wrenches) —
+the true grasping metric. Geometric caging (target inside the arm
+polygon) is reported separately: it traps the object but does not by
+itself guarantee the grasp holds. Enveloping grasps — the arm wrapping
+fully around the object to get opposing contacts — are what meet the
+force-closure criterion.
 
-Reward (starting point — tune freely):
-    r = 0.5 * (# distinct arm links touching target) + 2.0 * caged
+Reward:
+    r = 0.5 * (# distinct arm links touching target)
+        + 2.0 * force_closure
 
 info also carries "isolation": min xy center-distance from the target
 object to any other object — the singulation objective (push clutter
@@ -271,15 +270,14 @@ class WholeArmGraspEnv:
                     self._point_in_polygon(self._target_xy(),
                                            self._arm_joint_xy()))
         caged = n >= 2 and enclosed
-        # Force closure: the true grasp metric. Contact wrenches
+        # Force closure: the GOAL criterion. Contact wrenches
         # positively spanning R^3 means the grasp resists arbitrary
         # wrenches. Distinct from caging: a geometric cage traps the
         # object without necessarily being force closure, and a
-        # force-closure pinch holds without caging. Reported as the
-        # grasp-pass criterion; the reward bonus stays on caged (the
-        # enveloping objective) for now.
+        # force-closure pinch holds without caging. The reward bonus
+        # follows force closure — it is what passing means.
         force_closure = self._force_closure(self._contact_wrenches())
-        return 0.5 * n + (2.0 if caged else 0.0), {
+        return 0.5 * n + (2.0 if force_closure else 0.0), {
             "links_touching": n, "caged": caged, "enclosed": enclosed,
             "force_closure": force_closure,
             "isolation": self.target_isolation()}

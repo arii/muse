@@ -123,7 +123,13 @@ def scripted_cage(env, target_idx, frames):
             _, r, _, info = env.step(np.array(angles))
             rewards.append(r)
             frames.append(env.render())
-            if info["caged"]:
+            # Stop once the grasp is secured by EITHER criterion.
+            # Open-loop curling past a good grasp destroys it (seed 5:
+            # full curl pushes the object to 0.96 m isolation). The
+            # pass verdict is force_closure; caging also stops the
+            # motion because losing a caged object to keep curling
+            # serves no goal.
+            if info["caged"] or info["force_closure"]:
                 return rewards, info
     _, r, _, info = env.step(np.array(phases[-1][0]))
     rewards.append(r)
@@ -193,6 +199,10 @@ def main():
           f"enclosed: {info['enclosed']}, caged: {info['caged']}, "
           f"force_closure: {info['force_closure']}, "
           f"total reward: {sum(rewards):.1f}")
+    if info["force_closure"]:
+        print("[demo] GRASP PASSED (force closure)")
+    else:
+        print("[demo] grasp FAILED (no force closure)")
 
     stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     out = pathlib.Path("episodes") / stamp
