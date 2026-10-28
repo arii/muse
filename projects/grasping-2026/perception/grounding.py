@@ -32,7 +32,10 @@ PROMPT = (
     "grasp target when the arm closes around it. "
     "What preconditions must be satisfied before grasping can succeed? "
     "Which box is the grasp target, and are there boxes that must be pushed "
-    "away first to isolate it? Reply with ONLY a JSON object like "
+    "away first to isolate it? "
+    "Your ENTIRE reply must be ONLY a JSON object, with no explanation, "
+    "no reasoning steps, no markdown, and no text before or after it. "
+    "Reply exactly like this (with your own values): "
     '\'{{"grasp_target": 2, "push_away": [0], "rationale": "short reason"}}\'. '
     "Use an empty push_away list if no preconditions are needed."
     # NOTE: doubled braces — they are literal in the formatted prompt.
@@ -119,7 +122,7 @@ class NebiusVLMLabeller:
             headers={"Authorization": f"Bearer {self.api_key}"},
             json={"model": self.model, "messages": [
                 {"role": "user", "content": content}],
-                "max_tokens": 200, "temperature": 0},
+                "max_tokens": 800, "temperature": 0},
             timeout=60)
         self.last_status = r.status_code
         r.raise_for_status()
@@ -136,12 +139,18 @@ class NebiusVLMLabeller:
         try:
             start, end = text.index("{"), text.rindex("}") + 1
         except ValueError:
+            # No JSON — try to salvage the answer from prose. The model
+            # often writes "Grasp target: Red box (index 0)" and names
+            # the crowding box. Extract indices from those sentences.
+            prose_plan = self._parse_prose(text, objects)
+            if prose_plan is not None:
+                return prose_plan
             raise ValueError(
                 f"VLM reply contained no JSON object (model={self.model}). "
                 f"Raw reply:\n{text[:1000]}\n"
                 "The model answered in prose instead of JSON. Likely "
                 "causes: (a) the model is not instruction-tuned for JSON "
-                "output; (b) max_tokens=200 cut it off before the JSON; "
+                "output; (b) max_tokens cut it off before the JSON; "
                 "(c) the prompt's JSON example wasn't followed. Try a "
                 "different model id, or raise max_tokens.")
         out = json.loads(text[start:end])
@@ -152,6 +161,68 @@ class NebiusVLMLabeller:
             raise ValueError(f"VLM returned out-of-range indices: {out}")
         return {"grasp_target": grasp, "push_away": push,
                 "rationale": out.get("rationale", "")}
+
+    def _parse_prose(self, text, objects):
+        """Salvage a plan from a prose reply (no JSON).
+
+        Looks for "grasp target" + an index or color, and "push" +
+        an index or color. Returns None if no grasp target found.
+        """
+        import re
+        colors = {o["color"]: o["index"] for o in objects}
+        valid = set(colors.values())
+        low = text.lower()
+
+        def _idx_near(pattern, window=120):
+            """Index/color mentioned within `window` chars after `pattern`.
+
+            Tries every match of the pattern (the first mention is often
+            in an intro sentence, far from the actual index) and returns
+            the first one that yields an index or color.
+            """
+            for m in re.finditer(pattern, low):
+                snippet = low[m.end():m.end() + window]
+                mi = re.search(r"index\s+(\d+)", snippet)
+                if mi and int(mi.group(1)) in valid:
+                    return int(mi.group(1))
+                for color, idx in colors.items():
+                    if color in snippet:
+                        return idx
+            return None
+
+        grasp = _idx_near(r"grasp target")
+        if grasp is None:
+            return None
+        push = []
+        for m in re.finditer(r"push", low):
+            # color/index may be before ("blue box must be pushed") or
+            # after ("push the blue box") the word "push" — take the
+            # NEAREST mention, not the first color in dict order (the
+            # window often contains the grasp target's color too).
+            lo = max(0, m.start() - 60)
+            hi = m.start() + 80
+            window = low[lo:hi]
+            push_pos = m.start() - lo
+            best_idx, best_dist = None, None
+            mi = re.search(r"index\s+(\d+)", window)
+            if mi and int(mi.group(1)) in valid:
+                # index mentions are precise; prefer the nearest one
+                for mm in re.finditer(r"index\s+(\d+)", window):
+                    if int(mm.group(1)) in valid:
+                        d = abs(mm.start() - push_pos)
+                        if best_dist is None or d < best_dist:
+                            best_idx, best_dist = int(mm.group(1)), d
+            if best_idx is None:
+                for c, i in colors.items():
+                    for mm in re.finditer(re.escape(c), window):
+                        d = abs(mm.start() - push_pos)
+                        if best_dist is None or d < best_dist:
+                            best_idx, best_dist = i, d
+            if best_idx is not None and best_idx != grasp \
+                    and best_idx not in push:
+                push.append(best_idx)
+        return {"grasp_target": grasp, "push_away": push,
+                "rationale": "parsed from prose (model did not return JSON)"}
 
     def label(self, rgb, objects, instruction):
         """Back-compat: (grasp_target_index, rationale)."""
