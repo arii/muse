@@ -1,17 +1,19 @@
-"""Compare planners on identical scenes: VLM vs scripted (heuristic).
+"""Compare planners on identical scenes: VLM, heuristic, PPO, and diffusion.
 
-Runs the same episode pipeline (plan -> singulate -> gate -> cage)
-with each planner on each seed, then reports per-seed results and
-aggregate performance. The goal criterion is force closure; caged,
-reward, and isolation are diagnostics. VLM cost (API calls, tokens,
-ledger cache hits) is reported alongside — the heuristic costs nothing.
+Runs the same seed across each requested planner/policy, then reports
+per-seed results and aggregate performance. The goal criterion is force
+closure; caged, reward, target displacement, and isolation are
+diagnostics. VLM cost (API calls, tokens, ledger cache hits) is
+reported alongside — heuristic, PPO, and diffusion cost nothing.
 
 Usage:
     # via compose (VLM needs NEBIUS_API_KEY from .env):
     docker compose run --build --rm --entrypoint python demo \
-        scripts/compare_planners.py --seeds 0-9
-    # single planner, explicit seeds:
-    python scripts/compare_planners.py --seeds 0,5,7 --planners heuristic
+        scripts/compare_planners.py --seeds 0-9 --gifs --html
+    # include learned policies (ppo, diffusion) alongside vlm & heuristic:
+    docker compose run --build --rm --entrypoint python demo \
+        scripts/compare_planners.py --seeds 0-9 \
+        --planners vlm,heuristic,ppo,diffusion --gifs --html
 
 VLM mode here is PURE: no fallback to heuristic on failure. A VLM
 failure on a seed counts as a VLM failure (planner_error set), so the
@@ -27,10 +29,16 @@ import json
 import pathlib
 import sys
 
+import numpy as np
+
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
 from env.whole_arm_grasp import WholeArmGraspEnv  # noqa: E402
+from planning.primitives import frame_status  # noqa: E402
 from scripts.demo_vlm_grasp import run_episode  # noqa: E402
+
+_PPO_CACHE = {}
+_DIFF_CACHE = {}
 
 
 def parse_seeds(spec):
@@ -46,13 +54,141 @@ def parse_seeds(spec):
     return seeds
 
 
-def run_one(seed, planner, instruction):
+def _resolve_default_model(candidates):
+    for c in candidates:
+        p = pathlib.Path(c)
+        if p.exists():
+            return str(p)
+    return candidates[0]
+
+
+def _run_learned(seed, planner, instruction, model_path=None, max_steps=200):
+    """Roll out a trained PPO or Diffusion policy on `seed` and return
+    (row, frames) matching the compare_planners row schema."""
+    from env.gym_wrapper import GraspGymWrapper
+
+    w = GraspGymWrapper(seed=seed, max_steps=max_steps, n_objects=4)
+    obs, _ = w.reset(seed=seed)
+    env = w.env
+    target_idx = w.target_index
+    pos0 = env._obs()["objects"][target_idx][:2].copy()
+    iso_before = env.target_isolation()
+    _, init_info = env._reward()
+    frames = [env.render()]
+    f_info = [frame_status(init_info)]
+
+    total_rew = 0.0
+    steps = 0
+    info = init_info
+
+    if planner == "ppo":
+        from stable_baselines3 import PPO
+        mpath = model_path or _resolve_default_model(
+            ["models/grasp_ppo_500k.zip", "models/grasp_ppo.zip"])
+        if mpath not in _PPO_CACHE:
+            _PPO_CACHE[mpath] = PPO.load(mpath)
+        model = _PPO_CACHE[mpath]
+        while True:
+            action, _ = model.predict(obs, deterministic=True)
+            obs, r, terminated, truncated, info = w.step(action)
+            total_rew += float(r)
+            steps += 1
+            if steps % 2 == 0 or terminated or truncated:
+                frames.append(env.render())
+                f_info.append(frame_status(info))
+            if terminated or truncated:
+                break
+        rationale = f"PPO policy ({pathlib.Path(mpath).stem}, {steps} steps)"
+    elif planner == "diffusion":
+        import torch
+        from diffusers import DDIMScheduler
+        from scripts.diffusion_policy import DiffusionMLP, sample_chunk
+        mpath = model_path or _resolve_default_model(
+            ["models/diffusion_v2.pt", "models/diffusion.pt"])
+        if mpath not in _DIFF_CACHE:
+            ckpt = torch.load(mpath, map_location="cpu", weights_only=False)
+            dm = DiffusionMLP(ckpt["obs_dim"], chunk=ckpt["chunk"],
+                              hidden=ckpt["hidden"])
+            dm.load_state_dict(ckpt["state"])
+            _DIFF_CACHE[mpath] = (
+                dm,
+                DDIMScheduler(num_train_timesteps=100),
+                torch.from_numpy(ckpt["obs_mean"]).float(),
+                torch.from_numpy(ckpt["obs_std"]).float(),
+                ckpt["chunk"],
+            )
+        dm, sched, obs_mean, obs_std, chunk_len = _DIFF_CACHE[mpath]
+        torch.manual_seed(seed)
+        while True:
+            obs_n = (torch.from_numpy(obs).float() - obs_mean) / obs_std
+            chunk = sample_chunk(dm, sched, obs_n, chunk_len, num_steps=20)
+            for k in range(min(8, len(chunk))):
+                obs, r, terminated, truncated, info = w.step(chunk[k].numpy())
+                total_rew += float(r)
+                steps += 1
+                if steps % 2 == 0 or terminated or truncated:
+                    frames.append(env.render())
+                    f_info.append(frame_status(info))
+                if terminated or truncated:
+                    break
+            if terminated or truncated:
+                break
+        rationale = f"Diffusion BC ({pathlib.Path(mpath).stem}, {steps} steps)"
+    else:
+        raise ValueError(f"unknown learned planner {planner!r}")
+
+    pos1 = env._obs()["objects"][target_idx][:2].copy()
+    iso_after = env.target_isolation()
+    row = {
+        "seed": seed,
+        "planner": planner,
+        "instruction": instruction,
+        "planner_error": None,
+        "api_call": False,
+        "tokens": 0,
+        "target_index": target_idx,
+        "target_color": env.objects[target_idx]["color"],
+        "rationale": rationale,
+        "push_away": [],
+        "approach_side": "policy",
+        "pushes": [],
+        "isolation_before": iso_before,
+        "isolation_after": iso_after,
+        "preconditions_met": iso_after >= 0.15,
+        "links_touching": info["links_touching"],
+        "enclosed": info["enclosed"],
+        "caged": info["caged"],
+        "force_closure": info["force_closure"],
+        "total_reward": float(total_rew),
+        "target_start_r": float(np.linalg.norm(pos0)),
+        "target_end_r": float(np.linalg.norm(pos1)),
+        "target_disp": float(np.linalg.norm(pos1 - pos0)),
+        "steps": steps,
+        "frame_info": f_info,
+    }
+    return row, frames
+
+
+def run_one(seed, planner, instruction, ppo_model=None, diffusion_model=None):
     """One episode with one planner. Returns (metrics row, frames).
 
     Never raises: a planner failure is recorded as planner_error.
     """
+    if planner in ("ppo", "diffusion"):
+        try:
+            mpath = ppo_model if planner == "ppo" else diffusion_model
+            return _run_learned(seed, planner, instruction, model_path=mpath)
+        except Exception as e:
+            env = WholeArmGraspEnv(seed=seed)
+            env.reset(seed=seed)
+            return {
+                "seed": seed, "planner": planner, "instruction": instruction,
+                "planner_error": str(e)[:300], "api_call": False, "tokens": 0
+            }, [env.render()]
+
     env = WholeArmGraspEnv(seed=seed)
     env.reset(seed=seed)
+    pos0 = env._obs()["objects"][0][:2].copy()
     frames = [env.render()]
     row = {"seed": seed, "planner": planner, "instruction": instruction,
            "planner_error": None, "api_call": False, "tokens": 0}
@@ -72,8 +208,15 @@ def run_one(seed, planner, instruction):
     except Exception as e:
         row["planner_error"] = str(e)[:300]
         return row, frames
+    t_idx = plan.get("grasp_target", 0)
+    pos0 = env._obs()["objects"][t_idx][:2].copy()
     metrics, frames, _ = run_episode(env, plan, instruction, frames,
                                      verbose=False)
+    pos1 = env._obs()["objects"][t_idx][:2].copy()
+    metrics["target_start_r"] = float(np.linalg.norm(pos0))
+    metrics["target_end_r"] = float(np.linalg.norm(pos1))
+    metrics["target_disp"] = float(np.linalg.norm(pos1 - pos0))
+    metrics["steps"] = len(frames) - 1
     row.update(metrics)
     return row, frames
 
@@ -83,8 +226,10 @@ def outcome_caption(row):
     if row["planner_error"]:
         return "planner FAILED"
     fc = "FORCE CLOSURE" if row.get("force_closure") else "no grasp"
+    disp = row.get("target_disp")
+    disp_str = f" | disp={disp:.2f}m" if disp is not None else ""
     return (f"{fc} | caged={row.get('caged')} | "
-            f"reward={row.get('total_reward', 0):.1f}")
+            f"reward={row.get('total_reward', 0):.1f}{disp_str}")
 
 
 def write_html_report(rows, gif_map, out_path, instruction, planners):
@@ -96,8 +241,8 @@ def write_html_report(rows, gif_map, out_path, instruction, planners):
     wherever --html points, as long as the GIFs stay beside it.
     """
     import html as _html
-
     from pathlib import Path
+
     out_path = Path(out_path)
     report_dir = out_path.parent
 
@@ -122,51 +267,103 @@ def write_html_report(rows, gif_map, out_path, instruction, planners):
                 parts.append(str(p))
         return ", ".join(parts)
 
-    parts = ["<html><head><meta charset='utf-8'>",
-             "<style>body{font-family:sans-serif;max-width:1100px;"
-             "margin:2em auto;padding:0 1em;line-height:1.45}"
-             "table{border-collapse:collapse;width:100%}"
-             "th,td{border:1px solid #ccc;padding:4px 10px;text-align:left}"
-             "img{max-width:100%}h2{margin-top:2em;border-top:2px solid #222;"
-             "padding-top:.5em}.pass{color:green;font-weight:bold}"
-             ".fail{color:#888}.error{background:#fee;border:1px solid #c00;"
-             "padding:6px}.card{border:1px solid #ccc;padding:12px;"
-             "margin:12px 0}.card h3{margin:0 0 6px}"
-             "</style></head><body>",
-             f"<h1>VLM vs scripted grasping comparison</h1>",
-             f"<p>instruction: {esc(instruction)}</p>",
-             "<p>Read this first: force_closure is the goal criterion. "
-             "Caged is a strict diagnostic (loop must close, see "
-             "env.whole_arm_grasp._loop_closed). A GIF that shows the "
-             "box sliding away is a failed grasp even if reward > 0 — "
-             "reward sums contact over steps and inflates on long "
-             "non-passing episodes.</p>",
-             "<h2>Aggregate</h2><table><tr><th>planner</th>"
-             "<th>episodes</th><th>force_closure</th><th>caged</th>"
-             "<th>preconditions</th><th>mean reward</th>"
-             "<th>mean isolation Δ</th><th>API calls</th>"
-             "<th>tokens</th></tr>"]
+    by_seed = {}
+    for r in rows:
+        by_seed.setdefault(r["seed"], {})[r["planner"]] = r
+
+    # Build quick seed navigation pills
+    nav_pills = []
+    for seed in sorted(by_seed):
+        any_fc = any(
+            by_seed[seed][p].get("force_closure")
+            for p in by_seed[seed]
+            if not by_seed[seed][p].get("planner_error")
+        )
+        pill_cls = "pill-pass" if any_fc else "pill-fail"
+        nav_pills.append(
+            f"<a class='pill {pill_cls}' href='#seed-{seed}'>"
+            f"seed {seed} {'✓' if any_fc else ''}</a>"
+        )
+
+    parts = [
+        "<html><head><meta charset='utf-8'>",
+        "<title>Grasping Policy & Planner Comparison</title>",
+        "<style>"
+        "body{font-family:system-ui,-apple-system,sans-serif;max-width:1280px;"
+        "margin:1.5em auto;padding:0 1.2em;line-height:1.45;color:#1a1a1a;"
+        "background:#fafafa}"
+        "h1{margin-bottom:0.2em}"
+        "h2{margin-top:1.8em;border-top:2px solid #222;padding-top:.5em}"
+        "table{border-collapse:collapse;width:100%;background:#fff;"
+        "box-shadow:0 1px 3px rgba(0,0,0,0.06);margin-bottom:1em}"
+        "th,td{border:1px solid #d8d8d8;padding:6px 10px;text-align:left;"
+        "font-size:0.93em}"
+        "th{background:#f0f2f5;font-weight:600}"
+        "img{max-width:100%;border:1px solid #ccc;border-radius:4px}"
+        ".pass{color:#0a7d2c;font-weight:bold;background:#e8f8ed}"
+        ".fail{color:#777}"
+        ".warn{color:#b45309;font-weight:600;background:#fef3c7}"
+        ".error{background:#fee;border:1px solid #c00;padding:6px}"
+        ".banner{background:#eef4ff;border-left:4px solid #2563eb;"
+        "padding:10px 14px;margin:12px 0;font-size:0.94em}"
+        ".nav-bar{position:sticky;top:0;background:#fafafa;padding:8px 0;"
+        "border-bottom:1px solid #ddd;z-index:10;display:flex;gap:6px;"
+        "flex-wrap:wrap;align-items:center}"
+        ".pill{text-decoration:none;padding:3px 9px;border-radius:12px;"
+        "font-size:0.85em;border:1px solid #ccc}"
+        ".pill-pass{background:#d1fae5;color:#065f46;border-color:#34d399;"
+        "font-weight:bold}"
+        ".pill-fail{background:#f3f4f6;color:#4b5563}"
+        ".gif-grid{display:grid;grid-template-columns:repeat(auto-fit,"
+        "minmax(240px,1fr));gap:10px;margin-top:8px}"
+        ".gif-card{background:#fff;border:1px solid #ddd;padding:6px;"
+        "border-radius:4px;text-align:center;font-size:0.85em}"
+        "details{margin:6px 0 16px}"
+        "summary{cursor:pointer;color:#2563eb;font-size:0.9em;font-weight:500}"
+        "</style></head><body>",
+        "<h1>Grasping Comparison: VLM vs Heuristic vs Learned Policies</h1>",
+        f"<p><strong>Instruction:</strong> <code>{esc(instruction)}</code></p>",
+        "<div class='banner'><strong>Read this first:</strong> "
+        "<code>force_closure</code> is the goal criterion (contact wrenches "
+        "positively span R³). <code>caged</code> is a strict diagnostic "
+        "(target inside arm polygon AND tip-to-link1 loop closed &lt; 0.15 m). "
+        "<code>target Δxy</code> shows how far the target box was displaced: "
+        "values &gt; 0.30 m indicate the arm knocked the target box away. "
+        "Reward sums contact over steps and inflates on long non-passing "
+        "episodes.</div>",
+        "<div class='nav-bar'><strong>Jump to:</strong> "
+        + "".join(nav_pills)
+        + "</div>",
+        "<h2>Aggregate Summary</h2><table><tr><th>planner</th>"
+        "<th>episodes</th><th>errors</th><th>force_closure</th><th>caged</th>"
+        "<th>preconditions</th><th>mean reward</th>"
+        "<th>mean isolation Δ</th><th>mean target Δxy</th>"
+        "<th>API calls</th><th>tokens</th></tr>",
+    ]
     for planner in planners:
         agg = aggregate(rows, planner)
+        fc_cls = "pass" if agg["force_closure_rate"] > 0 else ""
         parts.append(
-            f"<tr><td>{esc(planner)}</td><td>{agg['episodes']}</td>"
-            f"<td>{agg['force_closure_rate']:.2f}</td>"
+            f"<tr><td><strong>{esc(planner)}</strong></td>"
+            f"<td>{agg['episodes']}</td>"
+            f"<td>{agg['planner_errors']}</td>"
+            f"<td class='{fc_cls}'>{agg['force_closure_rate']:.2f}</td>"
             f"<td>{agg['caged_rate']:.2f}</td>"
             f"<td>{agg['preconditions_rate']:.2f}</td>"
             f"<td>{agg['mean_reward']:.1f}</td>"
             f"<td>{agg['mean_isolation_delta']:+.3f} m</td>"
+            f"<td>{agg['mean_target_disp']:.3f} m</td>"
             f"<td>{agg['api_calls']}</td><td>{agg['total_tokens']}</td>"
             "</tr>")
     parts.append("</table>")
-    by_seed = {}
-    for r in rows:
-        by_seed.setdefault(r["seed"], {})[r["planner"]] = r
+
     for seed in sorted(by_seed):
-        parts.append(f"<h2>seed {seed}</h2>")
+        parts.append(f"<h2 id='seed-{seed}'>seed {seed}</h2>")
         parts.append("<table><tr><th>planner</th><th>FC</th>"
                      "<th>caged</th><th>preconditions</th>"
                      "<th>reward</th><th>isolation</th>"
-                     "<th>plan</th><th>cost</th></tr>")
+                     "<th>target Δxy (r0→r1)</th>"
+                     "<th>plan / policy</th><th>cost</th></tr>")
         for planner in planners:
             r = by_seed[seed].get(planner)
             if r is None:
@@ -174,6 +371,8 @@ def write_html_report(rows, gif_map, out_path, instruction, planners):
             if r["planner_error"]:
                 plan_cell = f"ERROR: {esc(r['planner_error'][:200])}"
                 cost = "-"
+                disp_cell = "-"
+                disp_cls = ""
             else:
                 plan_cell = (f"target {r.get('target_index')} "
                              f"({esc(r.get('target_color'))}), push "
@@ -183,25 +382,53 @@ def write_html_report(rows, gif_map, out_path, instruction, planners):
                              f"{esc(r.get('rationale'))}")
                 cost = (f"{r['tokens']} tokens" if planner == "vlm"
                         else "no API")
+                disp = r.get("target_disp")
+                r0 = r.get("target_start_r")
+                r1 = r.get("target_end_r")
+                if disp is not None and r0 is not None and r1 is not None:
+                    disp_cell = f"{disp:.3f} m ({r0:.2f}→{r1:.2f} m)"
+                    disp_cls = "warn" if disp > 0.35 and not r.get("force_closure") else ""
+                else:
+                    disp_cell = "-"
+                    disp_cls = ""
             fc_cls = "pass" if r.get("force_closure") else "fail"
+            cage_cls = "pass" if r.get("caged") else ""
+            pre_cls = "" if r.get("preconditions_met") else "warn"
             parts.append(
-                f"<tr><td>{esc(planner)}</td>"
+                f"<tr><td><strong>{esc(planner)}</strong></td>"
                 f"<td class='{fc_cls}'>{r.get('force_closure')}</td>"
-                f"<td>{r.get('caged')}</td>"
-                f"<td>{r.get('preconditions_met')}</td>"
+                f"<td class='{cage_cls}'>{r.get('caged')}</td>"
+                f"<td class='{pre_cls}'>{r.get('preconditions_met')}</td>"
                 f"<td>{r.get('total_reward', 0):.1f}</td>"
                 f"<td>{r.get('isolation_before', 0):.3f} → "
                 f"{r.get('isolation_after', 0):.3f}</td>"
+                f"<td class='{disp_cls}'>{disp_cell}</td>"
                 f"<td>{plan_cell}</td><td>{cost}</td></tr>")
         parts.append("</table>")
         gifs = gif_map.get(seed, {})
         if gifs.get("side_by_side"):
             parts.append(f"<img src='{esc(rel(gifs['side_by_side']))}' "
                          f"alt='seed {seed} side by side'>")
-        for planner in planners:
-            if gifs.get(planner):
-                parts.append(f"<p><a href='{esc(rel(gifs[planner]))}'>"
-                             f"{esc(planner)} GIF</a></p>")
+        indiv = [
+            f"<div class='gif-card'><a href='{esc(rel(gifs[p]))}'>"
+            f"<strong>{esc(p)} GIF</strong></a><br>"
+            f"<img src='{esc(rel(gifs[p]))}' alt='{esc(p)} seed {seed}'></div>"
+            for p in planners if gifs.get(p)
+        ]
+        if indiv:
+            parts.append(
+                "<details><summary>Individual planner GIFs ("
+                + ", ".join(esc(p) for p in planners if gifs.get(p))
+                + ")</summary><div class='gif-grid'>"
+                + "".join(indiv)
+                + "</div></details>"
+            )
+            for planner in planners:
+                if gifs.get(planner):
+                    parts.append(
+                        f"<p style='display:none'>"
+                        f"<a href='{esc(rel(gifs[planner]))}'>"
+                        f"{esc(planner)} GIF</a></p>")
     parts.append("</body></html>")
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text("\n".join(parts))
@@ -216,8 +443,8 @@ def write_markdown_summary(rows, out_path, instruction, planners):
     text: aggregates + one line per seed per planner, with errors
     shown in full, not hidden behind a GIF link.
     """
-    lines = [f"# Compare summary", f"",
-             f"instruction: {instruction}", f""]
+    lines = ["# Compare summary", "",
+             f"instruction: {instruction}", ""]
     for planner in planners:
         agg = aggregate(rows, planner)
         lines.append(
@@ -228,6 +455,7 @@ def write_markdown_summary(rows, out_path, instruction, planners):
             f"preconditions {agg['preconditions_rate']:.2f}, "
             f"mean reward {agg['mean_reward']:.1f}, "
             f"mean isolation Δ {agg['mean_isolation_delta']:+.3f} m, "
+            f"mean target disp {agg['mean_target_disp']:.3f} m, "
             f"API calls {agg['api_calls']}, tokens {agg['total_tokens']}")
     lines.append("")
     by_seed = {}
@@ -242,6 +470,7 @@ def write_markdown_summary(rows, out_path, instruction, planners):
                 lines.append(f"- seed {seed} {planner}: ERROR "
                              f"{r['planner_error'][:300]}")
             else:
+                disp = r.get("target_disp", 0.0)
                 lines.append(
                     f"- seed {seed} {planner}: FC={r.get('force_closure')} "
                     f"caged={r.get('caged')} "
@@ -249,6 +478,7 @@ def write_markdown_summary(rows, out_path, instruction, planners):
                     f"reward={r.get('total_reward', 0):.1f} "
                     f"iso {r.get('isolation_before', 0):.3f}->"
                     f"{r.get('isolation_after', 0):.3f} "
+                    f"disp={disp:.3f}m "
                     f"plan target={r.get('target_index')} "
                     f"push={r.get('push_away')} "
                     f"approach={r.get('approach_side')} "
@@ -262,11 +492,14 @@ def aggregate(rows, planner):
     rs = [r for r in rows if r["planner"] == planner]
     n = len(rs)
     ok = [r for r in rs if not r["planner_error"]]
+
     def rate(key):
         return (sum(1 for r in ok if r.get(key)) / len(ok) if ok else 0.0)
+
     def mean(key):
-        vals = [r[key] for r in ok if key in r]
+        vals = [r[key] for r in ok if key in r and r[key] is not None]
         return sum(vals) / len(vals) if vals else 0.0
+
     return {
         "planner": planner,
         "episodes": n,
@@ -277,6 +510,7 @@ def aggregate(rows, planner):
         "mean_reward": mean("total_reward"),
         "mean_isolation_delta": mean("isolation_after") - mean(
             "isolation_before") if ok else 0.0,
+        "mean_target_disp": mean("target_disp"),
         "api_calls": sum(1 for r in rs if r["api_call"]),
         "total_tokens": sum(r["tokens"] for r in rs),
     }
@@ -288,8 +522,12 @@ def main():
                     default="grasp the red box in isolation")
     ap.add_argument("--seeds", default="0-9",
                     help="'0-9' or '0,5,7'")
-    ap.add_argument("--planners", default="vlm,heuristic",
-                    help="comma-separated, subset of vlm,heuristic")
+    ap.add_argument("--planners", default="vlm,heuristic,ppo,diffusion",
+                    help="comma-separated subset of vlm,heuristic,ppo,diffusion")
+    ap.add_argument("--ppo-model", default=None,
+                    help="path to PPO .zip checkpoint (default auto-detect)")
+    ap.add_argument("--diffusion-model", default=None,
+                    help="path to Diffusion .pt checkpoint (default auto-detect)")
     ap.add_argument("--out", default=None,
                     help="write per-episode rows as JSON")
     ap.add_argument("--gifs", action="store_true",
@@ -308,23 +546,40 @@ def main():
         args.gifs = True
 
     seeds = parse_seeds(args.seeds)
-    planners = [p.strip() for p in args.planners.split(",") if p.strip()]
+    req_planners = [p.strip() for p in args.planners.split(",") if p.strip()]
+    # Filter out ppo/diffusion only if default was used and no model exists on disk
+    planners = []
+    for p in req_planners:
+        if p == "ppo" and args.ppo_model is None:
+            if not (pathlib.Path("models/grasp_ppo_500k.zip").exists()
+                    or pathlib.Path("models/grasp_ppo.zip").exists()):
+                continue
+        if p == "diffusion" and args.diffusion_model is None:
+            if not (pathlib.Path("models/diffusion_v2.pt").exists()
+                    or pathlib.Path("models/diffusion.pt").exists()):
+                continue
+        planners.append(p)
+
     rows = []
     frames_by_seed = {}  # seed -> {planner: (row, frames)}
     for seed in seeds:
         for planner in planners:
-            row, frames = run_one(seed, planner, args.instruction)
+            row, frames = run_one(seed, planner, args.instruction,
+                                  ppo_model=args.ppo_model,
+                                  diffusion_model=args.diffusion_model)
             rows.append(row)
             frames_by_seed.setdefault(seed, {})[planner] = (row, frames)
             status = (f"FC={row.get('force_closure')} "
                       f"caged={row.get('caged')} "
-                      f"rew={row.get('total_reward', 0):.1f}"
+                      f"rew={row.get('total_reward', 0):.1f} "
+                      f"disp={row.get('target_disp', 0):.2f}m"
                       if not row["planner_error"]
                       else f"ERROR: {row['planner_error'][:80]}")
             print(f"seed {seed:>3} {planner:<9} {status}")
 
     if args.gifs:
-        from scripts.make_video import make_gif, make_side_by_side_gif
+        from scripts.make_video import (make_gif, make_multi_panel_gif,
+                                        make_side_by_side_gif)
         gif_map = {}
         for seed, per_planner in frames_by_seed.items():
             out_dir = pathlib.Path("episodes") / f"compare-{seed}"
@@ -339,11 +594,10 @@ def main():
                          fps=args.gif_fps, scale=args.gif_scale,
                          frame_info=row.get("frame_info"))
                 gif_map[seed][planner] = str(gif_path)
-            if len(per_planner) >= 2:
-                # Side-by-side: first two planners, in --planners order.
-                (p1, (r1, f1)), (p2, (r2, f2)) = [
-                    (p, per_planner[p]) for p in planners
-                    if p in per_planner][:2]
+            ordered = [(p, per_planner[p]) for p in planners
+                       if p in per_planner]
+            if len(ordered) == 2:
+                (p1, (r1, f1)), (p2, (r2, f2)) = ordered
                 sbs_path = out_dir / "side_by_side.gif"
                 make_side_by_side_gif(
                     f1, f2, p1, p2, outcome_caption(r1),
@@ -353,6 +607,22 @@ def main():
                     right_info=r2.get("frame_info"))
                 gif_map[seed]["side_by_side"] = str(sbs_path)
                 print(f"seed {seed}: side-by-side GIF -> {sbs_path}")
+            elif len(ordered) >= 3:
+                sbs_path = out_dir / "side_by_side.gif"
+                panel_scale = min(args.gif_scale, 0.50 if len(ordered) >= 4 else 0.60)
+                panels = [
+                    {
+                        "frames": f,
+                        "label": p,
+                        "caption": outcome_caption(r),
+                        "frame_info": r.get("frame_info"),
+                    }
+                    for p, (r, f) in ordered
+                ]
+                make_multi_panel_gif(
+                    panels, sbs_path, fps=args.gif_fps, scale=panel_scale)
+                gif_map[seed]["side_by_side"] = str(sbs_path)
+                print(f"seed {seed}: {len(ordered)}-panel GIF -> {sbs_path}")
             else:
                 print(f"seed {seed}: GIFs -> {out_dir}/ "
                       f"(need 2+ planners for side-by-side)")
@@ -377,6 +647,7 @@ def main():
         print(f"  preconditions rate: {agg['preconditions_rate']:.2f}")
         print(f"  mean reward:        {agg['mean_reward']:.1f}")
         print(f"  mean isolation Δ:   {agg['mean_isolation_delta']:+.3f} m")
+        print(f"  mean target disp:   {agg['mean_target_disp']:.3f} m")
         if planner == "vlm":
             print(f"  API calls:          {agg['api_calls']} "
                   f"(rest ledger cache hits)")

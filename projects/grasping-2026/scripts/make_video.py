@@ -71,11 +71,73 @@ def overlay_status(img, status):
     layout math still holds.
     """
     bar_h = 20
+    bg = ((20, 95, 45) if status.get("fc")
+          else (95, 75, 15) if status.get("caged")
+          else (20, 20, 20))
     d = ImageDraw.Draw(img)
-    d.rectangle([0, 0, img.width, bar_h], fill=(20, 20, 20))
+    d.rectangle([0, 0, img.width, bar_h], fill=bg)
     d.text((6, 4), status_text(status), font=_load_font(14),
            fill=(240, 240, 240))
     return img
+
+
+def make_multi_panel_gif(panels, out_path, fps=15, scale=0.75):
+    """Stitch N frame sequences horizontally into one synchronized GIF.
+
+    panels: list of dicts with keys:
+        frames: non-empty list/array of RGB frames (H, W, 3)
+        label: header title for the column
+        caption: footer outcome string for the column
+        frame_info: optional per-frame status list
+    Shorter sequences hold their final frame and status while longer
+    sequences keep moving.
+    """
+    if not panels or any(len(p["frames"]) == 0 for p in panels):
+        raise ValueError("all panel frame sequences must be non-empty")
+    scaled_frames = []
+    infos = []
+    for p in panels:
+        imgs = [Image.fromarray(fr) for fr in p["frames"]]
+        if scale != 1.0:
+            imgs = [im.resize((int(im.width * scale), int(im.height * scale)))
+                    for im in imgs]
+        scaled_frames.append(imgs)
+        infos.append(list(p["frame_info"]) if p.get("frame_info") else None)
+    w, h = scaled_frames[0][0].size
+    scaled_frames = [
+        [im.resize((w, h)) if im.size != (w, h) else im for im in seq]
+        for seq in scaled_frames
+    ]
+    n = max(len(seq) for seq in scaled_frames)
+    for idx in range(len(scaled_frames)):
+        scaled_frames[idx] += [scaled_frames[idx][-1]] * (
+            n - len(scaled_frames[idx]))
+        if infos[idx]:
+            infos[idx] += [infos[idx][-1]] * (n - len(infos[idx]))
+
+    bar_h, divider = 28, 4
+    n_cols = len(panels)
+    total_w = w * n_cols + divider * (n_cols - 1)
+    total_h = bar_h * 2 + h
+    font = _load_font(15 if n_cols <= 2 else 13)
+    gif_frames = []
+    for i in range(n):
+        canvas = Image.new("RGB", (total_w, total_h), (20, 20, 20))
+        d = ImageDraw.Draw(canvas)
+        for c, p in enumerate(panels):
+            x0 = c * (w + divider)
+            frame_img = scaled_frames[c][i]
+            if infos[c] and i < len(infos[c]):
+                frame_img = overlay_status(frame_img.copy(), infos[c][i])
+            tw = d.textlength(p["label"], font=font)
+            d.text((x0 + (w - tw) / 2, 6), p["label"], font=font,
+                   fill=(240, 240, 240))
+            canvas.paste(frame_img, (x0, bar_h))
+            d = ImageDraw.Draw(canvas)
+            d.text((x0 + 6, bar_h + h + 6), p["caption"], font=font,
+                   fill=(240, 240, 240))
+        gif_frames.append(canvas)
+    return _save_gif(gif_frames, out_path, fps)
 
 
 def make_side_by_side_gif(left_frames, right_frames, left_label,
