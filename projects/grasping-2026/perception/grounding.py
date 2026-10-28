@@ -205,6 +205,33 @@ class NebiusVLMLabeller:
             "max_tokens": 4096, "temperature": 0,
             "response_format": {"type": "json_schema",
                                 "json_schema": PLAN_SCHEMA}}
+        try:
+            return self._plan_via_api(rgb, objects, base_entry, content,
+                                      body)
+        except Exception as e:
+            # Failures are ledger entries too — they cost tokens and
+            # the audit trail is incomplete without them. Never cached
+            # (plan=None is not indexed), just recorded, then re-raised.
+            if self.ledger is not None and self.ledger.enabled:
+                usage = {}
+                if self.last_response:
+                    usage = self.last_response.get("usage") or {}
+                self.ledger.record({**base_entry,
+                                    "response": self.last_raw,
+                                    "plan": None,
+                                    "usage": {
+                                        "prompt_tokens": usage.get(
+                                            "prompt_tokens"),
+                                        "completion_tokens": usage.get(
+                                            "completion_tokens"),
+                                        "total_tokens": usage.get(
+                                            "total_tokens")},
+                                    "cache_hit": False,
+                                    "error": str(e)[:500]})
+            raise
+
+    def _plan_via_api(self, rgb, objects, base_entry, content, body):
+        """One API call + parse. Raises on any failure (caller logs it)."""
         r = self._requests.post(
             f"{self.base_url}/chat/completions",
             headers={"Authorization": f"Bearer {self.api_key}"},

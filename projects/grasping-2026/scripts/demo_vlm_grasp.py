@@ -134,8 +134,8 @@ def main():
                     help="save every Nth frame (1 = full rate, for video)")
     ap.add_argument("--no-gif", action="store_true",
                     help="skip writing demo.gif (GIF is on by default)")
-    ap.add_argument("--gif-fps", type=float, default=8,
-                    help="GIF frame rate (default 8)")
+    ap.add_argument("--gif-fps", type=float, default=15,
+                    help="GIF frame rate (default 15)")
     args = ap.parse_args()
 
     env = WholeArmGraspEnv(seed=args.seed)
@@ -210,10 +210,13 @@ def main():
     print(f"[demo] episode saved to {out}")
 
     # GIF, built in — no separate make_video.py call needed.
+    # Uses EVERY frame (not the subsampled npz frames): the episode is
+    # only a few dozen frames, and frame_every=4 turns the GIF into
+    # ~10 teleporting poses. Full rate + full scale is what looks good.
     if not args.no_gif:
         from scripts.make_video import make_gif
-        gif_path = make_gif(saved_frames, meta, out / "demo.gif",
-                            fps=args.gif_fps)
+        gif_path = make_gif(np.stack(frames), meta, out / "demo.gif",
+                            fps=args.gif_fps, scale=1.0)
         print(f"[demo] GIF saved to {gif_path}")
 
 

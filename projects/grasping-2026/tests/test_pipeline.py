@@ -295,6 +295,71 @@ def test_vlm_ledger_caches_identical_calls(monkeypatch, tmp_path):
     assert len(calls) == 2
 
 
+def test_vlm_ledger_records_failures_without_caching(monkeypatch, tmp_path):
+    """A failed call is logged (with tokens) but never served from cache."""
+    import json
+    from perception.grounding import NebiusVLMLabeller
+    from perception.ledger import VLMCallLedger
+    monkeypatch.setenv("NEBIUS_VLM_MODEL", "nvidia/Nemotron-3.5-Super-VL")
+    monkeypatch.setenv("NEBIUS_API_KEY", "test-key")
+
+    class FakeRespFail:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"choices": [{"message": {"content": None,
+                                             "reasoning_content": "...",
+                                             "role": "assistant"}}],
+                    "usage": {"prompt_tokens": 519, "completion_tokens": 800,
+                              "total_tokens": 1319}}
+
+    class FakeReqFail:
+        def post(self, url, headers=None, json=None, timeout=None):
+            return FakeRespFail()
+
+    env = WholeArmGraspEnv(seed=0)
+    env.reset(seed=0)
+    rgb = env.render()
+    ledger = VLMCallLedger(tmp_path / "ledger.jsonl")
+    lab = NebiusVLMLabeller(ledger=ledger)
+    lab._requests = FakeReqFail()
+    with pytest.raises(ValueError):
+        lab.plan(rgb, env.objects, "grasp the red box")
+    entries = [json.loads(l) for l in
+               (tmp_path / "ledger.jsonl").read_text().splitlines()]
+    assert len(entries) == 1
+    assert entries[0]["plan"] is None
+    assert entries[0]["usage"]["total_tokens"] == 1319
+    assert "error" in entries[0]
+
+    # retry with a working API still calls it (failure not cached)
+    calls = []
+
+    class FakeRespOK:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"choices": [{"message": {"content":
+                '{"grasp_target": 0, "push_away": [], "rationale": "ok"}'}}],
+                "usage": {}}
+
+    class FakeReqOK:
+        def post(self, url, headers=None, json=None, timeout=None):
+            calls.append(1)
+            return FakeRespOK()
+
+    lab._requests = FakeReqOK()
+    plan = lab.plan(rgb, env.objects, "grasp the red box")
+    assert plan["grasp_target"] == 0
+    assert len(calls) == 1
+
+
 def test_singulation_improves_isolation():
     """scripted_singulate pushes a crowding object away (seed 7)."""
     from scripts.demo_vlm_grasp import scripted_singulate
