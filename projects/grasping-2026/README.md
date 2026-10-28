@@ -229,6 +229,11 @@ VLM cost, the side-by-side GIF, and links to the single-planner GIFs.
 ```bash
 docker compose run --build --rm --entrypoint python demo scripts/compare_planners.py --seeds 0-9 --gifs --html
 # -> episodes/compare-report.html (implies --gifs; pass a path to --html to relocate it)
+# -> episodes/compare-report.md, a plain-text companion: aggregates +
+#    one line per seed, errors in full. Read this for a PDF-able
+#    version — the HTML's linked GIFs do not survive print-to-PDF.
+#    Full setup, harness, and training notes: docs/experiment-harness.md
+#    Planning checklist (what is done, what is not): PLANNING_CHECKLIST.md
 ```
 
 ## Local RL training (no API key)

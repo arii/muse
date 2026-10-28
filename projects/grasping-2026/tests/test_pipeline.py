@@ -265,6 +265,138 @@ def test_nebius_labeller_sends_response_format(monkeypatch):
     assert schema["properties"]["grasp_target"]["type"] == "integer"
 
 
+def test_vlm_prompt_no_anchor_example_and_brief_reasoning(monkeypatch):
+    """Prompt has no concrete-index example and no conflicting ban.
+
+    Regression for the 2026-10-28 failure-mode review: the old prompt
+    said 'no explanation, no reasoning steps' while demanding a
+    rationale field, and gave a concrete '{"grasp_target": 2, ...}'
+    example for a red-box (index 0) task — an anchor bias for smaller
+    VLMs. The new prompt puts explanation strictly inside rationale,
+    asks for brief internal reasoning, and gives no concrete example
+    (the strict schema defines the shape).
+    """
+    from perception.grounding import PROMPT
+    assert '"grasp_target": 2' not in PROMPT
+    assert "no reasoning steps" not in PROMPT
+    assert "strictly inside the 'rationale' field" in PROMPT
+    assert "Keep internal reasoning brief" in PROMPT
+    # approach_side anchored, not vague: base + image CCW definition
+    assert "side facing the base" in PROMPT
+    assert "counterclockwise" in PROMPT
+    assert "+x toward +y" in PROMPT
+
+
+def test_vlm_request_reasoning_effort_and_max_tokens(monkeypatch):
+    """plan() sends low reasoning_effort and an 8192 token cap.
+
+    Regression for the 2026-10-28 S5 rerun: content null at the 4096
+    cap (07:44 UTC) because Nemotron spent the whole budget thinking.
+    """
+    env = WholeArmGraspEnv(seed=0)
+    env.reset(seed=0)
+    lab, sent = _mock_labeller(
+        monkeypatch,
+        '{"grasp_target": 0, "push_away": [], "approach_side": "near", '
+        '"rationale": "isolated"}')
+    lab.plan(env.render(), env.objects, "grasp the red box")
+    assert sent["json"]["reasoning_effort"] == "low"
+    assert sent["json"]["max_tokens"] == 8192
+
+
+def test_vlm_null_content_names_reasoning_exhaustion(monkeypatch):
+    """finish_reason=length + reasoning==completion names the cause."""
+    from perception.grounding import NebiusVLMLabeller
+    monkeypatch.setenv("NEBIUS_VLM_MODEL", "nvidia/Nemotron-3.5-Super-VL")
+    monkeypatch.setenv("NEBIUS_API_KEY", "test-key")
+
+    class FakeRespExhaust:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"choices": [{"finish_reason": "length",
+                                 "message": {"content": None,
+                                             "role": "assistant"}}],
+                    "usage": {"completion_tokens": 4096,
+                              "completion_tokens_details":
+                                  {"reasoning_tokens": 4096}}}
+
+    class FakeRequestsExhaust:
+        def post(self, url, headers=None, json=None, timeout=None):
+            return FakeRespExhaust()
+
+    env = WholeArmGraspEnv(seed=0)
+    env.reset(seed=0)
+    lab = NebiusVLMLabeller(ledger=False)
+    lab._requests = FakeRequestsExhaust()
+    with pytest.raises(ValueError) as exc:
+        lab.plan(env.render(), env.objects, "grasp the red box")
+    assert "REASONING TOKEN EXHAUSTION" in str(exc.value)
+    assert "NEBIUS_REASONING_EFFORT" in str(exc.value)
+
+
+def test_spawn_in_enveloping_workspace():
+    """Every spawned box is in the arm's enveloping workspace.
+
+    Regression for the compare-report review seeds 0-9: the old
+    r in [0.28, 0.55], theta in [-pi, pi] spawned boxes j1 cannot
+    reach (|theta| > 2.6) and boxes link1 cannot touch (r > 0.40).
+    """
+    for seed in range(20):
+        env = WholeArmGraspEnv(seed=seed)
+        env.reset(seed=seed)
+        for o in env.objects:
+            x, y = o["spawn_xy"]
+            r = (x * x + y * y) ** 0.5
+            import math
+            th = math.atan2(y, x)
+            assert 0.28 <= r <= 0.40, (seed, o, r)
+            assert abs(th) <= 2.4, (seed, o, th)
+
+
+def test_cage_lead_and_sign():
+    """Lead offset parks link1 beside the box; curl swings back.
+
+    Near (face == target angle) -> face shifted -0.35 rad, curl +.
+    Left (face +90 deg) -> curl -, right (face -90 deg) -> curl +.
+    """
+    from scripts.demo_vlm_grasp import _cage_lead_and_sign
+    import math
+    face, sign = _cage_lead_and_sign(0.5, (math.cos(0.5), math.sin(0.5)))
+    assert sign == +1
+    assert abs(face - (0.5 - 0.35)) < 1e-9
+    _, sign_l = _cage_lead_and_sign(0.5 + math.pi / 2,
+                                    (math.cos(0.5), math.sin(0.5)))
+    assert sign_l == -1
+    _, sign_r = _cage_lead_and_sign(0.5 - math.pi / 2,
+                                    (math.cos(0.5), math.sin(0.5)))
+    assert sign_r == +1
+
+
+def test_loop_closed_requires_tight_curl():
+    """Open-arm polygon is not a cage; tight curl closes the loop.
+
+    Seed 5 phase 2 (0.55, 0.55) left a 0.68 m tip-base gap and was
+    counted caged; a tight curl (1.8, 2.2) brings the tip within
+    0.15 m of link1. Straight/open poses must report not closed.
+    (1.6, 2.0) still leaves 0.161 m, just over the threshold —
+    that is why the cage's final curl is (1.8, 2.2), not (1.6, 2.0).
+    """
+    import mujoco
+    env = WholeArmGraspEnv(seed=0)
+    env.reset(seed=0)
+    env.target_index = 0
+    env.data.qpos[env._arm_qpos] = [0, 0.55, 0.55]
+    mujoco.mj_forward(env.model, env.data)
+    assert env._loop_closed() is False
+    env.data.qpos[env._arm_qpos] = [0, 1.8, 2.2]
+    mujoco.mj_forward(env.model, env.data)
+    assert env._loop_closed() is True
+
+
 def test_vlm_ledger_caches_identical_calls(monkeypatch, tmp_path):
     """Second identical plan() reuses the ledger — no second API call."""
     import json
@@ -425,23 +557,23 @@ def test_force_closure_math():
 
 
 def test_force_closure_vs_caging_seed5():
-    """Seed 5 is geometrically caged but NOT force closure.
+    """Caging is distinct from force closure, and seed 5 is no
+    longer a false caged=True.
 
-    Caging and force closure are distinct: the arm wraps the box
-    (enclosed, 2 links) but all contacts sit on adjacent sides, so
-    the wrenches cannot positively span R^3. Documents that the
-    enveloping cage does not yet achieve a true grasp. The reward
-    bonus follows force_closure (the goal criterion), so the final
-    step earns 0.5*2 = 1.0 with no +2.0 bonus.
+    Old seed 5 (old spawn + old polygon metric) was counted caged
+    on an open arm. Under the new spawn and the closed-loop metric,
+    the scripted cage on seed 5 claims neither caged nor force
+    closure — the honest result for a cage that ends not touching
+    the target. The positive caging-vs-FC case is covered
+    synthetically in test_scripted_cage_achieves_true_enclosure.
     """
     from scripts.demo_vlm_grasp import scripted_cage
     env = WholeArmGraspEnv(seed=5)
     env.reset(seed=5)
     env.target_index = 0
-    rewards, info = scripted_cage(env, 0, frames=[])
-    assert info["caged"] is True
+    _, info = scripted_cage(env, 0, frames=[])
     assert info["force_closure"] is False
-    assert rewards[-1] == 1.0
+    assert info["caged"] is False
 
 
 def test_run_episode_heuristic_no_api(monkeypatch):
@@ -458,10 +590,11 @@ def test_run_episode_heuristic_no_api(monkeypatch):
                                    frames, verbose=False)
     assert metrics["target_index"] == 0
     assert metrics["target_color"] == "red"
-    assert metrics["caged"] is True
     assert metrics["force_closure"] is False
-    assert metrics["total_reward"] == 1.0  # 0.5*2, no FC bonus
     assert info["force_closure"] is False
+    # No API: heuristic plan, and no false caged claim under the
+    # strict closed-loop metric (old test asserted caged True on
+    # the seed-5 false positive).
 
 
 def test_compare_aggregate():
@@ -497,17 +630,20 @@ def test_make_side_by_side_gif(tmp_path):
     from PIL import Image
     from scripts.make_video import make_side_by_side_gif
     # Left: 3 red frames; right: 5 blue frames (longer -> left pads).
-    # Vary one pixel per frame: PIL collapses byte-identical GIF frames,
-    # so distinct frames are needed to count them.
+    # Move a white dot per frame: PIL collapses byte-identical GIF
+    # frames, so distinct frames are needed to count them. The dot
+    # must be a color already in the first frame's palette (white,
+    # from the header text) — a 1-pixel (i, 0, 0) change quantizes
+    # to black under the shared-palette GIF save and collapses.
     left = []
     for i in range(3):
         fr = np.full((40, 60, 3), (255, 0, 0), dtype=np.uint8)
-        fr[0, 0] = (i, 0, 0)
+        fr[i + 1, i + 1] = (255, 255, 255)
         left.append(fr)
     right = []
     for i in range(5):
         fr = np.full((40, 60, 3), (0, 0, 255), dtype=np.uint8)
-        fr[0, 0] = (0, 0, i)
+        fr[i + 1, i + 1] = (255, 255, 255)
         right.append(fr)
     out = tmp_path / "sbs.gif"
     make_side_by_side_gif(left, right, "vlm", "heuristic",
@@ -555,21 +691,27 @@ def test_cage_requires_enclosure_not_just_contact():
 
 
 def test_scripted_cage_achieves_true_enclosure():
-    """The scripted cage still counts as caged under the enclosure test.
+    """A truly closed wrap counts as caged, and still is not FC.
 
-    Seed 5: the curl wraps the target with 2 links touching and the
-    target center inside the arm polygon. (The scripted cage is
-    brittle — most seeds miss entirely — but when it wraps, the new
-    metric must credit it.)
+    Synthetic, not seed-locked: tight curl (1.8, 2.2) with the box
+    placed inside the loop at (0.25, 0.20) touches 2 links, is
+    enclosed, and the loop is closed — so caged True — while the
+    contacts sit on adjacent sides, so force_closure stays False.
+    This is the caging-vs-FC distinction the old seed-5 test
+    tried to lock in, without relying on that false positive.
     """
-    from scripts.demo_vlm_grasp import scripted_cage
-    env = WholeArmGraspEnv(seed=5)
-    env.reset(seed=5)
+    import mujoco
+    env = WholeArmGraspEnv(seed=0)
+    env.reset(seed=0)
     env.target_index = 0
-    _, info = scripted_cage(env, 0, frames=[])
-    assert info["caged"] is True, f"scripted cage failed: {info}"
+    env.data.qpos[env._arm_qpos] = [0, 1.8, 2.2]
+    mujoco.mj_forward(env.model, env.data)
+    env.set_object_pose(0, [0.25, 0.20], yaw=0.0)
+    _, info = env._reward()
+    assert info["caged"] is True, f"closed wrap not caged: {info}"
     assert info["enclosed"] is True
     assert info["links_touching"] >= 2
+    assert info["force_closure"] is False
 
 
 def test_singulation_improves_isolation():
@@ -862,14 +1004,19 @@ def test_collect_scripted_demos_smoke(tmp_path):
 
 
 def test_collect_ppo_demo_fc_seed9(tmp_path):
-    """PPO seed 9 under PLANAR physics: no force closure.
+    """PPO demo collection runs on the new spawn, outcome not locked.
 
-    The old test locked in seed 9 passing in 2 steps — but that
-    pass was a 3D tipping jam (freejoint box wedged on a link),
-    not a planar grasp. Under slide/yaw joints the same 500k
-    model runs 200 steps with no FC. This test locks the honest
-    result until PPO is retrained on the planar env; do not
-    "fix" it by restoring freejoint boxes.
+    History: old test locked seed 9 FC=False under planar physics
+    (old spawn) — the old 2-step pass was a 3D tipping jam, not a
+    planar grasp. Under the new spawn (r 0.28-0.40, theta +-2.4)
+    the same 500k model gets FC=True in 1 step on seed 9, verified
+    as a planar pinch (z fixed, pure yaw, 2 links, 8 wrenches
+    spanning, target moved 0.13 m — not a tipping jam). That is a
+    coincidental policy/scene interaction, not a regression
+    invariant, so this test no longer locks FC True or False.
+    It locks the pipeline: returncode 0, a seed-9 row, and
+    kept == FC when --keep fc (kept 1/1 if FC, 0/1 if not).
+    Do not "fix" a future FC change by restoring freejoint boxes.
     """
     import subprocess
     out = tmp_path / "ppo_demo"
@@ -881,8 +1028,11 @@ def test_collect_ppo_demo_fc_seed9(tmp_path):
         env={**os.environ, "MUJOCO_GL": "osmesa",
              "PYTHONDONTWRITEBYTECODE": "1"})
     assert proc.returncode == 0, proc.stderr[-2000:]
-    assert "seed 9: FC=False" in proc.stdout
-    assert "kept 0/1" in proc.stdout
+    assert "seed 9: FC=" in proc.stdout
+    if "seed 9: FC=True" in proc.stdout:
+        assert "kept 1/1" in proc.stdout
+    else:
+        assert "kept 0/1" in proc.stdout
 
 
 def test_chunk_dataset_fc_anchored_pairs():
@@ -1114,8 +1264,12 @@ def test_boxes_stay_planar_under_hard_push():
         assert pose[2] == pytest.approx(0.06)
         assert pose[4] == pytest.approx(0.0, abs=1e-9)
         assert pose[5] == pytest.approx(0.0, abs=1e-9)
-        # still on the table, not launched to metres away
-        assert abs(pose[0]) < 1.5 and abs(pose[1]) < 1.5
+        # Not launched to tens of metres (old freejoint bug put a
+        # box at -20 m). In-plane sliding itself is unbounded by
+        # design — planar joints have no table edge — so the new
+        # seed-33 scene legitimately slides a box to 2.01 m while
+        # staying flat; the invariant is z + pure yaw, not distance.
+        assert abs(pose[0]) < 5.0 and abs(pose[1]) < 5.0
     # and the direct MuJoCo body orientation agrees: no x/y quat
     for o in env.objects:
         xquat = env.data.xquat[env._obj_body_id[o["index"]]]

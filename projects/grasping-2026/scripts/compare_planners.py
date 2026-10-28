@@ -124,12 +124,23 @@ def write_html_report(rows, gif_map, out_path, instruction, planners):
 
     parts = ["<html><head><meta charset='utf-8'>",
              "<style>body{font-family:sans-serif;max-width:1100px;"
-             "margin:2em auto;padding:0 1em}table{border-collapse:collapse}"
+             "margin:2em auto;padding:0 1em;line-height:1.45}"
+             "table{border-collapse:collapse;width:100%}"
              "th,td{border:1px solid #ccc;padding:4px 10px;text-align:left}"
-             "img{max-width:100%}.pass{color:green}.fail{color:#888}"
+             "img{max-width:100%}h2{margin-top:2em;border-top:2px solid #222;"
+             "padding-top:.5em}.pass{color:green;font-weight:bold}"
+             ".fail{color:#888}.error{background:#fee;border:1px solid #c00;"
+             "padding:6px}.card{border:1px solid #ccc;padding:12px;"
+             "margin:12px 0}.card h3{margin:0 0 6px}"
              "</style></head><body>",
              f"<h1>VLM vs scripted grasping comparison</h1>",
              f"<p>instruction: {esc(instruction)}</p>",
+             "<p>Read this first: force_closure is the goal criterion. "
+             "Caged is a strict diagnostic (loop must close, see "
+             "env.whole_arm_grasp._loop_closed). A GIF that shows the "
+             "box sliding away is a failed grasp even if reward > 0 — "
+             "reward sums contact over steps and inflates on long "
+             "non-passing episodes.</p>",
              "<h2>Aggregate</h2><table><tr><th>planner</th>"
              "<th>episodes</th><th>force_closure</th><th>caged</th>"
              "<th>preconditions</th><th>mean reward</th>"
@@ -194,6 +205,55 @@ def write_html_report(rows, gif_map, out_path, instruction, planners):
     parts.append("</body></html>")
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text("\n".join(parts))
+    return out_path
+
+
+def write_markdown_summary(rows, out_path, instruction, planners):
+    """Plain-text companion to the HTML report, for chat / PDF.
+
+    The HTML report's GIFs do not survive a print-to-PDF (linked
+    files, not embedded), so this file carries the whole result in
+    text: aggregates + one line per seed per planner, with errors
+    shown in full, not hidden behind a GIF link.
+    """
+    lines = [f"# Compare summary", f"",
+             f"instruction: {instruction}", f""]
+    for planner in planners:
+        agg = aggregate(rows, planner)
+        lines.append(
+            f"## {planner}: {agg['episodes']} episodes, "
+            f"{agg['planner_errors']} planner errors, "
+            f"FC {agg['force_closure_rate']:.2f}, "
+            f"caged {agg['caged_rate']:.2f}, "
+            f"preconditions {agg['preconditions_rate']:.2f}, "
+            f"mean reward {agg['mean_reward']:.1f}, "
+            f"mean isolation Δ {agg['mean_isolation_delta']:+.3f} m, "
+            f"API calls {agg['api_calls']}, tokens {agg['total_tokens']}")
+    lines.append("")
+    by_seed = {}
+    for r in rows:
+        by_seed.setdefault(r["seed"], {})[r["planner"]] = r
+    for seed in sorted(by_seed):
+        for planner in planners:
+            r = by_seed[seed].get(planner)
+            if r is None:
+                continue
+            if r["planner_error"]:
+                lines.append(f"- seed {seed} {planner}: ERROR "
+                             f"{r['planner_error'][:300]}")
+            else:
+                lines.append(
+                    f"- seed {seed} {planner}: FC={r.get('force_closure')} "
+                    f"caged={r.get('caged')} "
+                    f"pre={r.get('preconditions_met')} "
+                    f"reward={r.get('total_reward', 0):.1f} "
+                    f"iso {r.get('isolation_before', 0):.3f}->"
+                    f"{r.get('isolation_after', 0):.3f} "
+                    f"plan target={r.get('target_index')} "
+                    f"push={r.get('push_away')} "
+                    f"approach={r.get('approach_side')} "
+                    f"tokens={r.get('tokens', 0)}")
+    pathlib.Path(out_path).write_text("\n".join(lines) + "\n")
     return out_path
 
 
@@ -300,6 +360,12 @@ def main():
             report = write_html_report(rows, gif_map, args.html,
                                        args.instruction, planners)
             print(f"HTML report -> {report}")
+            summary = write_markdown_summary(
+                rows, pathlib.Path(args.html).with_suffix(".md")
+                if str(args.html).endswith(".html")
+                else pathlib.Path("episodes/compare-summary.md"),
+                args.instruction, planners)
+            print(f"Markdown summary -> {summary}")
 
     print()
     for planner in planners:

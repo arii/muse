@@ -46,6 +46,19 @@ from PIL import Image
 # Strict mode requires every property in `required`, including the
 # nested push_away items.
 EFFORTS = ("nudge", "clear", "shove")
+# approach_side stays relative (near/far/left/right), NOT absolute
+# +x/-x/+y/-y, on purpose: the cage yaw is rooted at the arm base, so
+# the entry yaw must stay near the base-to-target direction to reach
+# the target at all (see planning.primitives.approach_face). An
+# absolute cardinal yaw would point the arm east/west/north/south
+# regardless of where the target is and miss it whenever the target
+# is not in that cardinal direction. The ambiguity the absolute
+# proposal was fixing is instead removed in the prompt: near/far are
+# anchored to the visible base (grey circle at the centre), and
+# left/right are defined as image CCW/CW, which in this top-down
+# frame (right=+x, up=+y) is absolute. An absolute approach POINT
+# (tip offset from the target in +x/-x/+y/-y, via IK) would be a
+# different executor, not a label change — not done here.
 APPROACH_SIDES = ("near", "far", "left", "right")
 PLAN_SCHEMA = {
     "name": "grasp_plan",
@@ -83,14 +96,18 @@ PLAN_SCHEMA = {
             "approach_side": {
                 "type": "string",
                 "enum": list(APPROACH_SIDES),
-                "description": "Which way the arm points as it reaches "
-                               "in: near (from the arm's side, default), "
-                               "far (opposite side), left/right (90 "
-                               "degrees around the target from the "
-                               "arm's side, counterclockwise/clockwise "
-                               "as seen in the image). Pick the side "
-                               "whose sweep keeps the arm clear of "
-                               "other boxes.",
+                "description": "Which side the arm reaches in from, "
+                               "relative to the target as seen in the "
+                               "image: near = the side facing the "
+                               "base (grey circle at the centre), "
+                               "far = the opposite side, left = 90 "
+                               "degrees counterclockwise from the "
+                               "base-to-target direction as seen in "
+                               "the image (image counterclockwise is "
+                               "+x toward +y), right = 90 degrees "
+                               "clockwise from that direction. Pick "
+                               "the side whose sweep keeps the arm "
+                               "clear of other boxes.",
             },
             "rationale": {
                 "type": "string",
@@ -106,26 +123,31 @@ PLAN_SCHEMA = {
 
 PROMPT = (
     "You see a top-down view of a robot arm and several colored boxes on a table. "
-    "The boxes are: {objects}. "
-    "The goal is: \"{instruction}\". "
-    "The grasp must happen IN ISOLATION — no other box within reach of the "
-    "grasp target when the arm closes around it. "
-    "The image is top-down: right is +x, up is +y. "
-    "Decide: which box is the grasp target, which boxes must be pushed "
-    "away first to isolate it (in the order to push them, and how hard: "
-    "nudge if barely crowding, clear if close to the target, shove if "
-    "touching or nearly touching it), and which way the arm should point "
-    "as it reaches in (near = from the arm's side, far = from the opposite "
-    "side, left/right = 90 degrees around the target from the arm's side, "
-    "counterclockwise/clockwise as seen in the image — pick the side whose "
-    "sweep keeps the arm clear of other boxes). "
-    "Your ENTIRE reply must be ONLY a JSON object, with no explanation, "
-    "no reasoning steps, no markdown, and no text before or after it. "
-    "Reply exactly like this (with your own values): "
-    '\'{{"grasp_target": 2, "push_away": [{{"index": 0, "effort": "clear"}}], '
-    '"approach_side": "near", "rationale": "short reason"}}\'. '
-    "Use an empty push_away list if no preconditions are needed."
-    # NOTE: doubled braces — they are literal in the formatted prompt.
+    "The boxes are:\n{objects}\n\n"
+    "Coordinate frame: top-down, right is +x, up is +y. The robot arm's "
+    "base is the grey circle at the centre of the image. "
+    "Goal: \"{instruction}\". "
+    "Constraint: the grasp must occur IN ISOLATION — no other box within "
+    "reach of the grasp target when the arm closes around it. "
+    "Decide:\n"
+    "1. grasp_target: index of the target box.\n"
+    "2. push_away: ordered list of boxes to push away first, each with "
+    "effort (nudge if barely crowding, clear if close to the target, "
+    "shove if touching or nearly touching it). Empty if already isolated.\n"
+    "3. approach_side: which side the arm reaches in from, relative to "
+    "the target as seen in the image: near = the side facing the base, "
+    "far = the opposite side, left = 90 degrees counterclockwise from "
+    "the base-to-target direction as seen in the image (image "
+    "counterclockwise is +x toward +y), right = 90 degrees clockwise "
+    "from that direction. Pick the side whose sweep keeps the arm clear "
+    "of other boxes.\n"
+    "4. rationale: one short sentence explaining the choice.\n"
+    "Output: do not output any prose, thoughts, or markdown outside the "
+    "JSON object. Put any explanation strictly inside the 'rationale' "
+    "field. Keep internal reasoning brief — this is a simple scene "
+    "judgment, not a long derivation. No concrete example is given on "
+    "purpose: the response_format schema defines the exact shape, and "
+    "a concrete example would bias the indices toward its values."
 )
 
 
@@ -208,7 +230,29 @@ class NebiusVLMLabeller:
             f"  HTTP status: {self.last_status}",
             f"  message keys: {sorted(msg.keys())}",
         ]
-        if msg.get("reasoning_content"):
+        choices = data.get("choices") or []
+        finish = choices[0].get("finish_reason") if choices else None
+        if finish:
+            lines.append(f"  finish_reason: {finish}")
+        usage = data.get("usage") or {}
+        completion = usage.get("completion_tokens")
+        reasoning = usage.get("completion_tokens_details", {}).get(
+            "reasoning_tokens") if isinstance(
+                usage.get("completion_tokens_details"), dict) else None
+        if reasoning is None:
+            reasoning = usage.get("reasoning_tokens")
+        if finish == "length" or (completion is not None and
+                                  reasoning == completion):
+            lines.append(
+                "  -> REASONING TOKEN EXHAUSTION: the model spent the "
+                "entire completion budget on its thinking trace and "
+                "never emitted the JSON answer (finish_reason=length, "
+                f"reasoning_tokens={reasoning}, completion_tokens="
+                f"{completion}). Fix: lower NEBIUS_REASONING_EFFORT "
+                "(low/none) or raise NEBIUS_MAX_TOKENS — do not parse "
+                "reasoning_content as a plan, it is the thinking trace, "
+                "not the schema-constrained answer.")
+        elif msg.get("reasoning_content"):
             lines.append(
                 "  -> reasoning model: output is in reasoning_content, "
                 "not content. With structured output this should not "
@@ -252,8 +296,8 @@ class NebiusVLMLabeller:
         from perception.ledger import image_hash, make_key, \
             is_canonical_plan
         import datetime
-        desc = ", ".join(
-            f"index {o['index']}: {o['color']} box" for o in objects)
+        desc = "\n".join(
+            f"- index {o['index']}: {o['color']} box" for o in objects)
         prompt = PROMPT.format(objects=desc, instruction=instruction)
         img_hash = image_hash(rgb)
         key = make_key(self.model, instruction, objects, img_hash,
@@ -293,14 +337,30 @@ class NebiusVLMLabeller:
             {"type": "image_url",
              "image_url": {"url": _rgb_to_data_url(np.asarray(rgb))}},
         ]
+        # Reasoning models (e.g. Nemotron-3.5-Super-VL) spend tokens
+        # on a thinking trace BEFORE the answer. max_tokens must cover
+        # reasoning + JSON: 800 was consumed entirely by reasoning
+        # (reasoning_tokens == max_tokens), leaving content null, and
+        # 4096 still exhausted on the 2026-10-28 S5 rerun (07:44 UTC,
+        # content null at the 4096 cap). Two levers, not one:
+        # (1) reasoning_effort="low" — Nebius Token Factory supports
+        # none/minimal/low/medium/high/xhigh, and this task is a
+        # simple scene judgment, not a long derivation; (2) max_tokens
+        # 8192, matching the Nebius example for this model. Both are
+        # env-overridable (NEBIUS_REASONING_EFFORT, NEBIUS_MAX_TOKENS)
+        # so the S5 can try "none" or a higher cap without a code
+        # change. If the provider rejects reasoning_effort, plan()
+        # raises — do NOT silently drop it, or the exhaustion returns
+        # unnoticed. reasoning_content is never parsed as a plan:
+        # it is the thinking trace, not the schema-constrained answer,
+        # and parsing it would break the strict-output contract.
+        max_tokens = int(os.environ.get("NEBIUS_MAX_TOKENS", "8192"))
+        reasoning_effort = os.environ.get("NEBIUS_REASONING_EFFORT",
+                                          "low")
         body = {"model": self.model, "messages": [
             {"role": "user", "content": content}],
-            # Reasoning models (e.g. Nemotron-3.5-Super-VL) spend tokens
-            # on a thinking trace BEFORE the answer. max_tokens must
-            # cover reasoning + JSON: 800 was consumed entirely by
-            # reasoning (reasoning_tokens == max_tokens), leaving
-            # content null. 4096 gives room for both.
-            "max_tokens": 4096, "temperature": 0,
+            "max_tokens": max_tokens, "temperature": 0,
+            "reasoning_effort": reasoning_effort,
             "response_format": {"type": "json_schema",
                                 "json_schema": PLAN_SCHEMA}}
         try:

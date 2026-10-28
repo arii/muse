@@ -31,7 +31,15 @@ LINK_GEOMS = ("link1_geom", "link2_geom", "link3_geom")
 JOINT_NAMES = ("j1", "j2", "j3")
 
 PALETTE = {
-    "red": (0.85, 0.2, 0.2, 1),
+    # Red deepened 2026-10-28: (0.85, 0.2, 0.2) rendered as
+    # (252, 130, 130) — light pink, which reads as muddy
+    # brown/orange on a small GIF box (seed 0 report). MuJoCo's
+    # lighting/gamma washes the green/blue channels up; (0.65, 0.02,
+    # 0.02) renders (252, 84, 84), a clearly saturated red, measured
+    # on a seed-0 render. Haze removal alone did NOT change the
+    # render at this camera distance (fogstart 3 > camera z 2.4),
+    # so the palette, not the fog, is the color fix.
+    "red": (0.65, 0.02, 0.02, 1),
     "blue": (0.2, 0.4, 0.85, 1),
     "green": (0.2, 0.7, 0.3, 1),
     "yellow": (0.9, 0.8, 0.2, 1),
@@ -56,8 +64,24 @@ class WholeArmGraspEnv:
         self.objects = []
         colors = list(PALETTE)
         for i in range(self.n_objects):
-            r = self.rng.uniform(0.28, 0.55)
-            th = self.rng.uniform(-np.pi, np.pi)
+            # WORKSPACE (2026-10-28 fix, from the compare-report
+            # video review seeds 0-9): the old range r in [0.28, 0.55],
+            # theta in [-pi, pi] spawned impossible tasks. Angularly,
+            # j1 is clamped to [-2.6, 2.6] rad, so |theta| > 2.6 (seeds
+            # 1, 8) can never be reached, and |theta| near 2.6 (seed 7)
+            # leaves no margin for a lead offset. Radially, a 3-link
+            # enveloping wrap needs the box near the link1-link2 elbow:
+            # at r = 0.45-0.55 (seeds 0, 4, 5, 9) link1 (0.30 m) can
+            # never touch the box at all, and the fixed cage pocket
+            # sits near r = 0.32 m. The new range keeps every box in
+            # the enveloping workspace: r in [0.28, 0.40], theta in
+            # [-2.4, 2.4] (0.2 rad margin under the j1 limit). This
+            # changes every seed's scene (RNG draws in order), so
+            # seed-locked expectations from the old range are stale
+            # by design, and old PPO/diffusion models (trained on the
+            # old range, old physics) are stale again — retrain.
+            r = self.rng.uniform(0.28, 0.40)
+            th = self.rng.uniform(-2.4, 2.4)
             x, y = r * np.cos(th), r * np.sin(th)
             sx = self.rng.uniform(0.03, 0.06)
             sy = self.rng.uniform(0.03, 0.06)
@@ -211,6 +235,33 @@ class WholeArmGraspEnv:
     def _target_xy(self):
         return self._obj_xy(self.target_index)
 
+    def _loop_closed(self):
+        """True if the arm loop is actually closed around an object.
+
+        The polygon base-j1-j2-tip is closed by an IMAGINARY tip-base
+        chord: at seed 5 phase 2 that chord is 0.68 m long, so a box
+        sitting 'inside' the polygon can walk out through the gap
+        between tip and base — yet the old metric called it enclosed
+        and caged, and scripted_cage stopped mid-reach. A loop is
+        closed only if the tip is back near the first link: distance
+        from the tip to the link1 segment (base-j1) under 0.15 m.
+        That gap, minus the link capsules (0.035 + 0.025 m), leaves
+        under 0.09 m of free passage — less than a box's width
+        (0.06-0.12 m) for all but the smallest boxes, and it is what
+        a tight curl (q2 1.8, q3 2.2) actually achieves (tip 0.092 m
+        from link1), while the old open curl (1.25, 1.45) leaves
+        0.32 m and (1.6, 2.0) still leaves 0.161 m. Base is an
+        endpoint of link1, so tip-to-base is covered by this distance.
+        """
+        base, j1, _, tip = self._arm_joint_xy()
+        seg = j1 - base
+        seg_len2 = float(seg @ seg)
+        if seg_len2 < 1e-12:
+            return float(np.linalg.norm(tip - base)) < 0.15
+        t = float(np.clip(((tip - base) @ seg) / seg_len2, 0.0, 1.0))
+        closest = base + t * seg
+        return float(np.linalg.norm(tip - closest)) < 0.15
+
     @staticmethod
     def _point_in_polygon(point, poly):
         """Ray casting: True if point is inside polygon poly."""
@@ -312,11 +363,17 @@ class WholeArmGraspEnv:
                 if other in LINK_GEOMS:
                     touching.add(other)
         n = len(touching)
-        # Enclosure: target center inside the arm polygon. Contact alone
-        # (e.g. two links on the same face) is a poke, not a cage.
+        # Enclosure: target center inside the arm polygon AND the loop
+        # closed (see _loop_closed). Contact alone (e.g. two links on
+        # the same face) is a poke, not a cage, and polygon membership
+        # alone is a false positive whenever the tip-base gap is open
+        # (seed 5 phase 2: inside the polygon, gap 0.68 m, caged=True
+        # on an open arm). Enclosed is now a strict diagnostic; the
+        # goal criterion remains force_closure.
         enclosed = (self.target_index is not None and
                     self._point_in_polygon(self._target_xy(),
-                                           self._arm_joint_xy()))
+                                           self._arm_joint_xy()) and
+                    self._loop_closed())
         caged = n >= 2 and enclosed
         # Force closure: the GOAL criterion. Contact wrenches
         # positively spanning R^3 means the grasp resists arbitrary

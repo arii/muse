@@ -139,22 +139,75 @@ def scripted_singulate(env, target_idx, frames, push_radius=0.35,
     return iso_start, env.target_isolation()
 
 
+def _cage_lead_and_sign(face, target_xy):
+    """Lead offset + curl sign for a cage that wraps, not pokes.
+
+    The old cage set q1 = face and always curled CCW (+q2, +q3).
+    That fails in two ways, both visible in the compare videos:
+    (1) q1 = face points link1 straight through the target's center,
+    so the first link hits the box instead of parking beside it;
+    (2) sweeping the base toward a clockwise target (-73 deg, seeds
+    2/6) while curling CCW smacks the box with the back of link2
+    and curls into empty space — the curl must swing back toward
+    the target, i.e. opposite the side link1 parks on.
+    Rule: delta = wrapped(face - target angle). If |delta| < 0.35 rad
+    (near: link1 would point through the box), park link1 0.35 rad
+    clockwise of the target and curl CCW (+). Otherwise curl toward
+    the target: delta > 0 (link1 CCW of target) -> curl CW (-),
+    delta < 0 -> curl CCW (+). Returns (face, curl_sign).
+    """
+    theta_t = float(np.arctan2(target_xy[1], target_xy[0]))
+    delta = (face - theta_t + np.pi) % (2 * np.pi) - np.pi
+    if abs(delta) < 0.35:
+        return theta_t - 0.35, +1
+    return face, (-1 if delta > 0 else +1)
+
+
 def scripted_cage(env, target_idx, frames, frame_info=None,
                   approach_side="near"):
-    """Three-phase scripted whole-arm cage around the target object.
+    """Scripted whole-arm cage around the target object.
 
     approach_side biases the entry yaw (see approach_face): near is
     the historical behavior (yaw toward the target); far/left/right
     swing the arm in from another side, which matters when a
-    distractor sits on the near side.
+    distractor sits on the near side. _cage_lead_and_sign then turns
+    that yaw into a lead offset + curl sign so the links wrap the
+    box instead of poking it.
+
+    Sweep fix (2026-10-28): the old phase 1 yawed the base with the
+    arm nearly straight (0.75 m long) — a windshield wiper that
+    knocked boxes away before the reach started (seeds 0, 9). The
+    new order tucks first, yaws while tucked (swept disc ~0.15 m,
+    inside the minimum spawn radius 0.28 m), then extends radially
+    with q1 fixed, then reaches and curls.
+    Curl is tighter than the old (1.25, 1.45): (1.8, 2.2) brings the
+    tip back toward link1, which is what _loop_closed() requires
+    for a true cage (old open curl left a 0.32 m tip-link1 gap;
+    (1.6, 2.0) still leaves 0.161 m, just over the 0.15 m closure
+    threshold, so the final curl must be (1.8, 2.2)).
+
+    Early exit is on force_closure ONLY. The old caged-or-FC exit
+    stopped seed 5 mid-reach on a false caged=True (open-arm
+    polygon, gap 0.68 m); with the closed-loop metric caged is
+    strict, and a true FC grasp is still preserved by the FC exit.
     """
     obs = env._obs()
     pos = obs["objects"][target_idx][:2]
     face = approach_face(pos, approach_side)
+    face, sign = _cage_lead_and_sign(face, pos)
+    q_cur = env.data.qpos[env._arm_qpos].copy()
+    s = float(sign)
     phases = [
-        ([face, 0.15, 0.15], 120),    # 1. yaw toward the object, arm extended
-        ([face, 0.55, 0.55], 120),    # 2. reach: bend elbow toward it
-        ([face, 1.25, 1.45], 200),    # 3. curl: wrap links around it
+        # Tuck tight, not just 1.0 rad: a (1.0, 1.0) fold still leaves
+        # the tip ~0.47 m out, inside the target's radius, so yawing
+        # still sweeps it. (1.8, 2.0) tucks the tip to ~0.10-0.15 m
+        # from the base — inside the minimum spawn radius 0.28 m —
+        # so the yaw below cannot touch any spawned box.
+        ([q_cur[0], 1.8 * s, 2.0 * s], 60),
+        ([face, 1.8 * s, 2.0 * s], 60),
+        ([face, 0.15 * s, 0.15 * s], 120),
+        ([face, 0.55 * s, 0.55 * s], 120),
+        ([face, 1.8 * s, 2.2 * s], 200),
     ]
     rewards = []
     for angles, ticks in phases:
@@ -168,13 +221,10 @@ def scripted_cage(env, target_idx, frames, frame_info=None,
             frames.append(env.render())
             if frame_info is not None:
                 frame_info.append(frame_status(info))
-            # Stop once the grasp is secured by EITHER criterion.
-            # Open-loop curling past a good grasp destroys it (seed 5:
-            # full curl pushes the object to 0.96 m isolation). The
-            # pass verdict is force_closure; caging also stops the
-            # motion because losing a caged object to keep curling
-            # serves no goal.
-            if info["caged"] or info["force_closure"]:
+            # Stop only on force_closure (the goal criterion).
+            # Stopping on caged as well halted seed 5 on a false
+            # caged=True; see _loop_closed() and the docstring.
+            if info["force_closure"]:
                 return rewards, info
     _, r, _, info = env.step(np.array(phases[-1][0]))
     rewards.append(r)

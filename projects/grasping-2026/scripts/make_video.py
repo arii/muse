@@ -20,6 +20,29 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 
+def _save_gif(gif_frames, out_path, fps):
+    """Save GIF frames with ONE shared palette.
+
+    Pillow's default GIF save quantizes each frame independently, so
+    the same box color can map to different palette entries (and
+    shift hue) from frame to frame, and the first frame's palette
+    can drop a color that appears later. Quantizing every frame to
+    the first frame's adaptive palette, with no dithering (flat
+    MuJoCo colors, no gradients to dither), keeps colors stable
+    across the video. The first frame is the initial scene, which
+    contains every box color, the blue arm, and the grey table.
+    """
+    palette_img = gif_frames[0].quantize(
+        colors=256, method=Image.Quantize.MEDIANCUT)
+    quantized = [fr.quantize(palette=palette_img,
+                             dither=Image.Dither.NONE)
+                 for fr in gif_frames]
+    quantized[0].save(
+        out_path, save_all=True, append_images=quantized[1:],
+        duration=int(1000 / fps), loop=0)
+    return out_path
+
+
 def _load_font(size):
     for path in ("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
                  "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"):
@@ -121,10 +144,7 @@ def make_side_by_side_gif(left_frames, right_frames, left_label,
         d.text((w + divider + 8, bar_h + h + 6), right_caption,
                font=font, fill=(240, 240, 240))
         gif_frames.append(canvas)
-    gif_frames[0].save(
-        out_path, save_all=True, append_images=gif_frames[1:],
-        duration=int(1000 / fps), loop=0)
-    return out_path
+    return _save_gif(gif_frames, out_path, fps)
 
 
 def load_episode(epi_dir):
@@ -165,10 +185,7 @@ def make_gif(frames, meta, out_path, fps=8, scale=0.75, frame_info=None):
                        font=_load_font(14), fill=(240, 240, 240))
             img = canvas
         gif_frames.append(img)
-    gif_frames[0].save(
-        out_path, save_all=True, append_images=gif_frames[1:],
-        duration=int(1000 / fps), loop=0)
-    return out_path
+    return _save_gif(gif_frames, out_path, fps)
 
 
 def main():

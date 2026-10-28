@@ -9,10 +9,13 @@
 
   <option timestep="0.005" gravity="0 0 -9.81"/>
 
-  <visual>
-    <map fogstart="3" fogend="8"/>
-    <rgba haze="0.15 0.25 0.35 1"/>
-  </visual>
+  <!-- No <visual> fog/haze block (2026-10-28): the old
+       <map fogstart="3" fogend="8"/> + <rgba haze="0.15 0.25 0.35 1"/>
+       was removed as a precaution. Measured on a seed-0 render it
+       changed nothing at this camera distance (fogstart 3 >
+       camera z 2.4, so fog factor was already 0) — the actual
+       color fix is the deepened red palette in whole_arm_grasp.py.
+       Kept removed so a future camera move cannot reintroduce fog. -->
 
   <asset>
     <texture name="grid" type="2d" builtin="checker" width="512" height="512"
