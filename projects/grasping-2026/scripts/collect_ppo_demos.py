@@ -38,6 +38,7 @@ def main():
     ap.add_argument("--max-steps", type=int, default=200)
     ap.add_argument("--n-objects", type=int, default=4)
     ap.add_argument("--contact-obs", action="store_true")
+    ap.add_argument("--max-delta-q", type=float, default=None)
     ap.add_argument("--keep", choices=["fc", "caged", "all"],
                     default="fc")
     ap.add_argument("--out", default="data/demos_ppo")
@@ -63,7 +64,8 @@ def main():
     for seed in seeds:
         env = GraspGymWrapper(seed=seed, max_steps=args.max_steps,
                               n_objects=args.n_objects,
-                              contact_obs=args.contact_obs)
+                              contact_obs=args.contact_obs,
+                              max_delta_q=args.max_delta_q)
         obs, _ = env.reset(seed=seed)
         obs_list, act_list = [], []
         info = {}
