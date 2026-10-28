@@ -169,12 +169,32 @@ at runtime with an extra `-v`, never baked into the image. Secrets go via
 published by CI on main) can replace `build: .` in the compose file if you
 don't want to build locally.
 
+## VLM call ledger (audit + cache)
+
+Every VLM call is logged to `episodes/vlm_ledger.jsonl` (JSONL, one entry
+per line) — input, prompt, raw response, parsed plan, and token usage.
+Identical calls (same model, instruction, and scene) reuse the cached plan
+instead of calling the API again, so rerunning the same seed costs nothing.
+
+Each entry: `timestamp`, `model`, `instruction`, `objects`, `image_sha256`
+(scene fingerprint), `prompt`, `response`, `plan`, `usage` (tokens),
+`cache_hit`, `cache_key`. Cache hits still append an entry, so the ledger
+shows every `plan()` invocation, API call or not.
+
+- Default location: `episodes/vlm_ledger.jsonl` (inside the episodes volume,
+  so it persists across container runs).
+- Override: `NEBIUS_LEDGER_PATH` (e.g. a different path, or empty to disable).
+
 ## Visualizer
 
-Episodes render to animated GIFs (Pillow-only, no extra deps):
+Every demo run writes `episodes/<stamp>/demo.gif` automatically (caption
+bar with instruction, target color, and whether it caged). No separate
+step needed — use `--no-gif` to skip it, `--gif-fps` to change the rate.
+
+For old episodes (saved before built-in GIFs), `scripts/make_video.py`
+still works standalone:
 
 ```bash
-docker compose run --build --rm demo --instruction "grasp the red box" --seed 7 --frame-every 1
 docker compose run --build --rm --entrypoint python demo scripts/make_video.py episodes/<stamp>/ --out episodes/demo.gif --fps 10
 ```
 

@@ -24,6 +24,39 @@ import re
 import numpy as np
 from PIL import Image
 
+# JSON schema for the VLM plan, enforced via response_format
+# (Nebius Token Factory structured output). With strict mode the API
+# guarantees the reply matches this shape — no prose, no parsing hacks.
+# Docs: https://docs.tokenfactory.nebius.com/ai-models-inference/json
+# Caveat: not every model supports JSON mode (check the model card for
+# the "JSON mode" tag). If the API rejects response_format, plan()
+# raises — pick a supporting model instead of degrading silently.
+PLAN_SCHEMA = {
+    "name": "grasp_plan",
+    "schema": {
+        "type": "object",
+        "properties": {
+            "grasp_target": {
+                "type": "integer",
+                "description": "Index of the box to grasp",
+            },
+            "push_away": {
+                "type": "array",
+                "items": {"type": "integer"},
+                "description": "Indices of boxes to push away first, "
+                               "to isolate the grasp target",
+            },
+            "rationale": {
+                "type": "string",
+                "description": "Short reason for the choice",
+            },
+        },
+        "required": ["grasp_target", "push_away", "rationale"],
+        "additionalProperties": False,
+    },
+    "strict": True,
+}
+
 PROMPT = (
     "You see a top-down view of a robot arm and several colored boxes on a table. "
     "The boxes are: {objects}. "
@@ -50,7 +83,8 @@ def _rgb_to_data_url(rgb):
 
 
 class NebiusVLMLabeller:
-    def __init__(self, model=None, api_key=None, base_url=None):
+    def __init__(self, model=None, api_key=None, base_url=None,
+                 ledger=None):
         import requests  # deferred so offline use never needs it
         self._requests = requests
         self.last_raw = None  # raw model reply text from the last plan() call
@@ -65,6 +99,15 @@ class NebiusVLMLabeller:
         self.base_url = (base_url or os.environ.get(
             "NEBIUS_BASE_URL", "https://api.tokenfactory.nebius.com/v1")
         ).rstrip("/")
+        # Audit ledger + cache (episodes/vlm_ledger.jsonl by default).
+        # Pass ledger=False to disable, or a VLMCallLedger instance.
+        if ledger is False:
+            self.ledger = None
+        elif ledger is not None:
+            self.ledger = ledger
+        else:
+            from perception.ledger import VLMCallLedger
+            self.ledger = VLMCallLedger()
 
     def _diagnose_null_content(self, msg, data):
         """Build a diagnostic block explaining why content is None.
@@ -82,9 +125,8 @@ class NebiusVLMLabeller:
         if msg.get("reasoning_content"):
             lines.append(
                 "  -> reasoning model: output is in reasoning_content, "
-                "not content. (This labeller now reads reasoning_content "
-                "as a fallback — if you see this, that fallback also "
-                "returned empty.)")
+                "not content. With structured output this should not "
+                "happen — the JSON belongs in content.")
         if msg.get("tool_calls"):
             lines.append(
                 f"  -> model returned tool_calls instead of text: "
@@ -108,121 +150,109 @@ class NebiusVLMLabeller:
         return "\n".join(lines)
 
     def plan(self, rgb, objects, instruction):
-        """Instruction -> {"grasp_target": idx, "push_away": [idxs], "rationale": str}."""
+        """Instruction -> {"grasp_target": idx, "push_away": [idxs], "rationale": str}.
+
+        Uses Nebius structured output (response_format json_schema, strict)
+        so the API guarantees the reply matches PLAN_SCHEMA — no prose,
+        no regex parsing. If the model/API rejects response_format (not
+        every model supports JSON mode), plan() raises — pick a model
+        with the "JSON mode" tag instead of degrading silently.
+
+        Ledger: before calling the API, checks the audit ledger for an
+        identical (model, instruction, scene) call and reuses the cached
+        plan if found — no API call, no cost. Every invocation (API call
+        or cache hit) is appended to the ledger.
+        """
+        from perception.ledger import image_hash, make_key
+        import datetime
         desc = ", ".join(
             f"index {o['index']}: {o['color']} box" for o in objects)
+        prompt = PROMPT.format(objects=desc, instruction=instruction)
+        img_hash = image_hash(rgb)
+        key = make_key(self.model, instruction, objects, img_hash)
+        base_entry = {
+            "timestamp": datetime.datetime.now(
+                datetime.timezone.utc).isoformat(),
+            "model": self.model,
+            "instruction": instruction,
+            "objects": [{"index": o["index"], "color": o["color"]}
+                        for o in objects],
+            "image_sha256": img_hash,
+            "prompt": prompt,
+            "cache_key": key,
+        }
+        # Cache hit: same scene + instruction seen before — reuse, no API.
+        if self.ledger is not None and self.ledger.enabled:
+            cached = self.ledger.lookup(key)
+            if cached is not None:
+                print(f"[vlm] ledger cache hit ({key}) — no API call")
+                self.ledger.record({**base_entry, "response": None,
+                                    "plan": cached, "usage": None,
+                                    "cache_hit": True})
+                return cached
         content = [
-            {"type": "text",
-             "text": PROMPT.format(objects=desc, instruction=instruction)},
+            {"type": "text", "text": prompt},
             {"type": "image_url",
              "image_url": {"url": _rgb_to_data_url(np.asarray(rgb))}},
         ]
+        body = {"model": self.model, "messages": [
+            {"role": "user", "content": content}],
+            "max_tokens": 800, "temperature": 0,
+            "response_format": {"type": "json_schema",
+                                "json_schema": PLAN_SCHEMA}}
         r = self._requests.post(
             f"{self.base_url}/chat/completions",
             headers={"Authorization": f"Bearer {self.api_key}"},
-            json={"model": self.model, "messages": [
-                {"role": "user", "content": content}],
-                "max_tokens": 800, "temperature": 0},
-            timeout=60)
+            json=body, timeout=60)
         self.last_status = r.status_code
+        # No retry without response_format: if the model/API rejects
+        # structured output, that's a model-selection finding, not
+        # something to silently degrade around. Pick a model with the
+        # "JSON mode" tag. raise_for_status surfaces the 400.
         r.raise_for_status()
         data = r.json()
         self.last_response = data
         msg = data["choices"][0]["message"]
-        # Some models return content=None (reasoning models put output in
-        # reasoning_content; non-vision models may null it entirely).
-        text = msg.get("content") or msg.get("reasoning_content")
+        # With structured output, content holds the JSON. No
+        # reasoning_content fallback: if content is None, that's a
+        # real failure, not something to paper over.
+        text = msg.get("content")
         self.last_raw = text
         if text is None:
             raise ValueError(self._diagnose_null_content(msg, data))
-        # be liberal: find the first {...} in the reply
+        # be liberal: find the first {...} in the reply (with structured
+        # output this is the whole reply; without it, it may be embedded)
         try:
             start, end = text.index("{"), text.rindex("}") + 1
         except ValueError:
-            # No JSON — try to salvage the answer from prose. The model
-            # often writes "Grasp target: Red box (index 0)" and names
-            # the crowding box. Extract indices from those sentences.
-            prose_plan = self._parse_prose(text, objects)
-            if prose_plan is not None:
-                return prose_plan
             raise ValueError(
                 f"VLM reply contained no JSON object (model={self.model}). "
                 f"Raw reply:\n{text[:1000]}\n"
-                "The model answered in prose instead of JSON. Likely "
-                "causes: (a) the model is not instruction-tuned for JSON "
-                "output; (b) max_tokens cut it off before the JSON; "
-                "(c) the prompt's JSON example wasn't followed. Try a "
-                "different model id, or raise max_tokens.")
+                "The model answered in prose instead of JSON. If you are "
+                "seeing this with response_format enabled, the model does "
+                "not support structured output — pick a model with the "
+                "'JSON mode' tag, or accept the heuristic fallback.")
         out = json.loads(text[start:end])
         valid = {o["index"] for o in objects}
         grasp = int(out["grasp_target"])
         push = [int(i) for i in out.get("push_away", [])]
         if grasp not in valid or any(i not in valid for i in push):
             raise ValueError(f"VLM returned out-of-range indices: {out}")
-        return {"grasp_target": grasp, "push_away": push,
+        plan = {"grasp_target": grasp, "push_away": push,
                 "rationale": out.get("rationale", "")}
-
-    def _parse_prose(self, text, objects):
-        """Salvage a plan from a prose reply (no JSON).
-
-        Looks for "grasp target" + an index or color, and "push" +
-        an index or color. Returns None if no grasp target found.
-        """
-        import re
-        colors = {o["color"]: o["index"] for o in objects}
-        valid = set(colors.values())
-        low = text.lower()
-
-        def _idx_near(pattern, window=120):
-            """Index/color mentioned within `window` chars after `pattern`.
-
-            Tries every match of the pattern (the first mention is often
-            in an intro sentence, far from the actual index) and returns
-            the first one that yields an index or color.
-            """
-            for m in re.finditer(pattern, low):
-                snippet = low[m.end():m.end() + window]
-                mi = re.search(r"index\s+(\d+)", snippet)
-                if mi and int(mi.group(1)) in valid:
-                    return int(mi.group(1))
-                for color, idx in colors.items():
-                    if color in snippet:
-                        return idx
-            return None
-
-        grasp = _idx_near(r"grasp target")
-        if grasp is None:
-            return None
-        push = []
-        for m in re.finditer(r"push", low):
-            # color/index may be before ("blue box must be pushed") or
-            # after ("push the blue box") the word "push" — take the
-            # NEAREST mention, not the first color in dict order (the
-            # window often contains the grasp target's color too).
-            lo = max(0, m.start() - 60)
-            hi = m.start() + 80
-            window = low[lo:hi]
-            push_pos = m.start() - lo
-            best_idx, best_dist = None, None
-            mi = re.search(r"index\s+(\d+)", window)
-            if mi and int(mi.group(1)) in valid:
-                # index mentions are precise; prefer the nearest one
-                for mm in re.finditer(r"index\s+(\d+)", window):
-                    if int(mm.group(1)) in valid:
-                        d = abs(mm.start() - push_pos)
-                        if best_dist is None or d < best_dist:
-                            best_idx, best_dist = int(mm.group(1)), d
-            if best_idx is None:
-                for c, i in colors.items():
-                    for mm in re.finditer(re.escape(c), window):
-                        d = abs(mm.start() - push_pos)
-                        if best_dist is None or d < best_dist:
-                            best_idx, best_dist = i, d
-            if best_idx is not None and best_idx != grasp \
-                    and best_idx not in push:
-                push.append(best_idx)
-        return {"grasp_target": grasp, "push_away": push,
-                "rationale": "parsed from prose (model did not return JSON)"}
+        if self.ledger is not None and self.ledger.enabled:
+            usage = data.get("usage") or {}
+            self.ledger.record({**base_entry, "response": text,
+                                "plan": plan,
+                                "usage": {
+                                    "prompt_tokens": usage.get(
+                                        "prompt_tokens"),
+                                    "completion_tokens": usage.get(
+                                        "completion_tokens"),
+                                    "total_tokens": usage.get(
+                                        "total_tokens")},
+                                "cache_hit": False})
+        return plan
 
     def label(self, rgb, objects, instruction):
         """Back-compat: (grasp_target_index, rationale)."""

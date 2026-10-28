@@ -10,7 +10,9 @@ Usage:
 
 The controller here is SCRIPTED (a placeholder). It demonstrates the full
 loop; replace it with a learned policy (see train_rl_baseline.py) or a
-VLM-driven motion plan. Episodes land in episodes/<timestamp>/.
+VLM-driven motion plan. Episodes land in episodes/<timestamp>/ with
+frames.npz, meta.json, and demo.gif (built in — no separate video step).
+Use --no-gif to skip the GIF.
 """
 import argparse
 import datetime
@@ -130,6 +132,10 @@ def main():
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--frame-every", type=int, default=4,
                     help="save every Nth frame (1 = full rate, for video)")
+    ap.add_argument("--no-gif", action="store_true",
+                    help="skip writing demo.gif (GIF is on by default)")
+    ap.add_argument("--gif-fps", type=float, default=8,
+                    help="GIF frame rate (default 8)")
     args = ap.parse_args()
 
     env = WholeArmGraspEnv(seed=args.seed)
@@ -185,9 +191,9 @@ def main():
     stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     out = pathlib.Path("episodes") / stamp
     out.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(out / "frames.npz",
-                        frames=np.stack(frames)[::args.frame_every])
-    (out / "meta.json").write_text(json.dumps({
+    saved_frames = np.stack(frames)[::args.frame_every]
+    np.savez_compressed(out / "frames.npz", frames=saved_frames)
+    meta = {
         "instruction": args.instruction,
         "target_index": target_idx,
         "target_color": env.objects[target_idx]["color"],
@@ -199,8 +205,16 @@ def main():
         "links_touching": info["links_touching"],
         "caged": info["caged"],
         "total_reward": float(sum(rewards)),
-    }, indent=2))
+    }
+    (out / "meta.json").write_text(json.dumps(meta, indent=2))
     print(f"[demo] episode saved to {out}")
+
+    # GIF, built in — no separate make_video.py call needed.
+    if not args.no_gif:
+        from scripts.make_video import make_gif
+        gif_path = make_gif(saved_frames, meta, out / "demo.gif",
+                            fps=args.gif_fps)
+        print(f"[demo] GIF saved to {gif_path}")
 
 
 if __name__ == "__main__":

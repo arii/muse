@@ -118,6 +118,8 @@ def _mock_labeller(monkeypatch, reply_text):
     sent = {}
 
     class FakeResp:
+        status_code = 200
+
         def raise_for_status(self):
             pass
 
@@ -129,7 +131,7 @@ def _mock_labeller(monkeypatch, reply_text):
             sent.update(url=url, headers=headers, json=json, timeout=timeout)
             return FakeResp()
 
-    lab = NebiusVLMLabeller()
+    lab = NebiusVLMLabeller(ledger=False)
     lab._requests = FakeRequests()
     return lab, sent
 
@@ -190,8 +192,7 @@ def test_nebius_labeller_rejects_non_json(monkeypatch):
 
 
 def test_nebius_labeller_null_content_diagnostic(monkeypatch):
-    """content=None raises a diagnostic (not AttributeError), and
-    reasoning_content is used as a fallback."""
+    """content=None raises a diagnostic (not AttributeError)."""
     from perception.grounding import NebiusVLMLabeller
     monkeypatch.setenv("NEBIUS_VLM_MODEL", "nvidia/Nemotron-3.5-Super-VL")
     monkeypatch.setenv("NEBIUS_API_KEY", "test-key")
@@ -212,7 +213,7 @@ def test_nebius_labeller_null_content_diagnostic(monkeypatch):
 
     env = WholeArmGraspEnv(seed=0)
     env.reset(seed=0)
-    lab = NebiusVLMLabeller()
+    lab = NebiusVLMLabeller(ledger=False)
     lab._requests = FakeRequestsNull()
     with pytest.raises(ValueError) as exc:
         lab.plan(env.render(), env.objects, "grasp the red box")
@@ -220,27 +221,78 @@ def test_nebius_labeller_null_content_diagnostic(monkeypatch):
     assert "nvidia/Nemotron-3.5-Super-VL" in str(exc.value)
     assert "vision" in str(exc.value).lower()
 
-    # reasoning_content fallback works
-    class FakeRespReasoning:
+
+def test_nebius_labeller_sends_response_format(monkeypatch):
+    """plan() sends response_format json_schema (structured output)."""
+    env = WholeArmGraspEnv(seed=0)
+    env.reset(seed=0)
+    lab, sent = _mock_labeller(
+        monkeypatch,
+        '{"grasp_target": 0, "push_away": [1], "rationale": "clear it"}')
+    plan = lab.plan(env.render(), env.objects, "grasp the red box")
+    assert plan["grasp_target"] == 0
+    rf = sent["json"]["response_format"]
+    assert rf["type"] == "json_schema"
+    assert rf["json_schema"]["strict"] is True
+    schema = rf["json_schema"]["schema"]
+    assert set(schema["required"]) == {"grasp_target", "push_away",
+                                       "rationale"}
+    assert schema["properties"]["grasp_target"]["type"] == "integer"
+
+
+def test_vlm_ledger_caches_identical_calls(monkeypatch, tmp_path):
+    """Second identical plan() reuses the ledger — no second API call."""
+    import json
+    from perception.grounding import NebiusVLMLabeller
+    from perception.ledger import VLMCallLedger
+    monkeypatch.setenv("NEBIUS_VLM_MODEL", "nvidia/Nemotron-3.5-Super-VL")
+    monkeypatch.setenv("NEBIUS_API_KEY", "test-key")
+    calls = []
+
+    class FakeResp:
         status_code = 200
 
         def raise_for_status(self):
             pass
 
         def json(self):
-            return {"choices": [{"message": {
-                "content": None,
-                "reasoning_content": '{"grasp_target": 0, "push_away": []}',
-                "role": "assistant"}}]}
+            return {"choices": [{"message": {"content":
+                '{"grasp_target": 0, "push_away": [1], '
+                '"rationale": "clear it"}'}}],
+                "usage": {"prompt_tokens": 100, "completion_tokens": 20,
+                          "total_tokens": 120}}
 
-    class FakeRequestsReasoning:
+    class FakeRequests:
         def post(self, url, headers=None, json=None, timeout=None):
-            return FakeRespReasoning()
+            calls.append(json)
+            return FakeResp()
 
-    lab2 = NebiusVLMLabeller()
-    lab2._requests = FakeRequestsReasoning()
-    plan = lab2.plan(env.render(), env.objects, "grasp the red box")
-    assert plan["grasp_target"] == 0
+    env = WholeArmGraspEnv(seed=0)
+    env.reset(seed=0)
+    rgb = env.render()
+    ledger = VLMCallLedger(tmp_path / "ledger.jsonl")
+    lab = NebiusVLMLabeller(ledger=ledger)
+    lab._requests = FakeRequests()
+
+    plan1 = lab.plan(rgb, env.objects, "grasp the red box")
+    plan2 = lab.plan(rgb, env.objects, "grasp the red box")
+    assert plan1 == plan2 == {"grasp_target": 0, "push_away": [1],
+                              "rationale": "clear it"}
+    assert len(calls) == 1, "second identical call must not hit the API"
+
+    entries = [json.loads(l) for l in
+               (tmp_path / "ledger.jsonl").read_text().splitlines()]
+    assert len(entries) == 2
+    assert entries[0]["cache_hit"] is False
+    assert entries[0]["usage"]["total_tokens"] == 120
+    assert entries[0]["plan"] == plan1
+    assert entries[1]["cache_hit"] is True
+    assert entries[1]["plan"] == plan1
+    assert entries[1]["cache_key"] == entries[0]["cache_key"]
+
+    # different instruction misses the cache and calls the API again
+    lab.plan(rgb, env.objects, "grasp the blue box")
+    assert len(calls) == 2
 
 
 def test_singulation_improves_isolation():
