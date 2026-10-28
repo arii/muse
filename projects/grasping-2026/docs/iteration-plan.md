@@ -118,11 +118,27 @@ Instead of running all 10 seeds (`0–9`), we use **Seeds 2 and 4** (`--seeds 2,
   1. Collect `~40–50` verified `FC=True, caged=True` trajectories across `Seeds 0–99` (`scripts/collect_demos.py --demonstrator cage --seeds 0-99 --keep caged`).
   2. Train `models/diffusion_v2.pt` on the broader demonstration set with deterministic seeding (`torch.manual_seed(0)`) so it generalizes across all workspace quadrants (`±θ`, `r ∈ [0.22, 0.45] m`).
 
-### Step 3: Retrain PPO on the Planar `3*N`-DOF Environment (`scripts/train_rl.py`)
-* **Current State:** `models/grasp_ppo_500k.zip` was trained before objects were switched to planar `(x, y, yaw)` joints and sweeps the target box out of the workspace (`mean target Δxy = 1.90 m`, `FC = 0.00`).
+### Step 3: Retrain PPO via Behavior Cloning Warm-Start (BC -> RL)
+* **Current State:** `models/grasp_ppo_500k.zip` was trained before objects were switched to planar joints and sweeps the target box out of the workspace (`FC = 0.00`). Retraining PPO from pure random exploration (`models/grasp_ppo_planar.zip`, 100k steps) with `--contact-obs --step-penalty 2.0 --max-delta-q 1.0` avoids wild flailing but fails to discover force closure from scratch (`FC = 0.00`) due to sparse reward.
+* **Root Cause:** In random exploration, the probability of 3 unguided links simultaneously wrapping around a free-sliding box without knocking it away is near zero.
 * **Action Items:**
-  1. Add a target-displacement penalty (`-c * ||pos_t - pos_0||`) to `WholeArmGraspEnv.step()` so RL is penalized for batting the target box away.
-  2. Retrain PPO (`scripts/train_rl.py --timesteps 500000`) on the planar environment and benchmark on `--no-vlm --seeds 2,6`.
+  1. Warm-start PPO's actor network (`MlpPolicy`) by pre-training on successful planar demonstrations (`data/demos_cage_planar.npz`) via supervised behavior cloning (MSE loss on action predictions).
+  2. Continue training with PPO on `GraspGymWrapper` with `--contact-obs --step-penalty 2.0 --max-delta-q 1.0` so RL optimizes stability starting from ~50–80% success instead of 0%.
 
-### Step 4: Expand Benchmark from `Seeds 2,6` → `Seeds 2,6,7` → Full `Seeds 0–9`
-* Once Steps 1–3 pass on `Seeds 2,6` (isolated) and `Seed 7` (cluttered), run the full 10-seed cached suite (`./scripts/run_eval.sh --seeds 0-9`) to validate aggregate `force_closure`, `caged`, and `preconditions_met` rates across all four planners.
+### Step 4: VLM Action Space Extension: Residual Delta-q Actions (Equal Closure Pre-Seed)
+* **Concept:** Currently, VLM outputs high-level semantic decisions (`push_away`, `approach_side`), while IK computes low-level joint waypoints ($q_1, q_2, q_3$).
+* **Action Items:**
+  1. Extend VLM response schema in `perception/grounding.py` with optional bounded joint offsets around nominal symmetric closure:
+     ```json
+     {
+       "grasp_target": 0,
+       "push_away": [{"index": 2, "effort": "shove"}],
+       "approach_side": "right",
+       "delta_q_curl": [0.0, 0.15, -0.10],
+       "rationale": "..."
+     }
+     ```
+  2. Pre-seed the baseline action with equal joint closure ($q_2 = q_3 = +1.85\text{ rad}$) and apply `q = q_nominal + delta_q` in `scripts/demo_vlm_grasp.py`.
+
+### Step 5: Expand Benchmark from `Seeds 2,4` -> Full `Seeds 0–9`
+* Once Steps 1–4 are validated on canary seeds 2 and 4, evaluate across all 10 seeds (`./scripts/run_eval.sh --seeds 0-9`) to track aggregate improvements across heuristic, VLM, PPO, and diffusion policies.
