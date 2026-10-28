@@ -3,24 +3,24 @@
 # Usage (no local Python needed):
 #   cp .env.example .env   # optional: only needed for the live VLM
 #   # edit .env with your Nebius key (or leave it empty for the offline fallback)
-#   docker compose run --rm demo --instruction "grasp the red box in isolation" --seed 7
+#   docker compose run --build --rm demo --instruction "grasp the red box in isolation" --seed 7
 #
 # Episodes land in ./episodes/ (mounted volume, persists across runs).
 # Extra demo flags pass through after the service name, e.g.:
-#   docker compose run --rm demo --instruction "grasp the blue box" --seed 1 --frame-every 1
+#   docker compose run --build --rm demo --instruction "grasp the blue box" --seed 1 --frame-every 1
 #
 # Notes:
 #  - Compose auto-loads .env from this directory for the ${VAR} interpolation
 #    below, so a missing .env just means empty values (offline fallback).
 #  - Secrets never enter the image: they arrive as environment variables.
 #  - SAM checkpoint (M2): mount at runtime with an extra -v, never baked in.
-#  - Prebuilt image alternative: replace `build: .` with
-#    `image: ghcr.io/arii/grasping-2026` (CI publishes it on main).
+#  - Prebuilt image alternative: use `image: ghcr.io/arii/grasping-2026`
+#    (CI publishes it on main) instead of `build: .` if you don't want
+#    to build locally.
 
 services:
   demo:
     build: .
-    image: grasping-2026
     environment:
       - MUJOCO_GL=osmesa
       - NEBIUS_API_KEY=${NEBIUS_API_KEY:-}
@@ -30,3 +30,6 @@ services:
       - ./episodes:/workspace/episodes
     # ENTRYPOINT (from the Dockerfile) is `python scripts/demo_vlm_grasp.py`;
     # arguments after `docker compose run demo` are appended to it.
+    # NOTE: `docker compose run` does NOT build by itself — always pass
+    # --build on first run (or run `docker compose build` once), otherwise
+    # compose tries to pull a nonexistent image from Docker Hub.

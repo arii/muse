@@ -122,7 +122,7 @@ No local Python setup needed — everything runs in the container.
 cp .env.example .env   # then edit .env
 
 # 2. Run the demo. Episodes land in ./episodes/.
-docker compose run --rm demo --instruction "grasp the red box in isolation" --seed 7
+docker compose run --build --rm demo --instruction "grasp the red box in isolation" --seed 7
 ```
 
 Expected output:
@@ -144,7 +144,7 @@ Factory instead.
 Verify everything works (also via container):
 
 ```bash
-docker compose run --rm demo --instruction "grasp the red box in isolation" --seed 7
+docker compose run --build --rm demo --instruction "grasp the red box in isolation" --seed 7
 ```
 
 To run the test suite locally you still need a Python env (see
@@ -159,7 +159,7 @@ just means empty values, i.e. offline fallback). Extra demo flags pass
 through after the service name:
 
 ```bash
-docker compose run --rm demo --instruction "grasp the blue box" --seed 1 --frame-every 1
+docker compose run --build --rm demo --instruction "grasp the blue box" --seed 1 --frame-every 1
 ```
 
 Headless rendering is via `MUJOCO_GL=osmesa` (set in the image and the
@@ -174,8 +174,8 @@ don't want to build locally.
 Episodes render to animated GIFs (Pillow-only, no extra deps):
 
 ```bash
-docker compose run --rm demo --instruction "grasp the red box" --seed 7 --frame-every 1
-docker compose run --rm --entrypoint python demo scripts/make_video.py episodes/<stamp>/ --out episodes/demo.gif --fps 10
+docker compose run --build --rm demo --instruction "grasp the red box" --seed 7 --frame-every 1
+docker compose run --build --rm --entrypoint python demo scripts/make_video.py episodes/<stamp>/ --out episodes/demo.gif --fps 10
 ```
 
 Each GIF gets a caption bar with the instruction, target color, and whether
