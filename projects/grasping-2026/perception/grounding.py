@@ -197,7 +197,12 @@ class NebiusVLMLabeller:
         ]
         body = {"model": self.model, "messages": [
             {"role": "user", "content": content}],
-            "max_tokens": 800, "temperature": 0,
+            # Reasoning models (e.g. Nemotron-3.5-Super-VL) spend tokens
+            # on a thinking trace BEFORE the answer. max_tokens must
+            # cover reasoning + JSON: 800 was consumed entirely by
+            # reasoning (reasoning_tokens == max_tokens), leaving
+            # content null. 4096 gives room for both.
+            "max_tokens": 4096, "temperature": 0,
             "response_format": {"type": "json_schema",
                                 "json_schema": PLAN_SCHEMA}}
         r = self._requests.post(
