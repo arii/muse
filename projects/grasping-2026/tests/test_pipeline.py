@@ -416,6 +416,53 @@ def test_force_closure_vs_caging_seed5():
     assert rewards[-1] == 1.0
 
 
+def test_run_episode_heuristic_no_api(monkeypatch):
+    """run_episode with a heuristic plan returns full metrics, no API."""
+    from scripts.demo_vlm_grasp import run_episode
+    from perception.grounding import HeuristicLabeller
+    env = WholeArmGraspEnv(seed=5)
+    env.reset(seed=5)
+    frames = [env.render()]
+    plan = HeuristicLabeller().plan(frames[0], env.objects,
+                                    "grasp the red box in isolation")
+    metrics, _, info = run_episode(env, plan,
+                                   "grasp the red box in isolation",
+                                   frames, verbose=False)
+    assert metrics["target_index"] == 0
+    assert metrics["target_color"] == "red"
+    assert metrics["caged"] is True
+    assert metrics["force_closure"] is False
+    assert metrics["total_reward"] == 1.0  # 0.5*2, no FC bonus
+    assert info["force_closure"] is False
+
+
+def test_compare_aggregate():
+    """compare_planners.aggregate computes rates and means correctly."""
+    from scripts.compare_planners import aggregate
+    rows = [
+        {"planner": "heuristic", "planner_error": None,
+         "force_closure": True, "caged": True,
+         "preconditions_met": True, "total_reward": 3.0,
+         "isolation_before": 0.1, "isolation_after": 0.2,
+         "api_call": False, "tokens": 0},
+        {"planner": "heuristic", "planner_error": None,
+         "force_closure": False, "caged": False,
+         "preconditions_met": True, "total_reward": 1.0,
+         "isolation_before": 0.1, "isolation_after": 0.15,
+         "api_call": False, "tokens": 0},
+        {"planner": "heuristic", "planner_error": "boom",
+         "api_call": False, "tokens": 0},
+    ]
+    agg = aggregate(rows, "heuristic")
+    assert agg["episodes"] == 3
+    assert agg["planner_errors"] == 1
+    assert agg["force_closure_rate"] == 0.5
+    assert agg["caged_rate"] == 0.5
+    assert agg["mean_reward"] == 2.0
+    assert agg["api_calls"] == 0
+    assert agg["total_tokens"] == 0
+
+
 def test_cage_requires_enclosure_not_just_contact():
     """Two links on the same side is a poke, not a cage.
 

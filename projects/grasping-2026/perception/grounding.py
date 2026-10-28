@@ -90,6 +90,7 @@ class NebiusVLMLabeller:
         self.last_raw = None  # raw model reply text from the last plan() call
         self.last_response = None  # full API response JSON (for debugging)
         self.last_status = None  # HTTP status of the last API call
+        self.last_cache_hit = None  # True if last plan() reused ledger cache
         self.model = model or os.environ.get("NEBIUS_VLM_MODEL", "")
         if not self.model:
             raise ValueError(
@@ -186,10 +187,12 @@ class NebiusVLMLabeller:
             cached = self.ledger.lookup(key)
             if cached is not None:
                 print(f"[vlm] ledger cache hit ({key}) — no API call")
+                self.last_cache_hit = True
                 self.ledger.record({**base_entry, "response": None,
                                     "plan": cached, "usage": None,
                                     "cache_hit": True})
                 return cached
+        self.last_cache_hit = False
         content = [
             {"type": "text", "text": prompt},
             {"type": "image_url",

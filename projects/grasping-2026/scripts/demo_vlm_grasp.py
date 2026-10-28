@@ -136,10 +136,86 @@ def scripted_cage(env, target_idx, frames):
     return rewards, info
 
 
+def run_episode(env, plan, instruction, frames=None, verbose=True):
+    """Execute one episode: plan -> singulate -> gate -> cage.
+
+    env must already be reset; target_index is set from the plan here.
+    plan: {"grasp_target", "push_away", "rationale"} from any planner
+    (VLM, heuristic, scripted). frames: list to append renders to
+    (created if None). Returns (metrics dict, frames list, cage info).
+    Metrics are the comparison surface: force_closure is the goal
+    criterion; caged/enclosed/isolation/reward are diagnostics.
+    """
+    if frames is None:
+        frames = [env.render()]
+    target_idx = plan["grasp_target"]
+    env.target_index = target_idx
+    if verbose:
+        print(f"[demo] instruction: {instruction!r}")
+        print(f"[demo] plan: grasp object {target_idx} "
+              f"({env.objects[target_idx]['color']}), push away "
+              f"{plan['push_away']} — {plan['rationale']}")
+
+    # Explicit "push ..." in the instruction -> push exactly those objects.
+    # Otherwise fall back to auto-detecting crowding. "without moving"
+    # makes the revert strict: any target motion fails the push.
+    explicit_push = "push" in instruction.lower()
+    push_targets = plan["push_away"] if explicit_push else None
+    strict = "without moving" in instruction.lower()
+    iso_before, iso_after = scripted_singulate(
+        env, target_idx, frames, push_targets=push_targets, strict=strict)
+    if verbose:
+        print(f"[demo] singulation: isolation {iso_before:.3f} -> "
+              f"{iso_after:.3f} m")
+
+    # Isolation gate: the task is "grasp IN ISOLATION". Only start the grasp
+    # once preconditions are met (or log that they weren't).
+    ISOLATION_THRESHOLD = 0.15  # meters of clearance
+    preconditions_met = iso_after >= ISOLATION_THRESHOLD
+    if verbose:
+        if preconditions_met:
+            print(f"[demo] preconditions met (isolation {iso_after:.3f} m "
+                  f">= {ISOLATION_THRESHOLD} m) — starting grasp")
+        else:
+            print(f"[demo] WARNING: preconditions NOT met (isolation "
+                  f"{iso_after:.3f} m < {ISOLATION_THRESHOLD} m) — "
+                  f"attempting grasp anyway")
+
+    rewards, info = scripted_cage(env, target_idx, frames)
+    if verbose:
+        print(f"[demo] links touching: {info['links_touching']}, "
+              f"enclosed: {info['enclosed']}, caged: {info['caged']}, "
+              f"force_closure: {info['force_closure']}, "
+              f"total reward: {sum(rewards):.1f}")
+        if info["force_closure"]:
+            print("[demo] GRASP PASSED (force closure)")
+        else:
+            print("[demo] grasp FAILED (no force closure)")
+    metrics = {
+        "target_index": target_idx,
+        "target_color": env.objects[target_idx]["color"],
+        "rationale": plan["rationale"],
+        "push_away": plan["push_away"],
+        "isolation_before": iso_before,
+        "isolation_after": iso_after,
+        "preconditions_met": preconditions_met,
+        "links_touching": info["links_touching"],
+        "enclosed": info["enclosed"],
+        "caged": info["caged"],
+        "force_closure": info["force_closure"],
+        "total_reward": float(sum(rewards)),
+    }
+    return metrics, frames, info
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--instruction", default="grasp the red box in isolation")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--planner", choices=["vlm", "heuristic"], default="vlm",
+                    help="vlm: Nebius VLM (falls back to heuristic on "
+                    "failure); heuristic: scripted rule-based planner, "
+                    "no API call, no cost")
     ap.add_argument("--frame-every", type=int, default=4,
                     help="save every Nth frame (1 = full rate, for video)")
     ap.add_argument("--no-gif", action="store_true",
@@ -152,57 +228,25 @@ def main():
     env.reset(seed=args.seed)
     frames = [env.render()]
 
-    labeller = make_labeller()
-    try:
-        plan = labeller.plan(frames[0], env.objects, args.instruction)
-    except Exception as e:
-        # VLM failed (bad model id, null content, API error, ...) — print
-        # the full diagnostic so the failure is debuggable, then fall back
-        # to the offline heuristic so the demo still runs.
-        print(f"[demo] VLM plan failed — diagnostic:\n{e}")
-        print("[demo] falling back to heuristic")
+    if args.planner == "heuristic":
         from perception.grounding import HeuristicLabeller
         plan = HeuristicLabeller().plan(frames[0], env.objects,
                                         args.instruction)
-    target_idx = plan["grasp_target"]
-    env.target_index = target_idx
-    print(f"[demo] instruction: {args.instruction!r}")
-    print(f"[demo] plan: grasp object {target_idx} "
-          f"({env.objects[target_idx]['color']}), push away "
-          f"{plan['push_away']} — {plan['rationale']}")
-
-    # Explicit "push ..." in the instruction -> push exactly those objects.
-    # Otherwise fall back to auto-detecting crowding. "without moving"
-    # makes the revert strict: any target motion fails the push.
-    explicit_push = "push" in args.instruction.lower()
-    push_targets = plan["push_away"] if explicit_push else None
-    strict = "without moving" in args.instruction.lower()
-    iso_before, iso_after = scripted_singulate(
-        env, target_idx, frames, push_targets=push_targets, strict=strict)
-    print(f"[demo] singulation: isolation {iso_before:.3f} -> "
-          f"{iso_after:.3f} m")
-
-    # Isolation gate: the task is "grasp IN ISOLATION". Only start the grasp
-    # once preconditions are met (or log that they weren't).
-    ISOLATION_THRESHOLD = 0.15  # meters of clearance
-    preconditions_met = iso_after >= ISOLATION_THRESHOLD
-    if preconditions_met:
-        print(f"[demo] preconditions met (isolation {iso_after:.3f} m "
-              f">= {ISOLATION_THRESHOLD} m) — starting grasp")
     else:
-        print(f"[demo] WARNING: preconditions NOT met (isolation "
-              f"{iso_after:.3f} m < {ISOLATION_THRESHOLD} m) — "
-              f"attempting grasp anyway")
-
-    rewards, info = scripted_cage(env, target_idx, frames)
-    print(f"[demo] links touching: {info['links_touching']}, "
-          f"enclosed: {info['enclosed']}, caged: {info['caged']}, "
-          f"force_closure: {info['force_closure']}, "
-          f"total reward: {sum(rewards):.1f}")
-    if info["force_closure"]:
-        print("[demo] GRASP PASSED (force closure)")
-    else:
-        print("[demo] grasp FAILED (no force closure)")
+        labeller = make_labeller()
+        try:
+            plan = labeller.plan(frames[0], env.objects, args.instruction)
+        except Exception as e:
+            # VLM failed (bad model id, null content, API error, ...) — print
+            # the full diagnostic so the failure is debuggable, then fall back
+            # to the offline heuristic so the demo still runs.
+            print(f"[demo] VLM plan failed — diagnostic:\n{e}")
+            print("[demo] falling back to heuristic")
+            from perception.grounding import HeuristicLabeller
+            plan = HeuristicLabeller().plan(frames[0], env.objects,
+                                            args.instruction)
+    metrics, frames, info = run_episode(env, plan, args.instruction, frames)
+    target_idx = metrics["target_index"]
 
     stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     out = pathlib.Path("episodes") / stamp
@@ -211,17 +255,8 @@ def main():
     np.savez_compressed(out / "frames.npz", frames=saved_frames)
     meta = {
         "instruction": args.instruction,
-        "target_index": target_idx,
-        "target_color": env.objects[target_idx]["color"],
-        "rationale": plan["rationale"],
-        "push_away": plan["push_away"],
-        "isolation_before": iso_before,
-        "isolation_after": iso_after,
-        "preconditions_met": preconditions_met,
-        "links_touching": info["links_touching"],
-        "caged": info["caged"],
-        "force_closure": info["force_closure"],
-        "total_reward": float(sum(rewards)),
+        "planner": args.planner,
+        **metrics,
     }
     (out / "meta.json").write_text(json.dumps(meta, indent=2))
     print(f"[demo] episode saved to {out}")

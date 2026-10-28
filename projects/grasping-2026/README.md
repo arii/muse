@@ -169,6 +169,27 @@ at runtime with an extra `-v`, never baked into the image. Secrets go via
 published by CI on main) can replace `build: .` in the compose file if you
 don't want to build locally.
 
+## Running the demo
+
+```bash
+# VLM planning (default; falls back to heuristic if the VLM fails)
+docker compose run --build --rm demo --instruction "grasp the red box in isolation" --seed 7
+# Scripted planning only — no VLM call, no cost
+docker compose run --build --rm demo --instruction "grasp the red box in isolation" --seed 7 --planner heuristic
+```
+
+## Comparing planners (VLM vs scripted)
+
+`scripts/compare_planners.py` runs the same pipeline (plan → singulate →
+gate → cage) with each planner on each seed and reports the goal
+criterion (force closure rate) plus diagnostics and VLM cost. VLM mode
+here is pure — no fallback — so a VLM failure counts as a VLM failure.
+
+```bash
+docker compose run --build --rm --entrypoint python demo scripts/compare_planners.py --seeds 0-9
+docker compose run --build --rm --entrypoint python demo scripts/compare_planners.py --seeds 0,5,7 --planners heuristic --out /tmp/cmp.json
+```
+
 ## VLM call ledger (audit + cache)
 
 Every VLM call is logged to `episodes/vlm_ledger.jsonl` (JSONL, one entry
