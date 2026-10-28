@@ -133,7 +133,17 @@ class NebiusVLMLabeller:
         if text is None:
             raise ValueError(self._diagnose_null_content(msg, data))
         # be liberal: find the first {...} in the reply
-        start, end = text.index("{"), text.rindex("}") + 1
+        try:
+            start, end = text.index("{"), text.rindex("}") + 1
+        except ValueError:
+            raise ValueError(
+                f"VLM reply contained no JSON object (model={self.model}). "
+                f"Raw reply:\n{text[:1000]}\n"
+                "The model answered in prose instead of JSON. Likely "
+                "causes: (a) the model is not instruction-tuned for JSON "
+                "output; (b) max_tokens=200 cut it off before the JSON; "
+                "(c) the prompt's JSON example wasn't followed. Try a "
+                "different model id, or raise max_tokens.")
         out = json.loads(text[start:end])
         valid = {o["index"] for o in objects}
         grasp = int(out["grasp_target"])
