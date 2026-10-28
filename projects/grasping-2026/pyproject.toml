@@ -11,7 +11,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-rl = ["gymnasium", "stable-baselines3"]
+rl = ["gymnasium==1.4.0", "stable-baselines3==2.9.0",
+      "diffusers==0.42.1"]
 test = ["pytest"]
 
 [build-system]

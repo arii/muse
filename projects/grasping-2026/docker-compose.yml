@@ -6,6 +6,12 @@
 #   docker compose run --build --rm demo --instruction "grasp the red box in isolation" --seed 7
 #
 # Episodes land in ./episodes/ (mounted volume, persists across runs).
+# Models land in ./models/ and demos in ./data/ (same — both gitignored,
+# so copy model zips in separately, e.g. the PPO model for demo
+# collection). Training / diffusion / eval run in this container via
+# --entrypoint python, e.g.:
+#   docker compose run --build --rm --entrypoint python demo scripts/train_grasp.py --timesteps 100000
+#   docker compose run --build --rm --entrypoint python demo scripts/eval_policy.py --model models/grasp_ppo --episodes 10 --seeds 0-9
 # Extra demo flags pass through after the service name, e.g.:
 #   docker compose run --build --rm demo --instruction "grasp the blue box" --seed 1 --frame-every 1
 #
@@ -28,6 +34,8 @@ services:
       - NEBIUS_BASE_URL=${NEBIUS_BASE_URL:-https://api.tokenfactory.nebius.com/v1}
     volumes:
       - ./episodes:/workspace/episodes
+      - ./models:/workspace/models
+      - ./data:/workspace/data
     # ENTRYPOINT (from the Dockerfile) is `python scripts/demo_vlm_grasp.py`;
     # arguments after `docker compose run demo` are appended to it.
     # NOTE: `docker compose run` does NOT build by itself — always pass

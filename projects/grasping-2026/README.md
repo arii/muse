@@ -220,9 +220,10 @@ evaluated on the same force-closure criterion. No Nebius key, no
 network: MuJoCo + torch run locally, CPU-only on this VM.
 
 ```bash
-MUJOCO_GL=osmesa python scripts/train_grasp.py --timesteps 100000
-MUJOCO_GL=osmesa python scripts/eval_policy.py --model models/grasp_ppo --episodes 10 --seeds 0-9
+docker compose run --build --rm --entrypoint python demo scripts/train_grasp.py --timesteps 100000
+docker compose run --build --rm --entrypoint python demo scripts/eval_policy.py --model models/grasp_ppo --episodes 10 --seeds 0-9
 ```
+(A local venv works too with the same args: `MUJOCO_GL=osmesa python scripts/...`.)
 
 - `env/gym_wrapper.py`: obs = q(3) + qvel(3) + target xy + target half
   + distractor offsets relative to target; action = target joints in
@@ -259,9 +260,9 @@ targets conditioned on the wrapper observation. Receding horizon:
 sample a chunk, execute the first K, replan.
 
 ```bash
-MUJOCO_GL=osmesa python scripts/collect_ppo_demos.py --model models/grasp_ppo_500k --seeds 0-99 --keep fc --out data/demos_ppo_fc
-MUJOCO_GL=osmesa python scripts/train_diffusion.py --demos data/demos_ppo_fc --epochs 50 --chunk 8 --out models/diffusion
-MUJOCO_GL=osmesa python scripts/eval_diffusion.py --model models/diffusion --episodes 10 --seeds 0-9 --n-objects 4
+docker compose run --build --rm --entrypoint python demo scripts/collect_ppo_demos.py --model models/grasp_ppo_500k --seeds 0-99 --keep fc --out data/demos_ppo_fc
+docker compose run --build --rm --entrypoint python demo scripts/train_diffusion.py --demos data/demos_ppo_fc --epochs 50 --chunk 8 --out models/diffusion
+docker compose run --build --rm --entrypoint python demo scripts/eval_diffusion.py --model models/diffusion --episodes 10 --seeds 0-9 --n-objects 4
 ```
 
 - `scripts/diffusion_policy.py`: DiffusionMLP + DDIM sampling.
@@ -352,7 +353,7 @@ The demo is container-only, but tests and development use a local env:
 
 ```bash
 pip install -e ".[test]"
-MUJOCO_GL=osmesa pytest -v          # 13 tests, headless
+MUJOCO_GL=osmesa pytest -v          # 39 tests, headless
 MUJOCO_GL=osmesa python scripts/verify_pipeline.py --seed 7   # stage-by-stage + screenshots
 ```
 
