@@ -188,6 +188,10 @@ here is pure — no fallback — so a VLM failure counts as a VLM failure.
 ```bash
 docker compose run --build --rm --entrypoint python demo scripts/compare_planners.py --seeds 0-9
 docker compose run --build --rm --entrypoint python demo scripts/compare_planners.py --seeds 0,5,7 --planners heuristic --out /tmp/cmp.json
+# With GIFs: per-seed episodes/compare-<seed>/ gets vlm.gif, heuristic.gif,
+# and side_by_side.gif (both halves, labeled, outcome captions; the
+# shorter half holds its final pose while the other keeps moving)
+docker compose run --build --rm --entrypoint python demo scripts/compare_planners.py --seeds 0-9 --gifs
 ```
 
 ## VLM call ledger (audit + cache)

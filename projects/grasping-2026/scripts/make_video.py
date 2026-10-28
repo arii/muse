@@ -17,7 +17,75 @@ import json
 import pathlib
 
 import numpy as np
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
+
+
+def _load_font(size):
+    for path in ("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+                 "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"):
+        try:
+            return ImageFont.truetype(path, size)
+        except (OSError, IOError):
+            continue
+    return ImageFont.load_default()
+
+
+def make_side_by_side_gif(left_frames, right_frames, left_label,
+                          right_label, left_caption, right_caption,
+                          out_path, fps=15, scale=0.75):
+    """Stitch two frame sequences side by side into one GIF.
+
+    left_frames/right_frames: numpy RGB arrays (H, W, 3) from the same
+    renderer, so same size (right is resized to left's size if not).
+    The shorter sequence is padded with its last frame — the finished
+    half holds its final pose while the other half keeps moving.
+    A header strip labels each half; a footer strip shows each half's
+    outcome; a divider separates the halves.
+    """
+    if not left_frames or not right_frames:
+        raise ValueError("both frame sequences must be non-empty")
+    left = [Image.fromarray(fr) for fr in left_frames]
+    right = [Image.fromarray(fr) for fr in right_frames]
+    if scale != 1.0:
+        left = [im.resize((int(im.width * scale), int(im.height * scale)))
+                for im in left]
+        right = [im.resize((int(im.width * scale), int(im.height * scale)))
+                 for im in right]
+    # Match sizes (both come from the same renderer, but be safe).
+    w, h = left[0].size
+    right = [im.resize((w, h)) if im.size != (w, h) else im
+             for im in right]
+    # Pad the shorter sequence with its final frame (held pose).
+    n = max(len(left), len(right))
+    left += [left[-1]] * (n - len(left))
+    right += [right[-1]] * (n - len(right))
+
+    bar_h, divider = 28, 4
+    total_w = w * 2 + divider
+    total_h = bar_h * 2 + h
+    font = _load_font(16)
+    gif_frames = []
+    for l, r in zip(left, right):
+        canvas = Image.new("RGB", (total_w, total_h), (20, 20, 20))
+        d = ImageDraw.Draw(canvas)
+        # Header: label centered in each half.
+        for label, x0 in ((left_label, 0), (right_label, w + divider)):
+            tw = d.textlength(label, font=font)
+            d.text((x0 + (w - tw) / 2, 6), label, font=font,
+                   fill=(240, 240, 240))
+        canvas.paste(l, (0, bar_h))
+        canvas.paste(r, (w + divider, bar_h))
+        # Footer: outcome caption per half, left-aligned.
+        d = ImageDraw.Draw(canvas)
+        d.text((8, bar_h + h + 6), left_caption, font=font,
+               fill=(240, 240, 240))
+        d.text((w + divider + 8, bar_h + h + 6), right_caption,
+               font=font, fill=(240, 240, 240))
+        gif_frames.append(canvas)
+    gif_frames[0].save(
+        out_path, save_all=True, append_images=gif_frames[1:],
+        duration=int(1000 / fps), loop=0)
+    return out_path
 
 
 def load_episode(epi_dir):

@@ -47,7 +47,10 @@ def parse_seeds(spec):
 
 
 def run_one(seed, planner, instruction):
-    """One episode with one planner. Returns a metrics row (never raises)."""
+    """One episode with one planner. Returns (metrics row, frames).
+
+    Never raises: a planner failure is recorded as planner_error.
+    """
     env = WholeArmGraspEnv(seed=seed)
     env.reset(seed=seed)
     frames = [env.render()]
@@ -68,11 +71,20 @@ def run_one(seed, planner, instruction):
             row["tokens"] = usage.get("total_tokens") or 0
     except Exception as e:
         row["planner_error"] = str(e)[:300]
-        return row
-    metrics, _, _ = run_episode(env, plan, instruction, frames,
-                                verbose=False)
+        return row, frames
+    metrics, frames, _ = run_episode(env, plan, instruction, frames,
+                                     verbose=False)
     row.update(metrics)
-    return row
+    return row, frames
+
+
+def outcome_caption(row):
+    """One-line outcome for a GIF footer."""
+    if row["planner_error"]:
+        return "planner FAILED"
+    fc = "FORCE CLOSURE" if row.get("force_closure") else "no grasp"
+    return (f"{fc} | caged={row.get('caged')} | "
+            f"reward={row.get('total_reward', 0):.1f}")
 
 
 def aggregate(rows, planner):
@@ -110,21 +122,56 @@ def main():
                     help="comma-separated, subset of vlm,heuristic")
     ap.add_argument("--out", default=None,
                     help="write per-episode rows as JSON")
+    ap.add_argument("--gifs", action="store_true",
+                    help="save per-seed GIFs under episodes/compare-<seed>/: "
+                    "one per planner plus a side-by-side composite")
+    ap.add_argument("--gif-scale", type=float, default=0.75,
+                    help="GIF scale factor (default 0.75)")
+    ap.add_argument("--gif-fps", type=float, default=15,
+                    help="GIF frame rate (default 15)")
     args = ap.parse_args()
 
     seeds = parse_seeds(args.seeds)
     planners = [p.strip() for p in args.planners.split(",") if p.strip()]
     rows = []
+    frames_by_seed = {}  # seed -> {planner: (row, frames)}
     for seed in seeds:
         for planner in planners:
-            row = run_one(seed, planner, args.instruction)
+            row, frames = run_one(seed, planner, args.instruction)
             rows.append(row)
+            frames_by_seed.setdefault(seed, {})[planner] = (row, frames)
             status = (f"FC={row.get('force_closure')} "
                       f"caged={row.get('caged')} "
                       f"rew={row.get('total_reward', 0):.1f}"
                       if not row["planner_error"]
                       else f"ERROR: {row['planner_error'][:80]}")
             print(f"seed {seed:>3} {planner:<9} {status}")
+
+    if args.gifs:
+        from scripts.make_video import make_gif, make_side_by_side_gif
+        for seed, per_planner in frames_by_seed.items():
+            out_dir = pathlib.Path("episodes") / f"compare-{seed}"
+            out_dir.mkdir(parents=True, exist_ok=True)
+            for planner, (row, frames) in per_planner.items():
+                meta = {"instruction": args.instruction,
+                        "target_color": row.get("target_color", "?"),
+                        "force_closure": row.get("force_closure", False)}
+                make_gif(frames, meta, out_dir / f"{planner}.gif",
+                         fps=args.gif_fps, scale=args.gif_scale)
+            if len(per_planner) >= 2:
+                # Side-by-side: first two planners, in --planners order.
+                (p1, (r1, f1)), (p2, (r2, f2)) = [
+                    (p, per_planner[p]) for p in planners
+                    if p in per_planner][:2]
+                make_side_by_side_gif(
+                    f1, f2, p1, p2, outcome_caption(r1),
+                    outcome_caption(r2), out_dir / "side_by_side.gif",
+                    fps=args.gif_fps, scale=args.gif_scale)
+                print(f"seed {seed}: side-by-side GIF -> "
+                      f"{out_dir / 'side_by_side.gif'}")
+            else:
+                print(f"seed {seed}: GIFs -> {out_dir}/ "
+                      f"(need 2+ planners for side-by-side)")
 
     print()
     for planner in planners:

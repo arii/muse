@@ -463,6 +463,47 @@ def test_compare_aggregate():
     assert agg["total_tokens"] == 0
 
 
+def test_make_side_by_side_gif(tmp_path):
+    """Side-by-side GIF: header/footer, padding to the longer sequence."""
+    import numpy as np
+    from PIL import Image
+    from scripts.make_video import make_side_by_side_gif
+    # Left: 3 red frames; right: 5 blue frames (longer -> left pads).
+    # Vary one pixel per frame: PIL collapses byte-identical GIF frames,
+    # so distinct frames are needed to count them.
+    left = []
+    for i in range(3):
+        fr = np.full((40, 60, 3), (255, 0, 0), dtype=np.uint8)
+        fr[0, 0] = (i, 0, 0)
+        left.append(fr)
+    right = []
+    for i in range(5):
+        fr = np.full((40, 60, 3), (0, 0, 255), dtype=np.uint8)
+        fr[0, 0] = (0, 0, i)
+        right.append(fr)
+    out = tmp_path / "sbs.gif"
+    make_side_by_side_gif(left, right, "vlm", "heuristic",
+                          "FC=False | reward=1.5",
+                          "FC=False | reward=1.5",
+                          out, fps=15, scale=1.0)
+    assert out.exists() and out.stat().st_size > 0
+    im = Image.open(out)
+    assert im.n_frames == 5  # padded to the longer sequence
+    # Width: 60 + 4 divider + 60; height: 28 header + 40 + 28 footer.
+    assert im.size == (124, 96)
+
+
+def test_compare_run_one_returns_frames():
+    """run_one returns (row, frames) for the compare GIF path."""
+    from scripts.compare_planners import run_one
+    # Seed 7: long episode (singulate push + full cage, no early stop).
+    row, frames = run_one(7, "heuristic", "grasp the red box in isolation")
+    assert row["planner"] == "heuristic"
+    assert row["planner_error"] is None
+    assert len(frames) > 50
+    assert frames[0].shape == (480, 640, 3)
+
+
 def test_cage_requires_enclosure_not_just_contact():
     """Two links on the same side is a poke, not a cage.
 
