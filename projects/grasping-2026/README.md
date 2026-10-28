@@ -210,6 +210,13 @@ MUJOCO_GL=osmesa python scripts/eval_policy.py --model models/grasp_ppo --episod
   + distractor offsets relative to target; action = target joints in
   [-1, 1] (scaled by 2.6); reward = the env's own 0.5*links +
   2.0*force_closure; episode ends on force closure or max_steps.
+  Optional levers (default off, so existing runs/checkpoints stay
+  loadable): `--contact-obs` appends [links_touching/3, enclosed] —
+  the base obs forces the policy to infer contact geometrically;
+  `--step-penalty` subtracts a per-step cost (the base reward pays
+  for resting against the box); `--n-objects` sets clutter count
+  (1 = single-target curriculum; base env's target_isolation returns
+  inf with no distractors instead of crashing on min() of empty).
 - `scripts/eval_policy.py` reports force_closure rate, caged rate,
   mean reward, mean length — the same headline numbers as
   compare_planners.py.

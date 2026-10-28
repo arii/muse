@@ -23,6 +23,17 @@ shapes toward the grasp, and the force-closure bonus is the goal.
 Terminated: force_closure achieved (success).
 Truncated: max_steps reached without force closure.
 Target: index 0 (red) by default — matches "grasp the red box".
+
+Optional levers (all default OFF, so a running job and its
+checkpoints stay loadable under the defaults):
+- contact_obs: append [links_touching/3, enclosed] to the obs. The
+  base obs forces the policy to infer contact geometrically from q +
+  target pos; explicit contact features make the reward signal
+  directly observable.
+- step_penalty: subtracted from the reward every step. The base
+  reward pays 0.5/link/step with no time cost, so resting against
+  the box for 200 steps scores ~200 without grasping; a penalty
+  makes stalling cost.
 """
 import gymnasium as gym
 import numpy as np
@@ -34,21 +45,24 @@ class GraspGymWrapper(gym.Env):
     metadata = {"render_modes": ["rgb_array"]}
 
     def __init__(self, seed=None, target_index=0, max_steps=200,
-                 n_objects=4):
+                 n_objects=4, contact_obs=False, step_penalty=0.0):
         super().__init__()
         self.env = WholeArmGraspEnv(n_objects=n_objects, seed=seed)
         self.target_index = target_index
         self.max_steps = max_steps
+        self.contact_obs = contact_obs
+        self.step_penalty = step_penalty
         self._steps = 0
         # Obs: q(3) + qvel(3) + target xy(2) + target half(2)
-        #      + (n_objects-1) distractors x (dx, dy).
-        obs_dim = 10 + 2 * (n_objects - 1)
+        #      + (n_objects-1) distractors x (dx, dy)
+        #      + [links_touching/3, enclosed] if contact_obs.
+        obs_dim = 10 + 2 * (n_objects - 1) + (2 if contact_obs else 0)
         self.observation_space = gym.spaces.Box(
             low=-np.inf, high=np.inf, shape=(obs_dim,), dtype=np.float32)
         self.action_space = gym.spaces.Box(
             low=-1.0, high=1.0, shape=(3,), dtype=np.float32)
 
-    def _flat_obs(self):
+    def _flat_obs(self, info=None):
         obs = self.env._obs()
         q = obs["qpos"].astype(np.float32)
         qvel = obs["qvel"].astype(np.float32)
@@ -62,8 +76,15 @@ class GraspGymWrapper(gym.Env):
                 continue
             pos = obs["objects"][o["index"]][:2].astype(np.float32)
             distractors.append(pos - tpos)
-        return np.concatenate(
-            [q, qvel, tpos, thalf] + distractors).astype(np.float32)
+        parts = [q, qvel, tpos, thalf] + distractors
+        if self.contact_obs:
+            if info is None:
+                parts.append(np.zeros(2, dtype=np.float32))
+            else:
+                parts.append(np.array(
+                    [info["links_touching"] / 3.0,
+                     1.0 if info["enclosed"] else 0.0], dtype=np.float32))
+        return np.concatenate(parts).astype(np.float32)
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -80,7 +101,8 @@ class GraspGymWrapper(gym.Env):
         self._steps += 1
         terminated = bool(info["force_closure"])
         truncated = self._steps >= self.max_steps
-        return self._flat_obs(), float(reward), terminated, truncated, info
+        return (self._flat_obs(info), float(reward) - self.step_penalty,
+                terminated, truncated, info)
 
     def render(self):
         return self.env.render()

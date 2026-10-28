@@ -29,6 +29,8 @@ def main():
     ap.add_argument("--episodes", type=int, default=10)
     ap.add_argument("--seeds", default="0-9")
     ap.add_argument("--max-steps", type=int, default=200)
+    ap.add_argument("--n-objects", type=int, default=4)
+    ap.add_argument("--contact-obs", action="store_true")
     ap.add_argument("--gif", default=None)
     args = ap.parse_args()
 
@@ -51,7 +53,9 @@ def main():
     rewards, lengths = [], []
     gif_frames = None
     for i, seed in enumerate(seeds):
-        env = GraspGymWrapper(seed=seed, max_steps=args.max_steps)
+        env = GraspGymWrapper(seed=seed, max_steps=args.max_steps,
+                              n_objects=args.n_objects,
+                              contact_obs=args.contact_obs)
         obs, _ = env.reset(seed=seed)
         frames = []
         total, steps = 0.0, 0

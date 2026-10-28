@@ -31,6 +31,9 @@ def main():
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--max-steps", type=int, default=200)
     ap.add_argument("--target-index", type=int, default=0)
+    ap.add_argument("--n-objects", type=int, default=4)
+    ap.add_argument("--contact-obs", action="store_true")
+    ap.add_argument("--step-penalty", type=float, default=0.0)
     # Checkpoint every N steps so a VM restart doesn't lose a long run;
     # resume with --resume <checkpoint.zip>.
     ap.add_argument("--save-freq", type=int, default=50000)
@@ -45,7 +48,9 @@ def main():
         cls = SAC
 
     env = GraspGymWrapper(seed=args.seed, target_index=args.target_index,
-                          max_steps=args.max_steps)
+                          max_steps=args.max_steps, n_objects=args.n_objects,
+                          contact_obs=args.contact_obs,
+                          step_penalty=args.step_penalty)
     if args.resume:
         model = cls.load(args.resume, env=env)
         print(f"[train] resumed from {args.resume}")

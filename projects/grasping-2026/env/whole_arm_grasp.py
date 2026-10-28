@@ -134,8 +134,10 @@ class WholeArmGraspEnv:
         xy = {i: self.data.qpos[adr:adr + 2].copy()
               for i, adr in self._obj_qposadr.items()}
         t = xy[self.target_index]
-        return min(float(np.linalg.norm(xy[i] - t))
-                   for i in xy if i != self.target_index)
+        others = [float(np.linalg.norm(xy[i] - t))
+                  for i in xy if i != self.target_index]
+        # No distractors: vacuously isolated.
+        return min(others) if others else float("inf")
 
     def _geom_name(self, gid):
         n = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, gid)
