@@ -79,6 +79,8 @@ def main():
     ap.add_argument("--lr", type=float, default=1e-4)
     ap.add_argument("--out", default="models/diffusion")
     args = ap.parse_args()
+    np.random.seed(0)
+    torch.manual_seed(0)
 
     data = np.load(pathlib.Path(args.demos).with_suffix(".npz"))
     obs, actions, lengths = data["obs"], data["actions"], data["lengths"]

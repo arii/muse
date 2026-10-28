@@ -74,7 +74,8 @@ def sample_chunk(model, scheduler, obs, chunk, action_dim=3,
     tensor in [-1, 1]."""
     model.eval()
     scheduler.set_timesteps(num_steps)
-    x = torch.randn(chunk, action_dim, device=device)
+    gen = torch.Generator(device=device).manual_seed(0)
+    x = torch.randn(chunk, action_dim, generator=gen, device=device)
     obs_b = obs.unsqueeze(0).to(device)
     for t in scheduler.timesteps:
         t_b = torch.full((1,), int(t), dtype=torch.long, device=device)

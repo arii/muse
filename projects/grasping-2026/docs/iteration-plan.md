@@ -5,19 +5,19 @@
 
 ---
 
-## 1. Quick-Run CLI Helper (`scripts/run_eval.sh`)
+## 1. Quick-Run CLI Helper & Task Runners (`scripts/run_eval.sh`, `Makefile`, `package.json`, `pyproject.toml`)
 
-To avoid repetitive `docker compose run ...` CLI commands and prevent accidental 10-seed VLM API calls, use [`scripts/run_eval.sh`](../scripts/run_eval.sh) (which defaults to `--seeds 2,6`):
+To avoid repetitive `docker compose run ...` CLI commands and prevent accidental 10-seed VLM API calls, all workflows are wrapped in [`scripts/run_eval.sh`](../scripts/run_eval.sh), [`Makefile`](../Makefile), [`package.json`](../package.json), and [`pyproject.toml`](../pyproject.toml) (defaulting to `--seeds 2,6`):
 
 ```bash
 # Default: run 2 canary seeds (2,6) across all policies (uses ledger cache for VLM -> 0 API calls)
 ./scripts/run_eval.sh
 
+# Isolated + cluttered comparison (seed 2 isolated, seed 7 crowded)
+./scripts/run_eval.sh --seeds 2,7
+
 # Offline-only mode (heuristic, ppo, diffusion) — zero VLM API risk even on new seeds
 ./scripts/run_eval.sh --no-vlm --seeds 2,6
-
-# Single-seed fast check
-./scripts/run_eval.sh --seeds 2
 
 # Re-collect planar cage demos and retrain models/diffusion_v2.pt before evaluating
 ./scripts/run_eval.sh --retrain-diffusion
@@ -75,8 +75,52 @@ Both the **Semantic Plan** and the **Executed Geometric Primitives** (`push(obj,
 
 ---
 
-## 4. Selected 2 Easy Canary Seeds (`Seeds 2 & 6`)
+## 4. Selected 2 Easy Canary Seeds (`Seeds 2 & 6`) & Updated Evaluation
 
-Instead of running all 10 seeds (`0–9`), we use **Seeds 2 and 6** (`--seeds 2,6`) as our fast short-term benchmark:
-* **Seed 2 (`r = 0.311 m, θ = -55.4°, iso = 0.474 m`):** Isolated red target box in the lower-right quadrant. Both VLM and Heuristic achieve **`FC=True, caged=True`** with `3` links touching and `0.10 m` target displacement.
-* **Seed 6 (`r = 0.345 m, θ = -43.1°, iso = 0.357 m`):** Isolated red target box at mid-radius. Both VLM and Heuristic achieve **`FC=True, caged=True`** with `0.11 m` target displacement.
+Instead of running all 10 seeds (`0–9`), we use **Seeds 2 and 6** (`--seeds 2,6`) as our fast short-term isolated benchmark, plus **Seed 7** (`--seeds 2,7`) when testing cluttered VLM vs. Heuristic divergence:
+
+* **Seed 2 (`r = 0.311 m, θ = -55.4°, iso = 0.474 m`):** Isolated red target box in the lower-right quadrant (`iso >= 0.15 m`).
+* **Seed 6 (`r = 0.345 m, θ = -43.1°, iso = 0.357 m`):** Isolated red target box at mid-radius (`iso >= 0.15 m`).
+
+### 4.1 Current Canary Evaluation Summary (`Seeds 2 & 6`)
+
+| Planner / Policy | Force Closure (`FC`) | Caged (`loop < 0.15m`) | Preconditions Met | Mean Target `Δxy` | Executed Primitives (Seed 2) | API Calls / Token Cost |
+| :--- | :---: | :---: | :---: | :---: | :--- | :--- |
+| **VLM (`Nemotron-3.5-Super-VL`)** | **`1.00` (2/2)** | **`1.00` (2/2)** | `1.00` (2/2) | `0.103 m` | `singulate: none` → `scripted_cage(face=-0.50rad, lead=0.46rad, curl=CW(-), steps=114)` | `0` live (`13,060` cached: `6,738` + `6,322` tok) |
+| **Heuristic (`HeuristicLabeller`)** | **`1.00` (2/2)** | **`1.00` (2/2)** | `1.00` (2/2) | `0.103 m` | `singulate: none` → `scripted_cage(face=-0.50rad, lead=0.46rad, curl=CW(-), steps=114)` | `no API` |
+| **Diffusion BC (`diffusion_v2.pt`)** | **`0.50–1.00`** | `0.00` | `1.00` (2/2) | `0.21–0.30 m` | `env.step(q_target)` × 200 steps (smooth closed-loop joint trajectory, zero noise) | `no API` |
+| **PPO (`grasp_ppo_500k.zip`)** | `0.00` (0/2) | `0.00` (0/2) | `1.00` (2/2) | `1.897 m` | `env.step(q_target)` × 200 steps (legacy checkpoint sweeps box out of workspace) | `no API` |
+
+### 4.2 Why VLM and Heuristic Match on `Seeds 2, 6` vs. Diverge on `Seed 7`
+
+1. **On Isolated Seeds (`2, 6`):** Both scenes already satisfy `isolation >= 0.15 m` (`0.474 m` and `0.357 m`). The VLM inspects the top-down image and rightly plans `{"grasp_target": 0, "push_away": [], "approach_side": "near"}`—matching `HeuristicLabeller`.
+2. **On Cluttered Seeds (`Seed 7`, `isolation = 0.054 m`):**
+   * **Heuristic** outputs `push_away=[], approach_side="near"`, failing the isolation precondition (`preconditions_met=False`, `iso = 0.054 m < 0.15 m`).
+   * **VLM** identifies the adjacent blue distractor (`obj1`) and outputs `push_away=[{"index": 1, "effort": "shove"}], approach_side="left"`, executing `push(obj1:blue, start_xy=[-0.131, 0.343], theta=-0.52rad/-30°, dist=0.25m)` (`isolation: 0.054 m -> 0.171 m`, `preconditions_met=True`).
+3. **Why `0 tokens` Appeared on Re-runs:** `VLMCallLedger` (`perception/ledger.py`) caches VLM responses in `episodes/vlm_ledger.jsonl` keyed by `(CACHE_VERSION, model, instruction, objects, image_sha256, prompt_hash)`. Re-running cached seeds makes `0` live API calls; `episodes/compare-report.html` now explicitly displays `0 tokens (cached; orig 6738 tok)` so the VLM token cost is visible even on cache hits.
+
+---
+
+## 5. Plan for Next Steps
+
+### Step 1: Collision-Safe `singulate` Precondition Push on Cluttered Seeds (`Seed 7` & `Seed 4`)
+* **Problem Identified on `Seed 7`:** When the distractor `d` is touching the red target `t` (`||d - t|| = 0.054 m`), `start_xy = d - direction * clearance` (`clearance = 0.075 m`) places the push start point **inside the red target box**, and `move_tip(env, start_xy)` sweeps the arm straight through the target, knocking the red box `0.32 m` away (`target_xy: [-0.117, 0.335] -> [-0.435, 0.330]`). Furthermore, `tmove_limit = dmove + 0.05` failed to revert the push because both boxes moved together.
+* **Action Items:**
+  1. Tighten `tmove_limit` in `singulate()` (`scripts/demo_vlm_grasp.py`) to `0.12 m` unconditionally so any push that displaces the target box by `> 12 cm` is reverted.
+  2. When `||d - t|| < clearance + target_radius`, offset `start_xy` tangentially or push from the side of `d` clear of `t`, and route `move_tip` via a high-clearance intermediate waypoint so the approach never sweeps through `t`.
+  3. Verify on `--seeds 2,7` (`0` live VLM calls via ledger cache) that `Seed 7` VLM achieves `preconditions_met=True`, `FC=True`, and `target Δxy < 0.20 m`.
+
+### Step 2: Scale Diffusion BC from 2 Canary Demos to 40+ Caged Planar Demos
+* **Current State:** Fixing `obs_std` normalization blow-up (`obs_std >= 0.30`, `obs_std[3:6] >= 2.0`) and intermediate DDIM clamping (`[-1.2, 1.2]`) eliminated action-space noise and enabled closed-loop `FC=True` grasps on the canary seeds.
+* **Action Items:**
+  1. Collect `~40–50` verified `FC=True, caged=True` trajectories across `Seeds 0–99` (`scripts/collect_demos.py --demonstrator cage --seeds 0-99 --keep caged`).
+  2. Train `models/diffusion_v2.pt` on the broader demonstration set with deterministic seeding (`torch.manual_seed(0)`) so it generalizes across all workspace quadrants (`±θ`, `r ∈ [0.22, 0.45] m`).
+
+### Step 3: Retrain PPO on the Planar `3*N`-DOF Environment (`scripts/train_rl.py`)
+* **Current State:** `models/grasp_ppo_500k.zip` was trained before objects were switched to planar `(x, y, yaw)` joints and sweeps the target box out of the workspace (`mean target Δxy = 1.90 m`, `FC = 0.00`).
+* **Action Items:**
+  1. Add a target-displacement penalty (`-c * ||pos_t - pos_0||`) to `WholeArmGraspEnv.step()` so RL is penalized for batting the target box away.
+  2. Retrain PPO (`scripts/train_rl.py --timesteps 500000`) on the planar environment and benchmark on `--no-vlm --seeds 2,6`.
+
+### Step 4: Expand Benchmark from `Seeds 2,6` → `Seeds 2,6,7` → Full `Seeds 0–9`
+* Once Steps 1–3 pass on `Seeds 2,6` (isolated) and `Seed 7` (cluttered), run the full 10-seed cached suite (`./scripts/run_eval.sh --seeds 0-9`) to validate aggregate `force_closure`, `caged`, and `preconditions_met` rates across all four planners.
