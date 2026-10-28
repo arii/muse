@@ -79,5 +79,5 @@ def sample_chunk(model, scheduler, obs, chunk, action_dim=3,
     for t in scheduler.timesteps:
         t_b = torch.full((1,), int(t), dtype=torch.long, device=device)
         noise = model(x.unsqueeze(0), obs_b, t_b)[0]
-        x = scheduler.step(noise, int(t), x).prev_sample
+        x = scheduler.step(noise, int(t), x).prev_sample.clamp(-1.2, 1.2)
     return x.clamp(-1.0, 1.0)

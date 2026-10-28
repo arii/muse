@@ -184,7 +184,7 @@ class WholeArmGraspEnv:
 
     def _obs(self):
         qpos = self.data.qpos[self._arm_qpos].copy()
-        qvel = self.data.qvel[:3].copy()
+        qvel = self.data.qvel[self._arm_qpos].copy()
         obj_poses = {}
         for o in self.objects:
             # Synthesize the old 7-vector pose [x, y, z, quat] so

@@ -92,7 +92,7 @@ def main():
     else:
         seeds = [int(s) for s in args.seeds.split(",")]
 
-    kept_obs, kept_act, kept_len = [], [], []
+    kept_obs, kept_act, kept_len, kept_fc = [], [], [], []
     n_fc = n_caged = 0
     for seed in seeds:
         res = collect_one(seed, args.demonstrator, args.n_objects,
@@ -109,6 +109,7 @@ def main():
             kept_obs.append(obs)
             kept_act.append(act)
             kept_len.append(len(obs))
+            kept_fc.append(bool(info["force_closure"]))
         print(f"seed {seed}: FC={info['force_closure']} "
               f"caged={info['caged']} len={len(obs)} "
               f"kept={keep}")
@@ -121,6 +122,10 @@ def main():
         obs_pad = np.zeros((len(kept_obs), maxlen, obs_dim),
                            dtype=np.float32)
         act_pad = np.zeros((len(kept_obs), maxlen, 3), dtype=np.float32)
+        fc_steps = np.array([
+            L - 1 if f else -1
+            for L, f in zip(kept_len, kept_fc)
+        ], dtype=np.int64)
         for i, (o, a) in enumerate(zip(kept_obs, kept_act)):
             obs_pad[i, :len(o)] = o
             act_pad[i, :len(a)] = a
@@ -128,9 +133,22 @@ def main():
             # means "stay in the terminal configuration".
             obs_pad[i, len(o):] = o[-1]
             act_pad[i, len(a):] = a[-1]
-        np.savez_compressed(out.with_suffix(".npz"), obs=obs_pad,
-                            actions=act_pad,
-                            lengths=np.array(kept_len))
+        # Extend lengths by 16 hold-last steps so ChunkDataset samples
+        # post-FC hold chunks and the policy finishes the final pinch.
+        ext_len = np.minimum(np.array(kept_len) + 16, maxlen)
+        obs_pad_ext = np.zeros((len(kept_obs), maxlen + 16, obs_dim),
+                               dtype=np.float32)
+        act_pad_ext = np.zeros((len(kept_obs), maxlen + 16, 3),
+                               dtype=np.float32)
+        for i, (o, a) in enumerate(zip(kept_obs, kept_act)):
+            obs_pad_ext[i, :len(o)] = o
+            act_pad_ext[i, :len(a)] = a
+            obs_pad_ext[i, len(o):] = o[-1]
+            act_pad_ext[i, len(a):] = a[-1]
+        np.savez_compressed(out.with_suffix(".npz"), obs=obs_pad_ext,
+                            actions=act_pad_ext,
+                            lengths=np.array(kept_len) + 16,
+                            fc_steps=fc_steps)
     meta = {"demonstrator": args.demonstrator, "keep": args.keep,
             "n_objects": args.n_objects, "contact_obs": args.contact_obs,
             "seeds": seeds, "episodes_run": len(seeds),

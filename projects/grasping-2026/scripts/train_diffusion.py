@@ -86,19 +86,24 @@ def main():
     print(f"[train] {len(lengths)} episodes, obs_dim={obs.shape[2]}, "
           f"mean len={lengths.mean():.0f}")
     # Obs stats over true (unpadded) timesteps only.
+    # Floor obs_std at 0.30 (and 2.0 on qvel indices 3..5) so
+    # near-constant dimensions or transient velocity spikes do not
+    # blow up normalized obs during closed-loop rollouts.
     mask = np.arange(obs.shape[1])[None, :] < lengths[:, None]
     flat = obs[mask]
-    obs_mean, obs_std = flat.mean(axis=0), flat.std(axis=0) + 1e-6
+    obs_mean = flat.mean(axis=0)
+    obs_std = np.maximum(flat.std(axis=0), 0.30)
+    obs_std[3:6] = np.maximum(obs_std[3:6], 2.0)
     obs_n = (obs - obs_mean) / obs_std
 
     ds = ChunkDataset(obs_n, actions, lengths, args.chunk,
-                      fc_steps=fc_steps)
+                      fc_steps=fc_steps, anchor_repeat=20)
     if not ds.pairs:
         raise SystemExit("[train] no valid (episode, chunk) pairs — "
                          "episodes shorter than chunk?")
     model = DiffusionMLP(obs.shape[2], chunk=args.chunk,
                          hidden=args.hidden)
-    sched = DDPMScheduler(num_train_timesteps=100)
+    sched = DDPMScheduler(num_train_timesteps=100, clip_sample=True)
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr)
     steps = steps_per_epoch(len(ds.pairs), args.batch,
                             args.min_steps_per_epoch)
@@ -107,11 +112,13 @@ def main():
         tot = 0.0
         for _ in range(steps):
             o, a = ds.sample(args.batch)
+            o_aug = o + 0.03 * torch.randn_like(o)
             noise = torch.randn_like(a)
             t = torch.randint(0, 100, (args.batch,))
             noisy = sched.add_noise(a, noise, t)
-            pred = model(noisy, o, t)
-            loss = nn.functional.mse_loss(pred, noise)
+            pred = model(noisy, o_aug, t)
+            w_t = 1.0 + 3.0 * (1.0 - t.float() / 100.0)[:, None, None]
+            loss = (w_t * (pred - noise) ** 2).mean()
             opt.zero_grad()
             loss.backward()
             opt.step()

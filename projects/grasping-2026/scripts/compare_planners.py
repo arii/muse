@@ -112,7 +112,7 @@ def _run_learned(seed, planner, instruction, model_path=None, max_steps=200):
             dm.load_state_dict(ckpt["state"])
             _DIFF_CACHE[mpath] = (
                 dm,
-                DDIMScheduler(num_train_timesteps=100),
+                DDIMScheduler(num_train_timesteps=100, clip_sample=True),
                 torch.from_numpy(ckpt["obs_mean"]).float(),
                 torch.from_numpy(ckpt["obs_std"]).float(),
                 ckpt["chunk"],
@@ -267,6 +267,47 @@ def write_html_report(rows, gif_map, out_path, instruction, planners):
                 parts.append(str(p))
         return ", ".join(parts)
 
+    def fmt_primitives(r):
+        """Format concrete executed geometric primitives (push / scripted_cage)."""
+        if r.get("planner") in ("ppo", "diffusion"):
+            return (f"<code>env.step(q_target)</code> × {r.get('steps', 0)} steps "
+                    f"(closed-loop joint targets in [-2.6, 2.6] rad)")
+        lines = []
+        pushes = r.get("pushes") or []
+        if pushes:
+            for p in pushes:
+                if "start_xy" in p:
+                    st = p.get("status", "kept")
+                    badge = ("<span style='color:#0a7d2c'>[kept]</span>"
+                             if st == "kept"
+                             else "<span style='color:#b45309'>[reverted]</span>")
+                    lines.append(
+                        f"1. <code>push(obj{p['index']}:{esc(p.get('color',''))}, "
+                        f"start_xy={p['start_xy']}, "
+                        f"theta={p['theta_rad']:+.2f}rad/{p['theta_deg']:+.0f}°, "
+                        f"dist={p['distance_m']:.2f}m)</code> {badge}"
+                    )
+                else:
+                    lines.append(
+                        f"1. <code>push(obj{p.get('index')}, "
+                        f"effort={esc(p.get('effort'))}, "
+                        f"dist={p.get('distance_m', 0):.2f}m)</code>"
+                    )
+        else:
+            lines.append("1. <code>singulate: none (no push executed)</code>")
+        ct = r.get("cage_trace") or {}
+        if ct:
+            lines.append(
+                f"2. <code>scripted_cage(target_xy={ct.get('target_xy')}, "
+                f"face={ct.get('face_rad', 0):+.2f}rad, "
+                f"lead={ct.get('lead_rad', 0):.2f}rad, "
+                f"curl={esc(ct.get('curl_dir'))}, "
+                f"open_q={ct.get('open_q_rad', 0):+.2f}rad → "
+                f"final_q={ct.get('final_curl_q')}, "
+                f"steps={ct.get('steps_executed')})</code>"
+            )
+        return "<br>".join(lines)
+
     by_seed = {}
     for r in rows:
         by_seed.setdefault(r["seed"], {})[r["planner"]] = r
@@ -363,7 +404,8 @@ def write_html_report(rows, gif_map, out_path, instruction, planners):
                      "<th>caged</th><th>preconditions</th>"
                      "<th>reward</th><th>isolation</th>"
                      "<th>target Δxy (r0→r1)</th>"
-                     "<th>plan / policy</th><th>cost</th></tr>")
+                     "<th>semantic plan &amp; executed primitives</th>"
+                     "<th>cost</th></tr>")
         for planner in planners:
             r = by_seed[seed].get(planner)
             if r is None:
@@ -374,12 +416,19 @@ def write_html_report(rows, gif_map, out_path, instruction, planners):
                 disp_cell = "-"
                 disp_cls = ""
             else:
-                plan_cell = (f"target {r.get('target_index')} "
-                             f"({esc(r.get('target_color'))}), push "
-                             f"{esc(fmt_pushes(r.get('push_away')))}, "
-                             f"approach "
-                             f"{esc(r.get('approach_side', 'near'))}: "
-                             f"{esc(r.get('rationale'))}")
+                prim_html = fmt_primitives(r)
+                plan_cell = (
+                    f"<div><strong>Plan:</strong> target {r.get('target_index')} "
+                    f"({esc(r.get('target_color'))}), push "
+                    f"{esc(fmt_pushes(r.get('push_away')))}, "
+                    f"approach <code>{esc(r.get('approach_side', 'near'))}</code>"
+                    f"</div>"
+                    f"<div style='margin-top:4px;font-size:0.9em;color:#1e293b;"
+                    f"background:#f8fafc;padding:4px 6px;border-left:3px solid #64748b'>"
+                    f"<strong>Executed Primitives:</strong><br>{prim_html}</div>"
+                    f"<div style='margin-top:3px;font-size:0.85em;color:#555'>"
+                    f"<em>Rationale:</em> {esc(r.get('rationale'))}</div>"
+                )
                 cost = (f"{r['tokens']} tokens" if planner == "vlm"
                         else "no API")
                 disp = r.get("target_disp")
@@ -520,8 +569,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--instruction",
                     default="grasp the red box in isolation")
-    ap.add_argument("--seeds", default="0-9",
-                    help="'0-9' or '0,5,7'")
+    ap.add_argument("--seeds", default="2,6",
+                    help="seed specification, e.g. '2,6' (default canary seeds) or '0-9'")
     ap.add_argument("--planners", default="vlm,heuristic,ppo,diffusion",
                     help="comma-separated subset of vlm,heuristic,ppo,diffusion")
     ap.add_argument("--ppo-model", default=None,

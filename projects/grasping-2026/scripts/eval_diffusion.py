@@ -43,7 +43,7 @@ def main():
     model = DiffusionMLP(ckpt["obs_dim"], chunk=ckpt["chunk"],
                          hidden=ckpt["hidden"])
     model.load_state_dict(ckpt["state"])
-    sched = DDIMScheduler(num_train_timesteps=100)
+    sched = DDIMScheduler(num_train_timesteps=100, clip_sample=True)
     obs_mean = torch.from_numpy(ckpt["obs_mean"]).float()
     obs_std = torch.from_numpy(ckpt["obs_std"]).float()
 
