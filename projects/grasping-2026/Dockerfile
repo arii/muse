@@ -1,10 +1,13 @@
 # Language-conditioned grasping in simulation — reproducible container.
 #
 # Build:   docker build -t grasping-2026 .
-# Run:     docker run --rm -v $PWD/episodes:/workspace/episodes grasping-2026
+# Run:     docker compose run --rm demo --instruction "grasp the red box in isolation" --seed 7
+#          (or raw docker: docker run --rm -v $PWD/episodes:/workspace/episodes grasping-2026)
 #          docker run --rm -e NEBIUS_API_KEY -e NEBIUS_VLM_MODEL \
 #              -v $PWD/episodes:/workspace/episodes grasping-2026 \
 #              --instruction "grasp the blue box"
+#
+# Secrets come from .env via docker-compose.yml (see .env.example).
 #
 # Notes:
 #  - MUJOCO_GL=osmesa gives headless CPU rendering (no GPU/display needed).

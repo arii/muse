@@ -1,0 +1,32 @@
+# Language-conditioned grasping demo — Docker Compose.
+#
+# Usage (no local Python needed):
+#   cp .env.example .env   # optional: only needed for the live VLM
+#   # edit .env with your Nebius key (or leave it empty for the offline fallback)
+#   docker compose run --rm demo --instruction "grasp the red box in isolation" --seed 7
+#
+# Episodes land in ./episodes/ (mounted volume, persists across runs).
+# Extra demo flags pass through after the service name, e.g.:
+#   docker compose run --rm demo --instruction "grasp the blue box" --seed 1 --frame-every 1
+#
+# Notes:
+#  - Compose auto-loads .env from this directory for the ${VAR} interpolation
+#    below, so a missing .env just means empty values (offline fallback).
+#  - Secrets never enter the image: they arrive as environment variables.
+#  - SAM checkpoint (M2): mount at runtime with an extra -v, never baked in.
+#  - Prebuilt image alternative: replace `build: .` with
+#    `image: ghcr.io/arii/grasping-2026` (CI publishes it on main).
+
+services:
+  demo:
+    build: .
+    image: grasping-2026
+    environment:
+      - MUJOCO_GL=osmesa
+      - NEBIUS_API_KEY=${NEBIUS_API_KEY:-}
+      - NEBIUS_VLM_MODEL=${NEBIUS_VLM_MODEL:-}
+      - NEBIUS_BASE_URL=${NEBIUS_BASE_URL:-https://api.tokenfactory.nebius.com/v1}
+    volumes:
+      - ./episodes:/workspace/episodes
+    # ENTRYPOINT (from the Dockerfile) is `python scripts/demo_vlm_grasp.py`;
+    # arguments after `docker compose run demo` are appended to it.

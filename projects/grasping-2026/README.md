@@ -112,56 +112,70 @@ goal metric is **caging**: ≥2 distinct arm links in contact with the target
 in `env._reward()` from raw MuJoCo contacts; reward = `0.5 × links + 2.0`
 on cage.
 
-## Quickstart
+## Quickstart (Docker only)
+
+No local Python setup needed — everything runs in the container.
 
 ```bash
-pip install -e .
-python scripts/demo_vlm_grasp.py --instruction "grasp the red box in isolation" --seed 7
+# 1. (Optional) live VLM grounding: copy the template and add your key.
+#    Without it, the demo uses an offline color-matching fallback.
+cp .env.example .env   # then edit .env
+
+# 2. Run the demo. Episodes land in ./episodes/.
+docker compose run --rm demo --instruction "grasp the red box in isolation" --seed 7
 ```
 
 Expected output:
 
 ```
 [demo] plan: grasp object 0 (red), push away [] — heuristic: grasp 'red'
-[singulate] pushed obj1 (blue): iso 0.159 m
-[demo] singulation: isolation 0.106 -> 0.159 m
-[demo] preconditions met (isolation 0.159 m >= 0.15 m) — starting grasp
+[singulate] pushed obj1 (blue): iso 0.216 m
+[demo] singulation: isolation 0.106 -> 0.216 m
+[demo] preconditions met (isolation 0.216 m >= 0.15 m) — starting grasp
 [demo] links touching: 0, caged: False, total reward: 2.5
 [demo] episode saved to episodes/20261023_112926
 ```
 
 Episodes land in `episodes/<stamp>/` (`frames.npz` + `meta.json`). Without
-`NEBIUS_API_KEY` the grounding stage uses the offline fallback; set
-`NEBIUS_API_KEY` + `NEBIUS_VLM_MODEL` to run it through a Nemotron vision
-model on Nebius Token Factory instead.
+`NEBIUS_API_KEY` in `.env`, grounding uses the offline fallback; with a key
+and model set, it runs through a Nemotron vision model on Nebius Token
+Factory instead.
 
-Verify everything works:
-
-```bash
-MUJOCO_GL=osmesa pytest -v          # 11 tests, headless
-MUJOCO_GL=osmesa python scripts/verify_pipeline.py --seed 7   # stage-by-stage + screenshots
-```
-
-## Container
+Verify everything works (also via container):
 
 ```bash
-docker build -t grasping-2026 .
-docker run --rm -v $PWD/episodes:/workspace/episodes grasping-2026 \
-    --instruction "grasp the blue box" --seed 1
+docker compose run --rm demo --instruction "grasp the red box in isolation" --seed 7
 ```
 
-Headless rendering is via `MUJOCO_GL=osmesa` (set in the image); no GPU or
-display needed. The SAM checkpoint (M2) is mounted at runtime with `-v`,
-never baked into the image. Secrets go via `-e` (`NEBIUS_API_KEY`,
-`NEBIUS_VLM_MODEL`), never into the image.
+To run the test suite locally you still need a Python env (see
+Contributing below), but the demo itself is container-only.
+
+## Container details
+
+`docker-compose.yml` defines the `demo` service: builds the image from
+`Dockerfile`, mounts `./episodes` for output, and passes `NEBIUS_*` variables
+from `.env` (compose auto-loads `.env` for interpolation — a missing file
+just means empty values, i.e. offline fallback). Extra demo flags pass
+through after the service name:
+
+```bash
+docker compose run --rm demo --instruction "grasp the blue box" --seed 1 --frame-every 1
+```
+
+Headless rendering is via `MUJOCO_GL=osmesa` (set in the image and the
+compose file); no GPU or display needed. The SAM checkpoint (M2) is mounted
+at runtime with an extra `-v`, never baked into the image. Secrets go via
+`.env`, never into the image. The prebuilt image (`ghcr.io/arii/grasping-2026`,
+published by CI on main) can replace `build: .` in the compose file if you
+don't want to build locally.
 
 ## Visualizer
 
 Episodes render to animated GIFs (Pillow-only, no extra deps):
 
 ```bash
-python scripts/demo_vlm_grasp.py --instruction "grasp the red box" --seed 7 --frame-every 1
-python scripts/make_video.py episodes/<stamp>/ --out demo.gif --fps 10
+docker compose run --rm demo --instruction "grasp the red box" --seed 7 --frame-every 1
+docker compose run --rm --entrypoint python demo scripts/make_video.py episodes/<stamp>/ --out episodes/demo.gif --fps 10
 ```
 
 Each GIF gets a caption bar with the instruction, target color, and whether
@@ -201,6 +215,19 @@ restart — reinstall if `import mujoco` fails with an OSMesa error.)
    comparison — and a learned singulation policy (the scripted push helps
    ~13% of crowded scenes; a policy should do much better).
 5. Demo video + public repo (needs: Nemotron wiring, LICENSE ✅ done).
+
+## Contributing (local dev)
+
+The demo is container-only, but tests and development use a local env:
+
+```bash
+pip install -e ".[test]"
+MUJOCO_GL=osmesa pytest -v          # 13 tests, headless
+MUJOCO_GL=osmesa python scripts/verify_pipeline.py --seed 7   # stage-by-stage + screenshots
+```
+
+System packages needed for headless rendering: `libglfw3`, `libgl1`,
+`libosmesa6` (Debian/Ubuntu: `sudo apt-get install -y libosmesa6 libglfw3 libgl1`).
 
 ## Blog post
 
