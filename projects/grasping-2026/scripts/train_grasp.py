@@ -31,6 +31,10 @@ def main():
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--max-steps", type=int, default=200)
     ap.add_argument("--target-index", type=int, default=0)
+    # Checkpoint every N steps so a VM restart doesn't lose a long run;
+    # resume with --resume <checkpoint.zip>.
+    ap.add_argument("--save-freq", type=int, default=50000)
+    ap.add_argument("--resume", default=None)
     args = ap.parse_args()
 
     if args.algo == "ppo":
@@ -42,11 +46,19 @@ def main():
 
     env = GraspGymWrapper(seed=args.seed, target_index=args.target_index,
                           max_steps=args.max_steps)
-    model = cls("MlpPolicy", env, seed=args.seed, verbose=1)
+    if args.resume:
+        model = cls.load(args.resume, env=env)
+        print(f"[train] resumed from {args.resume}")
+    else:
+        model = cls("MlpPolicy", env, seed=args.seed, verbose=1)
     print(f"[train] {args.algo} for {args.timesteps} timesteps "
           f"(max_steps={args.max_steps}, target={args.target_index})")
-    model.learn(total_timesteps=args.timesteps)
+    from stable_baselines3.common.callbacks import CheckpointCallback
     out = pathlib.Path(args.out)
+    ckpt = CheckpointCallback(save_freq=args.save_freq,
+                              save_path=str(out.parent / (out.name + "_ckpt")),
+                              name_prefix=out.name)
+    model.learn(total_timesteps=args.timesteps, callback=ckpt)
     out.parent.mkdir(parents=True, exist_ok=True)
     model.save(str(out))
     print(f"[train] saved to {out}.zip")
