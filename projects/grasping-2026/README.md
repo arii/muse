@@ -194,6 +194,38 @@ docker compose run --build --rm --entrypoint python demo scripts/compare_planner
 docker compose run --build --rm --entrypoint python demo scripts/compare_planners.py --seeds 0-9 --gifs
 ```
 
+## Local RL training (no API key)
+
+PPO/SAC via stable-baselines3 on a gymnasium wrapper of the same env
+— the trained policy is a third approach alongside VLM and heuristic,
+evaluated on the same force-closure criterion. No Nebius key, no
+network: MuJoCo + torch run locally, CPU-only on this VM.
+
+```bash
+MUJOCO_GL=osmesa python scripts/train_grasp.py --timesteps 100000
+MUJOCO_GL=osmesa python scripts/eval_policy.py --model models/grasp_ppo --episodes 10 --seeds 0-9
+```
+
+- `env/gym_wrapper.py`: obs = q(3) + qvel(3) + target xy + target half
+  + distractor offsets relative to target; action = target joints in
+  [-1, 1] (scaled by 2.6); reward = the env's own 0.5*links +
+  2.0*force_closure; episode ends on force closure or max_steps.
+- `scripts/eval_policy.py` reports force_closure rate, caged rate,
+  mean reward, mean length — the same headline numbers as
+  compare_planners.py.
+- Trained weights live in `models/` (gitignored, binary — never pushed
+  via the connector).
+- Smoke result (20k PPO steps, CPU, ~90 s): FC rate 0.00, caged 0.00.
+  The policy learned to touch and hold on one seed (rew 198.5 from
+  2-link contact over 200 steps, no grasp) — the same touching-time
+  inflation as the reward-sum caveat above. A real attempt needs much
+  longer training and probably reward shaping (e.g., a per-step cost
+  so resting against the box stops paying).
+- VM gotchas: the default torch wheel bundles triton, whose import
+  segfaults on this CPU-only VM during PPO setup. Fix: `pip uninstall
+  triton` (torch/SB3 don't need it without torch.compile). Also: pip
+  needs TMPDIR on home disk, not /tmp (512 MB tmpfs < 554 MB wheel).
+
 ## VLM call ledger (audit + cache)
 
 Every VLM call is logged to `episodes/vlm_ledger.jsonl` (JSONL, one entry
