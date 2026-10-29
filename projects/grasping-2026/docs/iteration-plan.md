@@ -109,31 +109,33 @@ The evaluation was scaled across all 10 standard seeds (`0–9`). All 10 seeds h
 
 | Policy / Planner | Force Closure (`FC`) | Caged (`loop < 0.15m`) | Preconditions Met | Mean Target Disp ($\Delta xy$) | Mean Reward | API Calls / Cost |
 | :--- | :---: | :---: | :---: | :---: | :---: | :--- |
-| **1. Heuristic** | **0.70** (7/10) | 0.50 (5/10) | 0.80 (8/10) | **0.171 m** | 24.6 | `no API` |
-| **2. VLM** | **0.50** (5/10) | **0.50** (5/10) | **1.00** (10/10) | 0.308 m | 6.8 | `0` live (`0 tokens`) |
-| **3. PPO** | 0.10 (1/10) | 0.00 (0/10) | 1.00 (10/10) | 2.046 m | 0.7 | `no API` |
-| **4. Diffusion BC** | 0.20 (2/10) | 0.10 (1/10) | 0.70 (7/10) | **0.080 m** | 2.2 | `no API` |
+| **1. Heuristic** | **0.70** (7/10) | **0.50** (5/10) | 0.80 (8/10) | **0.170 m** | 25.6 | `no API` |
+| **2. VLM** | **0.50** (5/10) | **0.50** (5/10) | 0.80 (8/10) | 0.217 m | 14.4 | `0` live (`0 tokens`) |
+| **3. PPO** | 0.10 (1/10) | 0.00 (0/10) | 0.80 (8/10) | 2.046 m | 0.7 | `no API` |
+| **4. Diffusion BC** | 0.10 (1/10) | 0.00 (0/10) | 0.80 (8/10) | **0.076 m** | 0.7 | `no API` |
 
 #### Per-Seed Detailed Breakdown (`Seeds 0–9`)
 
 | Seed | Target Scene Context | Heuristic Outcome | VLM Outcome | PPO Outcome | Diffusion Outcome |
 | :---: | :--- | :--- | :--- | :--- | :--- |
-| **0** | Isolated (`iso = 0.398 m`) | **FC=True, caged=True** (`disp=0.20m`) | **FC=True, caged=True** (`disp=0.20m`) | FC=False (`disp=6.62m`) | FC=False (`disp=0.21m`) |
-| **1** | Isolated (`iso = 0.251 m`) | FC=False, caged=False (`disp=0.35m`) | FC=False, caged=False (`disp=0.35m`) | FC=False (`disp=1.43m`) | FC=False (`disp=0.00m`) |
-| **2** | Isolated (`iso = 0.474 m`) | **FC=True, caged=True** (`disp=0.09m`) | **FC=True, caged=True** (`disp=0.09m`) | FC=False (`disp=1.02m`) | FC=False (`disp=0.04m`) |
-| **3** | Crowded (`iso = 0.206 m`, green) | FC=True, caged=False (`disp=0.17m`) | FC=False, caged=False (`disp=0.38m`)* | FC=False (`disp=0.91m`) | FC=False (`disp=0.00m`) |
-| **4** | Crowded (`iso = 0.061 m`, green) | FC=False, pre=False (`disp=0.15m`) | **FC=True, caged=True** (`disp=0.19m`) | FC=False (`disp=3.11m`) | **FC=True**, caged=False (`disp=0.02m`) |
-| **5** | Isolated (`iso = 0.278 m`) | **FC=True, caged=True** (`disp=0.164m`, unified cage, local VM rerun 2026-10-28) | FC=False, caged=False — **rerun pending** (VLM plan on this isolated seed should match heuristic, not verified) | FC=False (`disp=1.12m`) | FC=False (`disp=0.00m`) |
-| **6** | Isolated (`iso = 0.357 m`) | **FC=True, caged=True** (`disp=0.12m`) | **FC=True, caged=True** (`disp=0.12m`) | FC=False (`disp=2.77m`) | FC=False (`disp=0.33m`) |
-| **7** | Crowded (`iso = 0.054 m`, blue) | FC=True, pre=False (`disp=0.11m`) | FC=False, pre=True (`disp=0.83m`) | FC=False (`disp=1.82m`) | FC=False (`disp=0.03m`) |
-| **8** | Isolated (`iso = 0.575 m`) | **FC=True, caged=True** (`disp=0.15m`) | **FC=True, caged=True** (`disp=0.15m`) | FC=False (`disp=1.53m`) | FC=False (`disp=0.00m`) |
-| **9** | Isolated (`iso = 0.254 m`) | FC=False, caged=False (`disp=0.21m`) | FC=False, caged=False (`disp=0.21m`) | **FC=True** (`disp=0.13m`) | **FC=True, caged=True** (`disp=0.17m`) |
+| **0** | Isolated (`iso = 0.398 m`) | **FC=True, caged=True** (`disp=0.20m`) | **FC=True, caged=True** (`disp=0.20m`) | FC=False (`disp=6.62m`) | FC=False (`disp=0.00m`) |
+| **1** | Isolated (`iso = 0.251 m`) | FC=False, caged=False (`disp=0.35m`) | FC=False, caged=False (`disp=0.35m`) | FC=False (`disp=1.43m`) | FC=False (`disp=0.11m`) |
+| **2** | Isolated (`iso = 0.474 m`) | **FC=True, caged=True** (`disp=0.09m`) | **FC=True, caged=True** (`disp=0.09m`) | FC=False (`disp=1.02m`) | FC=False (`disp=0.00m`) |
+| **3** | Crowded (`iso = 0.206 m`, green) | **FC=True**, caged=False (`disp=0.17m`) | FC=False, caged=False (`disp=0.38m`)* | FC=False (`disp=0.91m`) | FC=False (`disp=0.00m`) |
+| **4** | Crowded (`iso = 0.061 m`, green) | FC=False, pre=False (`disp=0.15m`) | FC=False, pre=False (`disp=0.15m`)\*\* | FC=False (`disp=3.11m`) | **FC=True**, caged=False (`disp=0.01m`) |
+| **5** | Isolated (`iso = 0.278 m`) | **FC=True, caged=True** (`disp=0.16m`, unified cage) | **FC=True, caged=True** (`disp=0.16m`, verified S5 rerun) | FC=False (`disp=1.12m`) | FC=False (`disp=0.17m`) |
+| **6** | Isolated (`iso = 0.357 m`) | **FC=True, caged=True** (`disp=0.12m`) | **FC=True, caged=True** (`disp=0.12m`) | FC=False (`disp=2.77m`) | FC=False (`disp=0.00m`) |
+| **7** | Crowded (`iso = 0.054 m`, blue) | **FC=True**, pre=False (`disp=0.11m`) | FC=False, pre=False (`disp=0.36m`)\*\*\* | FC=False (`disp=1.82m`) | FC=False (`disp=0.32m`) |
+| **8** | Isolated (`iso = 0.575 m`) | **FC=True, caged=True** (`disp=0.15m`) | **FC=True, caged=True** (`disp=0.15m`) | FC=False (`disp=1.53m`) | FC=False (`disp=0.15m`) |
+| **9** | Isolated (`iso = 0.254 m`) | FC=False, caged=False (`disp=0.21m`) | FC=False, caged=False (`disp=0.21m`) | **FC=True** (`disp=0.13m`) | FC=False (`disp=0.00m`) |
 
-*\*Seed 3 note: VLM planned `push obj2 (green, shove)`. During the push, the target box moved $>1.4\text{ m}$; the singulation safety check detected this and **reverted** the push via snapshot, protecting the environment from corruption.*
+*\*Seed 3: VLM planned `push obj2 (green, shove)`. Target moved $1.473\text{ m} > 0.12\text{ m}$; push safely **reverted**.*  
+*\*\*Seed 4: VLM planned `push obj2 (green, shove)`. Target moved $0.181\text{ m} > 0.12\text{ m}$; push safely **reverted** under the new 0.12m safety cap.*  
+*\*\*\*Seed 7: VLM planned `push obj1 (blue, shove)`. Target moved $0.318\text{ m} > 0.12\text{ m}$; push safely **reverted** under the new 0.12m safety cap.*
 
 ---
 
-**Metric caveats, read before citing §4.3.** (a) `mean_reward` in the table is a step-summed reward, not a per-episode success score: long non-passing episodes accumulate more reward, which is why heuristic (24.6) dwarfs VLM (6.8) despite similar FC rates. Cite FC, caged, and target displacement as the primary metrics; treat mean reward as diagnostic only. (b) `preconditions_met` is not measured the same way for learned planners: VLM/heuristic report isolation *after singulation, before the cage*, while PPO/diffusion in `compare_planners.py` previously reported isolation *after the whole episode* — a policy that shoves the target away scores preconditions by displacing it. That code is fixed in this revision to report initial isolation for learned planners (see §5, Step 5 note); PPO's old 1.00 preconditions rate should not be cited. (c) Seed 5: the old heuristic/VLM FC=False came from a geometry special-case in `scripted_cage` that forced the legacy tuck on seed 5's exact spawn. That branch is removed in this revision. Heuristic seed 5 is now verified with the unified cage (FC=True, caged=True, disp 0.164 m, local VM rerun 2026-10-28; heuristic aggregates in §4.3 are updated to FC 7/10, caged 5/10, mean disp 0.171 m from that run). VLM seed 5 is still **rerun pending** — its cell in the per-seed table should not be cited as a policy failure. The old S5 mean-displacement figures (heuristic 0.210 m, VLM 0.308 m) cannot be reproduced from the per-seed table as printed and are superseded for heuristic by the 0.171 m figure above.
+**Metric caveats, read before citing §4.3.** (a) `mean_reward` in the table is a step-summed reward, not a per-episode success score: long non-passing episodes accumulate more reward, which is why heuristic (25.6) dwarfs VLM (14.4) despite similar FC rates. Cite FC, caged, and target displacement as the primary metrics; treat mean reward as diagnostic only. (b) `preconditions_met` is now reported from initial isolation for learned planners in `compare_planners.py` (fixed in commit `412925b9`), matching heuristic/VLM initial gating (0.80 across all 4 planners). (c) Seed 5: verified on S5 with the unified cage for both heuristic and VLM (`FC=True, caged=True, disp=0.16m`), eliminating the old legacy tuck special-case. (d) Singulation cap: the non-strict `tmove_limit = 0.12 m` cap successfully catches and reverts unsafe pushes that drag the target along (Seeds 3, 4, 7), preventing target launching while safe touching-distractor singulation remains the active open problem in Step 1.
 
 ### 4.4 Diagnostic Analysis of Failure Modes Across All 4 Approaches
 
