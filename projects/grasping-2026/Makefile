@@ -7,7 +7,7 @@ help:
 	@echo "  make eval               - Run 4-policy comparison on canary seeds (default SEEDS=2,4; 0 API calls via cache)"
 	@echo "  make eval-isolated      - Run 4-policy comparison on isolated seeds (2,6)"
 	@echo "  make eval-offline       - Run offline-only comparison (heuristic,ppo,diffusion) — zero VLM cost"
-	@echo "  make retrain-diffusion  - Collect planar cage demos (seeds 2,6) & retrain models/diffusion_v2.pt"
+	@echo "  make retrain-diffusion  - Collect planar cage demos (seeds 0-99, keep caged) & retrain models/diffusion_v2.pt"
 	@echo "  make eval-all           - Run full 10-seed comparison (0-9)"
 
 eval:
@@ -24,7 +24,7 @@ eval-all:
 
 collect-demos:
 	docker compose run --rm -v $$(pwd):/workspace --entrypoint python demo \
-		scripts/collect_demos.py --demonstrator cage --seeds 2,6 --n-objects 4 --keep fc \
+		scripts/collect_demos.py --demonstrator cage --seeds 0-99 --n-objects 4 --keep caged \
 		--out data/demos_cage_planar
 
 train-diffusion:

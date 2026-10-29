@@ -1,19 +1,19 @@
 # Grasping-2026: System Analysis, Canary Seeds & Iteration Plan
 
 **Date:** 2026-10-28  
-**Goal:** Reduce evaluation to **2 working canary seeds (`Seeds 2 & 6`)** with clear initial conditions, make VLM/Heuristic/Diffusion policies work reliably on them without wasting VLM API tokens on 10-seed runs, and report explicit executed geometric primitives (`push(...)`, `scripted_cage(...)`) instead of opaque text paragraphs.
+**Goal:** Reduce evaluation to **2 canary seeds (`Seeds 2 & 4` — 1 isolated, 1 cluttered)** with clear initial conditions, make VLM/Heuristic/Diffusion policies work reliably on them without wasting VLM API tokens on 10-seed runs, and report explicit executed geometric primitives (`push(...)`, `scripted_cage(...)`) instead of opaque text paragraphs. Seeds 2 & 6 are an isolated-only pair, not the canary set (see §4.2).
 
 ---
 
 ## 1. Quick-Run CLI Helper & Task Runners (`scripts/run_eval.sh`, `Makefile`, `package.json`, `pyproject.toml`)
 
-To avoid repetitive `docker compose run ...` CLI commands and prevent accidental 10-seed VLM API calls, all workflows are wrapped in [`scripts/run_eval.sh`](../scripts/run_eval.sh), [`Makefile`](../Makefile), [`package.json`](../package.json), and [`pyproject.toml`](../pyproject.toml) (defaulting to `--seeds 2,6`):
+To avoid repetitive `docker compose run ...` CLI commands and prevent accidental 10-seed VLM API calls, all workflows are wrapped in [`scripts/run_eval.sh`](../scripts/run_eval.sh), [`Makefile`](../Makefile), [`package.json`](../package.json), and [`pyproject.toml`](../pyproject.toml) (defaulting to `--seeds 2,4`):
 
 ```bash
 # Default: run 2 canary seeds (2,6) across all policies (uses ledger cache for VLM -> 0 API calls)
 ./scripts/run_eval.sh
 
-# Isolated + cluttered comparison (seed 2 isolated, seed 7 crowded)
+# Non-default example: isolated + cluttered comparison (seed 2 isolated, seed 7 crowded)
 ./scripts/run_eval.sh --seeds 2,7
 
 # Offline-only mode (heuristic, ppo, diffusion) — zero VLM API risk even on new seeds
@@ -68,10 +68,10 @@ Both the **Semantic Plan** and the **Executed Geometric Primitives** (`push(obj,
 ### 3.3 Why Diffusion Was Outputting Noise (`scripts/train_diffusion.py`)
 * **Root Cause Diagnosis:**
   1. **Observation Normalization Blow-Up (`max_obs_diff = 346.6`):** In `train_diffusion.py`, `obs_std = flat.std(axis=0) + 1e-6` had tiny standard deviations (`~1e-3`) on un-contacted distractor offsets and quasi-static `qvel`. During closed-loop rollouts, a `0.02` velocity or position perturbation at step 24–32 produced a `17x–346x` standard-deviation spike in `obs_n`, saturating the MLP denoiser output to `[-1, -1, +1]`.
-  2. **100-Step Noise Schedule Mismatch:** `DDPMScheduler(num_train_timesteps=100)` with default linear `beta_end=0.02` left $\bar{\alpha}_{99} = 0.364$ (`60%` clean signal at $t=99$), whereas inference starts from pure Gaussian noise $\mathcal{N}(0, I)$.
-* **Fix:**
-  * Floored `obs_std` at `0.15` (and masked `qvel` variance so transient velocity spikes cannot corrupt state conditioning).
-  * Switched to `beta_schedule="squaredcos_cap_v2"` with `clip_sample=True` and low-$t$ weighted MSE loss so $\bar{\alpha}_{99} \to 0$ at $t=99$ and final denoising steps are smooth.
+  2. **100-Step Noise Schedule (diagnosed, NOT changed):** `DDPMScheduler(num_train_timesteps=100)` with the default linear schedule leaves $\bar{\alpha}_{99} \approx 0.36$ (much clean signal left at $t=99$), whereas inference starts from pure Gaussian noise $\mathcal{N}(0, I)$. This is a hypothesis for part of the noise, not a fix that landed: the training code still uses the default linear schedule (see below). Switching to `squaredcos_cap_v2` would change the schedule a trained checkpoint was built under and must be validated as a separate experiment, not claimed as done.
+* **Fix (what is actually in `scripts/train_diffusion.py`):**
+  * Floored `obs_std` at `0.30` (and at `2.0` on `qvel` indices 3–5) so near-constant dimensions and transient velocity spikes cannot blow up normalized obs during closed-loop rollouts.
+  * Kept the default linear `DDPMScheduler` with `clip_sample=True` and added low-$t$ weighted MSE loss (`w_t = 1 + 3*(1 - t/100)`) so final denoising steps are smoother. No `squaredcos_cap_v2` schedule and no DDIM clamping are in the training code; either would be a new experiment, not a landed fix.
 
 ---
 
@@ -93,13 +93,13 @@ Instead of running all 10 seeds (`0–9`), we use **Seeds 2 and 4** (`--seeds 2,
 | **Diffusion BC (`diffusion_v2.pt`)** | `0.50` (1/2) | `0.00` (0/2) | `0.50` (1/2) | `-0.034 m` | `0.028 m` | `no API` |
 | **PPO (`grasp_ppo_500k.zip`)** | `0.00` (0/2) | `0.00` (0/2) | `1.00` (2/2) | `+1.985 m` | `2.067 m` | `no API` |
 
-### 4.2 Why VLM and Heuristic Match on `Seeds 2, 6` vs. Diverge on `Seed 4 & 7`
+### 4.2 Why VLM and Heuristic Match on Isolated Seeds vs. Diverge on Cluttered Seeds
 
 1. **On Isolated Seeds (`0, 2, 6, 8`):** All scenes already satisfy `isolation >= 0.15 m`. The VLM inspects the top-down image and rightly plans `{"grasp_target": 0, "push_away": [], "approach_side": "near"}`—matching `HeuristicLabeller`.
 2. **On Cluttered Seeds (`Seed 4`, `isolation = 0.061 m` & `Seed 7`, `isolation = 0.054 m`):**
    * **Heuristic** outputs `push_away=[], approach_side="near"`, failing the isolation precondition (`preconditions_met=False`). On Seed 4, it is blocked by the green box and fails completely (`FC=False, caged=False`).
    * **VLM** identifies the crowding distractor and plans singulation pushes with directional entry (`Seed 4`: `push obj2 shove, approach right`; `Seed 7`: `push obj1 shove, approach left`). On Seed 4, it improves isolation from $0.061\text{ m} \to 0.314\text{ m}$ and achieves **`FC=True, caged=True`**.
-3. **Why `0 tokens` Appeared on Re-runs:** `VLMCallLedger` (`perception/ledger.py`) caches VLM responses in `episodes/vlm_ledger.jsonl` keyed by `(CACHE_VERSION, model, instruction, objects, image_sha256, prompt_hash)`. Re-running cached seeds makes `0` live API calls; `episodes/compare-report.html` displays `0 tokens (cached; orig ... tok)` so the VLM token footprint is transparent.
+3. **Why `0 tokens` Appeared on Re-runs:** `VLMCallLedger` (`perception/ledger.py`) caches VLM responses in `episodes/vlm_ledger.jsonl` keyed by `(CACHE_VERSION, model, instruction, objects, image_sha256, prompt_hash)`. Re-running cached seeds makes `0` live API calls; `episodes/compare-report.html` displays `0 tokens (cached; orig ... tok)` so the VLM token footprint is transparent. Cached tokens are *not* billed tokens — §4.1's `10,038 cached` and §4.3's `0 tokens` are the same fact stated two ways (live cost 0, original cached cost 10,038). Note also that the prompt change in `10da1bf9` changes `prompt_hash`, so pre-change ledger entries are ignored on the first post-change run; `0 live calls` applies to reruns *after* that first run, not to the first run itself.
 
 ---
 
@@ -109,7 +109,7 @@ The evaluation was scaled across all 10 standard seeds (`0–9`). All 10 seeds h
 
 | Policy / Planner | Force Closure (`FC`) | Caged (`loop < 0.15m`) | Preconditions Met | Mean Target Disp ($\Delta xy$) | Mean Reward | API Calls / Cost |
 | :--- | :---: | :---: | :---: | :---: | :---: | :--- |
-| **1. Heuristic** | **0.60** (6/10) | 0.40 (4/10) | 0.80 (8/10) | **0.210 m** | 24.6 | `no API` |
+| **1. Heuristic** | **0.70** (7/10) | 0.50 (5/10) | 0.80 (8/10) | **0.171 m** | 24.6 | `no API` |
 | **2. VLM** | **0.50** (5/10) | **0.50** (5/10) | **1.00** (10/10) | 0.308 m | 6.8 | `0` live (`0 tokens`) |
 | **3. PPO** | 0.10 (1/10) | 0.00 (0/10) | 1.00 (10/10) | 2.046 m | 0.7 | `no API` |
 | **4. Diffusion BC** | 0.20 (2/10) | 0.10 (1/10) | 0.70 (7/10) | **0.080 m** | 2.2 | `no API` |
@@ -123,7 +123,7 @@ The evaluation was scaled across all 10 standard seeds (`0–9`). All 10 seeds h
 | **2** | Isolated (`iso = 0.474 m`) | **FC=True, caged=True** (`disp=0.09m`) | **FC=True, caged=True** (`disp=0.09m`) | FC=False (`disp=1.02m`) | FC=False (`disp=0.04m`) |
 | **3** | Crowded (`iso = 0.206 m`, green) | FC=True, caged=False (`disp=0.17m`) | FC=False, caged=False (`disp=0.38m`)* | FC=False (`disp=0.91m`) | FC=False (`disp=0.00m`) |
 | **4** | Crowded (`iso = 0.061 m`, green) | FC=False, pre=False (`disp=0.15m`) | **FC=True, caged=True** (`disp=0.19m`) | FC=False (`disp=3.11m`) | **FC=True**, caged=False (`disp=0.02m`) |
-| **5** | Isolated (`iso = 0.278 m`) | FC=False (legacy test tuck) | FC=False (legacy test tuck) | FC=False (`disp=1.12m`) | FC=False (`disp=0.00m`) |
+| **5** | Isolated (`iso = 0.278 m`) | **FC=True, caged=True** (`disp=0.164m`, unified cage, local VM rerun 2026-10-28) | FC=False, caged=False — **rerun pending** (VLM plan on this isolated seed should match heuristic, not verified) | FC=False (`disp=1.12m`) | FC=False (`disp=0.00m`) |
 | **6** | Isolated (`iso = 0.357 m`) | **FC=True, caged=True** (`disp=0.12m`) | **FC=True, caged=True** (`disp=0.12m`) | FC=False (`disp=2.77m`) | FC=False (`disp=0.33m`) |
 | **7** | Crowded (`iso = 0.054 m`, blue) | FC=True, pre=False (`disp=0.11m`) | FC=False, pre=True (`disp=0.83m`) | FC=False (`disp=1.82m`) | FC=False (`disp=0.03m`) |
 | **8** | Isolated (`iso = 0.575 m`) | **FC=True, caged=True** (`disp=0.15m`) | **FC=True, caged=True** (`disp=0.15m`) | FC=False (`disp=1.53m`) | FC=False (`disp=0.00m`) |
@@ -132,6 +132,8 @@ The evaluation was scaled across all 10 standard seeds (`0–9`). All 10 seeds h
 *\*Seed 3 note: VLM planned `push obj2 (green, shove)`. During the push, the target box moved $>1.4\text{ m}$; the singulation safety check detected this and **reverted** the push via snapshot, protecting the environment from corruption.*
 
 ---
+
+**Metric caveats, read before citing §4.3.** (a) `mean_reward` in the table is a step-summed reward, not a per-episode success score: long non-passing episodes accumulate more reward, which is why heuristic (24.6) dwarfs VLM (6.8) despite similar FC rates. Cite FC, caged, and target displacement as the primary metrics; treat mean reward as diagnostic only. (b) `preconditions_met` is not measured the same way for learned planners: VLM/heuristic report isolation *after singulation, before the cage*, while PPO/diffusion in `compare_planners.py` previously reported isolation *after the whole episode* — a policy that shoves the target away scores preconditions by displacing it. That code is fixed in this revision to report initial isolation for learned planners (see §5, Step 5 note); PPO's old 1.00 preconditions rate should not be cited. (c) Seed 5: the old heuristic/VLM FC=False came from a geometry special-case in `scripted_cage` that forced the legacy tuck on seed 5's exact spawn. That branch is removed in this revision. Heuristic seed 5 is now verified with the unified cage (FC=True, caged=True, disp 0.164 m, local VM rerun 2026-10-28; heuristic aggregates in §4.3 are updated to FC 7/10, caged 5/10, mean disp 0.171 m from that run). VLM seed 5 is still **rerun pending** — its cell in the per-seed table should not be cited as a policy failure. The old S5 mean-displacement figures (heuristic 0.210 m, VLM 0.308 m) cannot be reproduced from the per-seed table as printed and are superseded for heuristic by the 0.171 m figure above.
 
 ### 4.4 Diagnostic Analysis of Failure Modes Across All 4 Approaches
 
@@ -159,16 +161,16 @@ The evaluation was scaled across all 10 standard seeds (`0–9`). All 10 seeds h
 ## 5. Plan for Next Steps
 
 ### Step 1: Collision-Safe `singulate` Precondition Push on Cluttered Seeds (`Seed 7` & `Seed 4`)
-* **Problem Identified on `Seed 7`:** When the distractor `d` is touching the red target `t` (`||d - t|| = 0.054 m`), `start_xy = d - direction * clearance` (`clearance = 0.075 m`) places the push start point **inside the red target box**, and `move_tip(env, start_xy)` sweeps the arm straight through the target, knocking the red box `0.32 m` away (`target_xy: [-0.117, 0.335] -> [-0.435, 0.330]`). Furthermore, `tmove_limit = dmove + 0.05` failed to revert the push because both boxes moved together.
-* **Action Items:**
-  1. Tighten `tmove_limit` in `singulate()` (`scripts/demo_vlm_grasp.py`) to `0.12 m` unconditionally so any push that displaces the target box by `> 12 cm` is reverted.
-  2. When `||d - t|| < clearance + target_radius`, offset `start_xy` tangentially or push from the side of `d` clear of `t`, and route `move_tip` via a high-clearance intermediate waypoint so the approach never sweeps through `t`.
-  3. Verify on `--seeds 2,7` (`0` live VLM calls via ledger cache) that `Seed 7` VLM achieves `preconditions_met=True`, `FC=True`, and `target Δxy < 0.20 m`.
+* **Problem Identified on `Seed 7`:** When the distractor `d` is touching the red target `t` (`||d - t|| = 0.054 m`), `start_xy = d - direction * clearance` (`clearance = 0.075 m`) places the push start point **inside the red target box**, and the push moves the target `0.32 m` (`target_xy: [-0.117, 0.335] -> [-0.435, 0.330]`). Furthermore, `tmove_limit = dmove + 0.05` failed to revert the push because both boxes moved together (target 0.318 m, distractor 0.324 m, limit 0.374 m).
+* **Fixes landed in this revision:**
+  1. Cap `tmove_limit` for non-strict pushes at `0.12 m` (`min(dmove + 0.05, 0.12)`); strict pushes keep `0.10 m`. The unsafe Seed 7 push is now reverted by snapshot restore (target displacement 0, isolation unchanged) instead of being kept.
+  2. **Tangential start offset tried and NOT used:** offsetting the start tangentially by target-half + 0.03 m made target movement worse (`0.389 m` vs `0.318 m`) and the push still reverted. A two-stage tangential-then-radial experiment in one trial reached iso `0.250 m` with target move `0.041 m`, but the box moved opposite the commanded push direction, so that result is not a reliable primitive and was not baked in.
+* **Still open (do not cite Step 1 as solved):** a safe singulation for touching distractors. The cap makes the failure safe (revert, no corruption), it does not make Seed 7 pass. Verify on `--seeds 2,7` that Seed 7 VLM still fails preconditions safely (revert, no target displacement) until a genuinely safe push is found.
 
 ### Step 2: Scale Diffusion BC from 2 Canary Demos to 40+ Caged Planar Demos
-* **Current State:** Fixing `obs_std` normalization blow-up (`obs_std >= 0.30`, `obs_std[3:6] >= 2.0`) and intermediate DDIM clamping (`[-1.2, 1.2]`) eliminated action-space noise and enabled closed-loop `FC=True` grasps on the canary seeds.
+* **Current State:** Fixing `obs_std` normalization blow-up (`obs_std >= 0.30`, `obs_std[3:6] >= 2.0`) and adding low-$t$ weighted loss eliminated the worst action-space noise and enabled closed-loop `FC=True` grasps on the canary seeds. Note: diffusion *inference* uses a `DDIMScheduler` (`scripts/compare_planners.py`), but training has no DDIM clamping — do not cite `[-1.2, 1.2]` clamping as a training fix.
 * **Action Items:**
-  1. Collect `~40–50` verified `FC=True, caged=True` trajectories across `Seeds 0–99` (`scripts/collect_demos.py --demonstrator cage --seeds 0-99 --keep caged`).
+  1. Collect `~40–50` verified `FC=True, caged=True` trajectories across `Seeds 0–99` (`scripts/collect_demos.py --demonstrator cage --seeds 0-99 --keep caged`, which is also what `./scripts/run_eval.sh --retrain-diffusion` and `make retrain-diffusion` now do — previously they collected only seeds 2,6 with `--keep fc`, which is the 2-demo training set this step is meant to replace).
   2. Train `models/diffusion_v2.pt` on the broader demonstration set with deterministic seeding (`torch.manual_seed(0)`) so it generalizes across all workspace quadrants (`±θ`, `r ∈ [0.22, 0.45] m`).
 
 ### Step 3: Retrain PPO via Behavior Cloning Warm-Start (BC -> RL)
@@ -194,4 +196,5 @@ The evaluation was scaled across all 10 standard seeds (`0–9`). All 10 seeds h
   2. Pre-seed the baseline action with equal joint closure ($q_2 = q_3 = +1.85\text{ rad}$) and apply `q = q_nominal + delta_q` in `scripts/demo_vlm_grasp.py`.
 
 ### Step 5: Expand Benchmark from `Seeds 2,4` -> Full `Seeds 0–9`
+* **Also in this revision (code, not just doc):** `compare_planners.py` now reports `preconditions_met` for learned planners from *initial* isolation (`iso_before >= 0.15`), not post-episode isolation, so the rate is no longer inflated by shoving the target. Rerun seeds 0–9 with the unified cage (no seed-5 special-case) and recompute §4.3 aggregates, filling in seed-5 heuristic/VLM displacement.
 * Once Steps 1–4 are validated on canary seeds 2 and 4, evaluate across all 10 seeds (`./scripts/run_eval.sh --seeds 0-9`) to track aggregate improvements across heuristic, VLM, PPO, and diffusion policies.

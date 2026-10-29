@@ -45,9 +45,9 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ "${RETRAIN_DIFF}" -eq 1 ]]; then
-  echo "[run_eval] Collecting planar cage demos on seeds 2,6..."
+  echo "[run_eval] Collecting planar cage demos on seeds 0-99 (keep caged, per docs/iteration-plan.md Step 2)..."
   docker compose run --rm -v "${PROJECT_DIR}:/workspace" --entrypoint python demo \
-    scripts/collect_demos.py --demonstrator cage --seeds 2,6 --n-objects 4 --keep fc \
+    scripts/collect_demos.py --demonstrator cage --seeds 0-99 --n-objects 4 --keep caged \
     --out data/demos_cage_planar
   echo "[run_eval] Training models/diffusion_v2.pt..."
   docker compose run --rm -v "${PROJECT_DIR}:/workspace" --entrypoint python demo \

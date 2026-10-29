@@ -104,6 +104,13 @@ def scripted_singulate(env, target_idx, frames, push_radius=0.35,
         sx = next(o["half"][0] for o in env.objects if o["index"] == i)
         clearance = sx + 0.025 + (0.010 if strict else 0.015)
         start_xy = d - direction * clearance
+        # Touching distractor (Seed 7) note: a tangential start
+        # offset was tried 2026-10-28 and made things worse
+        # (target moved 0.389 m vs 0.318 m for the old start, push
+        # reverted by the 0.12 m cap, isolation unchanged). It is
+        # NOT used. The cap below is the safety fix; a safe
+        # singulation for touching distractors is still open
+        # (see docs/iteration-plan.md Step 1).
         color = next(o["color"] for o in env.objects if o["index"] == i)
         snap = env.snapshot()
         nframes0 = len(frames)
@@ -118,7 +125,12 @@ def scripted_singulate(env, target_idx, frames, push_radius=0.35,
         tmove = float(np.linalg.norm(xy(target_idx) - t))
         dmove = float(np.linalg.norm(xy(i) - p0[i]))
         maxmove = max(float(np.linalg.norm(xy(j) - p0[j])) for j in p0)
-        tmove_limit = 0.10 if strict else dmove + 0.05
+        # Non-strict cap: dmove + 0.05 alone lets a push that
+        # moves target and distractor together pass (Seed 7), since
+        # a large dmove raises the limit. Cap at 0.12 m; strict
+        # keeps its tighter 0.10 m limit (an unconditional 0.12 m
+        # would loosen strict mode).
+        tmove_limit = 0.10 if strict else min(dmove + 0.05, 0.12)
         if (iso_new < iso_before - 1e-9 or maxmove > 0.6 or dmove < 0.03
                 or tmove > tmove_limit):
             env.restore(snap)
@@ -256,34 +268,13 @@ def scripted_cage(env, target_idx, frames, frame_info=None,
                              round(float(2.25 * s), 2)],
         })
 
-    # Seed 5 is locked by unit tests (`test_force_closure_vs_caging_seed5`
-    # and `test_run_episode_heuristic_no_api`) to exercise the legacy
-    # tuck-first trajectory that ends with FC=False, caged=False.
-    if abs(theta_t - 1.478) < 0.01 and abs(r - 0.377) < 0.01:
-        face0 = approach_face(pos, approach_side)
-        face0, sign0 = _cage_lead_and_sign(face0, pos)
-        s0 = float(sign0)
-        legacy_phases = [
-            ([q_cur[0], 1.8 * s0, 2.0 * s0], 60),
-            ([face0, 1.8 * s0, 2.0 * s0], 60),
-            ([face0, 0.15 * s0, 0.15 * s0], 120),
-            ([face0, 0.55 * s0, 0.55 * s0], 120),
-            ([face0, 1.8 * s0, 2.2 * s0], 200),
-        ]
-        rewards = []
-        for angles, ticks in legacy_phases:
-            for _ in range(ticks // 5):
-                _, rew, _, info = env.step(np.array(angles))
-                rewards.append(rew)
-                frames.append(env.render())
-                if frame_info is not None:
-                    frame_info.append(frame_status(info))
-                if info["force_closure"]:
-                    return rewards, info
-        _, rew, _, info = env.step(np.array(legacy_phases[-1][0]))
-        rewards.append(rew)
-        return rewards, info
-
+    # No seed special-cases: the unified cage runs on every seed.
+    # (A legacy tuck branch for seed 5 was removed 2026-10-28 — it
+    # forced FC=False/caged=False on that seed by construction and
+    # made the 10-seed aggregates uninterpretable. Seed 5 is now
+    # evaluated by the same cage as every other seed; its result
+    # in docs/iteration-plan.md is marked rerun pending until the
+    # S5 rerun fills it in.)
     waypoints = []
     # If starting from a post-push configuration (or crossing theta_t),
     # tuck link2/link3 to the outer (-s) side so the arm stays inside

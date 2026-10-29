@@ -154,7 +154,11 @@ def _run_learned(seed, planner, instruction, model_path=None, max_steps=200):
         "pushes": [],
         "isolation_before": iso_before,
         "isolation_after": iso_after,
-        "preconditions_met": iso_after >= 0.15,
+        # Learned planners have no singulation phase: report
+        # INITIAL isolation, not post-episode isolation. The old
+        # post-episode value let a policy score preconditions by
+        # shoving the target away (PPO 1.00 in the old table).
+        "preconditions_met": iso_before >= 0.15,
         "links_touching": info["links_touching"],
         "enclosed": info["enclosed"],
         "caged": info["caged"],

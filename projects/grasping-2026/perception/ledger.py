@@ -99,7 +99,7 @@ class VLMCallLedger:
             "NEBIUS_LEDGER_PATH", "episodes/vlm_ledger.jsonl")
         self.path = pathlib.Path(path) if path else None
         self._index = None  # cache_key -> plan, built lazily
-        self._usage_index = None  # cache_key -> usage dict
+        self._usage_index = None  # cache_key -> usage, built lazily
 
     @property
     def enabled(self):
@@ -110,7 +110,6 @@ class VLMCallLedger:
         if self._index is not None:
             return self._index
         self._index = {}
-        self._usage_index = {}
         if self.path and self.path.exists():
             for line in self.path.read_text().splitlines():
                 line = line.strip()
@@ -122,8 +121,6 @@ class VLMCallLedger:
                     continue
                 if not entry.get("cache_hit") and entry.get("plan"):
                     self._index[entry["cache_key"]] = entry["plan"]
-                    if entry.get("usage"):
-                        self._usage_index[entry["cache_key"]] = entry["usage"]
         return self._index
 
     def lookup(self, key):
@@ -132,12 +129,29 @@ class VLMCallLedger:
             return None
         return self._load_index().get(key)
 
+    def _load_usage_index(self):
+        """Build cache_key -> usage from non-cache-hit entries."""
+        if self._usage_index is not None:
+            return self._usage_index
+        self._usage_index = {}
+        if self.path and self.path.exists():
+            for line in self.path.read_text().splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not entry.get("cache_hit") and entry.get("usage"):
+                    self._usage_index[entry["cache_key"]] = entry["usage"]
+        return self._usage_index
+
     def lookup_usage(self, key):
-        """Original API usage dict for this cached key, or None."""
+        """Token usage of the original API call for this key, or {}."""
         if not self.enabled:
-            return None
-        self._load_index()
-        return (self._usage_index or {}).get(key)
+            return {}
+        return self._load_usage_index().get(key) or {}
 
     def record(self, entry):
         """Append one entry to the ledger (creates dirs as needed)."""
@@ -150,5 +164,5 @@ class VLMCallLedger:
         # process sees plans recorded earlier in this process
         if not entry.get("cache_hit") and entry.get("plan"):
             self._load_index()[entry["cache_key"]] = entry["plan"]
-            if entry.get("usage"):
-                self._usage_index[entry["cache_key"]] = entry["usage"]
+        if not entry.get("cache_hit") and entry.get("usage"):
+            self._load_usage_index()[entry["cache_key"]] = entry["usage"]

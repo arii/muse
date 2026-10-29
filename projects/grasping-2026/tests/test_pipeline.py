@@ -557,23 +557,34 @@ def test_force_closure_math():
 
 
 def test_force_closure_vs_caging_seed5():
-    """Caging is distinct from force closure, and seed 5 is no
-    longer a false caged=True.
+    """Caging is distinct from force closure; seed 5 runs the
+    unified cage, not a legacy branch.
 
-    Old seed 5 (old spawn + old polygon metric) was counted caged
-    on an open arm. Under the new spawn and the closed-loop metric,
-    the scripted cage on seed 5 claims neither caged nor force
-    closure — the honest result for a cage that ends not touching
-    the target. The positive caging-vs-FC case is covered
-    synthetically in test_scripted_cage_achieves_true_enclosure.
+    History: old seed 5 (old spawn + old polygon metric) was
+    counted caged on an open arm. A later revision then forced
+    seed 5 through a legacy tuck branch, locking FC=False /
+    caged=False by construction — that branch was removed
+    2026-10-28 because it made seed 5 uninterpretable as an
+    evaluation point. This test now runs the unified cage on
+    seed 5 and locks its actual outcome (see below; fill in
+    after the first unified-cage run, do not restore the
+    legacy branch to make an old assertion pass). The positive
+    caging-vs-FC case is covered synthetically in
+    test_scripted_cage_achieves_true_enclosure.
     """
     from scripts.demo_vlm_grasp import scripted_cage
     env = WholeArmGraspEnv(seed=5)
     env.reset(seed=5)
     env.target_index = 0
     _, info = scripted_cage(env, 0, frames=[])
-    assert info["force_closure"] is False
-    assert info["caged"] is False
+    # Unified-cage outcome, verified locally 2026-10-28 after
+    # removing the legacy branch: FC=True, caged=True, 3 links,
+    # disp 0.164 m (run_episode heuristic seed 5, same cage).
+    # The old FC=False/caged=False was the legacy branch, not
+    # a policy result — do not restore it.
+    assert info["force_closure"] is True
+    assert info["caged"] is True
+    assert info["links_touching"] >= 2
 
 
 def test_run_episode_heuristic_no_api(monkeypatch):
@@ -590,11 +601,10 @@ def test_run_episode_heuristic_no_api(monkeypatch):
                                    frames, verbose=False)
     assert metrics["target_index"] == 0
     assert metrics["target_color"] == "red"
-    assert metrics["force_closure"] is False
-    assert info["force_closure"] is False
-    # No API: heuristic plan, and no false caged claim under the
-    # strict closed-loop metric (old test asserted caged True on
-    # the seed-5 false positive).
+    # No API: heuristic plan. FC outcome on seed 5 is no longer
+    # locked here — the unified cage (not the removed legacy
+    # branch) decides it; see test_force_closure_vs_caging_seed5.
+    assert metrics["force_closure"] == info["force_closure"]
 
 
 def test_compare_aggregate():
@@ -714,16 +724,56 @@ def test_scripted_cage_achieves_true_enclosure():
     assert info["force_closure"] is False
 
 
+def test_singulate_touching_distractor_cap():
+    """Seed 7 singulation: a push that moves the target >0.12 m
+    is reverted (non-strict cap; strict keeps 0.10 m).
+
+    Seed 7 distractor (blue) touches the target (iso 0.054 m).
+    The radial push moves the target 0.32-0.39 m, so it must be
+    reverted by snapshot restore (target displacement 0, iso
+    unchanged). A tangential start offset was tried and made
+    target movement worse (0.389 m), so it is not used — see
+    the note in scripted_singulate. Safe singulation for
+    touching distractors remains open.
+    """
+    from scripts.demo_vlm_grasp import scripted_singulate
+    env = WholeArmGraspEnv(seed=7)
+    env.reset(seed=7)
+    env.target_index = 0
+    t0 = env._obj_xy(0).copy()
+    push_log = []
+    scripted_singulate(env, 0, frames=[],
+                       push_targets=[{"index": 1, "effort": "shove"}],
+                       push_log=push_log)
+    assert push_log, "seed 7 singulate logged no push"
+    assert push_log[0]["status"] == "reverted"
+    disp = float(np.linalg.norm(env._obj_xy(0) - t0))
+    assert disp < 1e-9, f"reverted push moved target {disp:.3f} m"
+
+
 def test_singulation_improves_isolation():
-    """scripted_singulate pushes a crowding object away (seed 7)."""
+    """Singulate on seed 7 reverts an unsafe touching push.
+
+    Old version of this test locked in an unsafe push: blue was
+    pushed with target moving 0.318 m, kept only because
+    tmove_limit was dmove + 0.05 (both boxes moved together).
+    With the 0.12 m cap, that push is reverted, so isolation
+    does NOT improve on seed 7 — and that is the correct
+    behaviour for a push primitive that cannot safely separate
+    touching boxes. Safe singulation for touching distractors
+    is still open (see docs/iteration-plan.md Step 1); do not
+    restore the old test to claim it is solved.
+    """
     from scripts.demo_vlm_grasp import scripted_singulate
     env = WholeArmGraspEnv(seed=7)
     env.reset(seed=7)
     env.target_index = 0
     assert env.target_isolation() < 0.15  # seed 7 starts crowded
+    t0 = env._obj_xy(0).copy()
     iso_before, iso_after = scripted_singulate(env, 0, frames=[])
-    assert iso_after > iso_before + 0.05, \
-        f"isolation did not improve: {iso_before:.3f} -> {iso_after:.3f}"
+    # Revert restores the snapshot, so the target must not move.
+    assert float(np.linalg.norm(env._obj_xy(0) - t0)) < 1e-9
+    assert iso_after == iso_before
 
 
 def test_singulation_never_regresses():
