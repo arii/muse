@@ -139,20 +139,19 @@ The evaluation was scaled across all 10 standard seeds (`0–9`). All 10 seeds h
 
 ### 4.4 Diagnostic Analysis of Failure Modes Across All 4 Approaches
 
-1. **VLM (`50%` FC, `50%` Caged, `100%` Preconditions):**
-   * **Strengths:** 100% success on standard isolated scenes (Seeds 0, 2, 6, 8); decisively beats Heuristic on cluttered Seed 4 by singulating the touching green box (`iso: 0.061 → 0.314 m`) and executing a collision-safe post-push cage.
+1. **VLM (`50%` FC, `50%` Caged, `80%` Preconditions):**
+   * **Strengths:** 100% success on standard isolated scenes (Seeds 0, 2, 5, 6, 8) with the unified cage controller; verified on Seed 5 (`FC=True, caged=True, disp=0.16m`).
    * **Failure Modes:**
-     * *Seed 3:* Green box is near the red box; pushing green displaced the target, triggering a revert. The subsequent cage from `far` side did not reach.
-     * *Seed 7:* VLM successfully shoved the blue box (`iso: 0.054 → 0.171 m`), but the `approach_side="left"` trajectory swept through the target during the final curl.
-     * *Seed 1 & 9:* Target box is at an inward angle where the default open-loop curl pushes the box away before the loop closes.
+     * *Seeds 3, 4, 7 (Touching distractors):* Distractor touches the target box. Under the 0.12m cap, straight-line pushes moved the target by $>0.12\text{ m}$ ($1.47\text{ m}$, $0.18\text{ m}$, $0.32\text{ m}$) and were safely **reverted**. The arm then fell back to caging without clearing the distractor.
+     * *Seeds 1 & 9:* Target box is at an inward angle where the open-loop curl trajectory pushes the box away before the loop closes.
 
-2. **Heuristic (`60%` FC, `40%` Caged, `80%` Preconditions):**
-   * **Strengths:** High FC rate on already-isolated scenes.
-   * **Failure Modes:** Fails preconditions on all cluttered scenes (Seeds 4 and 7). On Seed 4 it is completely blocked (`FC=False`). On Seed 7 it achieves contact wrenches purely by jamming the target into the unpushed blue box (`caged=False`).
+2. **Heuristic (`70%` FC, `50%` Caged, `80%` Preconditions):**
+   * **Strengths:** High FC rate on isolated scenes (Seeds 0, 2, 5, 6, 8) with the unified cage.
+   * **Failure Modes:** Fails preconditions on cluttered scenes (Seeds 4 and 7). On Seed 4 it is completely blocked (`FC=False`). On Seed 7 and Seed 3 it achieves contact wrenches without enclosure (`caged=False`).
 
-3. **Diffusion BC (`20%` FC, `10%` Caged, `80mm` Target Disp):**
-   * **Strengths:** Lowest displacement across the board ($0.080\text{ m}$ average vs $0.21\text{–}2.05\text{ m}$); no erratic oscillations or joint flailing. Achieved **FC=True + caged=True** on Seed 9.
-   * **Failure Modes:** Under-represented training set. Trained on only 2 demonstration seeds (Seeds 2 & 6); on unrepresented quadrants (Seeds 1, 3, 5, 8), the policy outputs near-zero motion ($0.00\text{ m}$ displacement) because the denoiser lacks data coverage in those states.
+3. **Diffusion BC (`10%` FC, `0%` Caged, `76mm` Target Disp):**
+   * **Strengths:** Lowest displacement across the board ($0.076\text{ m}$ average vs $0.17\text{–}2.05\text{ m}$); no erratic oscillations or joint flailing. Achieved **FC=True** on Seed 4 ($0.013\text{ m}$ disp).
+   * **Failure Modes:** Trained on 45 caged demonstrations across seeds 0–99; learns safe, low-velocity approach but does not reliably complete the final force-closure squeeze across diverse target coordinates without explicit closure objectives.
 
 4. **PPO (`10%` FC, `0%` Caged, `2.05m` Target Disp):**
    * **Strengths:** None currently.

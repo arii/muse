@@ -160,6 +160,9 @@ needs Ari's approval card — do not push while he is away.
   improve on seed 7, and the old singulation test (which
   locked in the unsafe 0.318 m push) was rewritten to lock
   the revert. Safe touching-distractor singulation is open.
-- [ ] S5 rerun still pending: pull, rebuild, compare seeds 0-9
-  (fills VLM seed 5, recomputes VLM/PPO/diffusion aggregates),
-  plus diffusion retrain on the 0-99 caged demos.
+- [x] S5 rerun completed (2026-10-28): pulled 412925b, rebuilt container,
+  ran compare seeds 0-9 (heuristic FC 7/10 disp 0.170m, VLM FC 5/10
+  disp 0.217m, PPO FC 1/10 disp 2.046m, diffusion FC 1/10 disp 0.076m).
+  VLM seed 5 verified FC=True caged=True disp 0.16m with unified cage.
+  Collected 45 caged demos across seeds 0-99 and retrained
+  `models/diffusion_v2.pt`. All 10 seeds hit ledger cache (0 live calls).
