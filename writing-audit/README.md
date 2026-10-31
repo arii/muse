@@ -1,14 +1,25 @@
 # writing-audit
 
-Systematic writing audit tools. Mechanical checks run first, holistic judgment runs last.
+Systematic writing audit tools. Two steps, always in order.
 
-## Quick start
+## The two steps
+
+**Step 1 — Deterministic analysis.** Run the script on the page:
 
 ```bash
 python3 scripts/audit.py <file.md>
 ```
 
-Stdlib only. No installs needed.
+Stdlib only, no installs needed. Same input gives same output every time.
+Output is flags for review, not verdicts.
+
+**Step 2 — Agent checklist.** Copy `checklist-template.md` for each page
+reviewed and fill every item: paragraph walk, terminology, duplication,
+no-value sentences, voice, framing, headers, holistic. Check off what
+passes, flag what fails with a note, record a PASS or FLAG verdict.
+
+Never skip step 1. Never present step 1 output as the audit. The audit is
+both steps.
 
 ## What the script flags
 
