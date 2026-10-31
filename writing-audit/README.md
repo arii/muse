@@ -10,6 +10,16 @@ Systematic writing audit tools. Two steps, always in order.
 python3 scripts/audit.py <file.md>
 ```
 
+When auditing a set of pages, also run the corpus pass:
+
+```bash
+python3 scripts/audit_corpus.py <file1> <file2> ...
+```
+
+It reports sentences, paragraphs, and distinctive claims repeated
+*across* pages — redundancy a per-page audit cannot see. HTML tags are
+stripped so markdown and HTML pages compare as prose.
+
 Stdlib only, no installs needed. Same input gives same output every time.
 Output is flags for review, not verdicts.
 
@@ -47,7 +57,7 @@ The full paragraph-by-paragraph method lives in the Muse skill
    Each paragraph must be required, not already said, accurate or
    hallucinated, citable, and adding value.
 3. Apply the terminology database.
-4. Check duplication, no-value sentences, voice, framing, headers,
+4. Check duplication (within-page and corpus-level), no-value sentences, voice, framing, headers,
    and formatting.
 5. Holistic pass last: flow, density, and the author's voice.
 
