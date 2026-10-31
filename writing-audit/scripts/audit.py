@@ -39,7 +39,7 @@ WHY_MATTERS_RE = re.compile(r"^\s*#{1,6}\s*why\s+(this\s+|it\s+)?matters\s*$", r
 SELF_REF_RE = re.compile(r"you are reading|this page you|as you can see here", re.IGNORECASE)
 TOTALIZER_RE = re.compile(r"\beverything here\b|\ball of this\b|\beverything below\b", re.IGNORECASE)
 TIME_CLAIM_RE = re.compile(r"\btwo days\b|\b48 hours\b|\bunder two days\b|\bin two days\b", re.IGNORECASE)
-TRIVIA_RE = re.compile(r"\(unit\s+[^)]+\)|\bserial number\b|\bunit\s+[a-z0-9]+\b", re.IGNORECASE)
+TRIVIA_RE = re.compile(r"\(unit\s+[^)]+\)|\bserial number\b|\bunit\s+(?=[a-z0-9_-]*\d)[a-z0-9_-]+\b", re.IGNORECASE)
 VAGUE_TIME_RE = re.compile(r"\bby evening\b|\blater that day\b", re.IGNORECASE)
 FIRST_PERSON_RE = re.compile(r"\b(we|our|us|ourselves)\b", re.IGNORECASE)
 BOX_RE = re.compile(r"^>\s*\[!|^\s*:::+|<div[^>]*class=\"[^\"]*(box|callout|admonition)", re.IGNORECASE)
@@ -55,8 +55,8 @@ def load_terms():
             line = line.strip()
             if line.startswith("- "):
                 t = line[2:].strip()
-                # skip pattern descriptions in parens heavy lines, keep core phrase
-                core = re.split(r"\s*\(e\.g\.", t)[0].strip()
+                # strip parenthetical glosses: "leverage (as verb for "use")" -> "leverage"
+                core = re.split(r"\s*\(", t)[0].strip()
                 if core and len(core) > 1:
                     terms.append(core.lower())
     return terms
