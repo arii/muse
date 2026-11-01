@@ -1,5 +1,11 @@
 # Terminology database for writing audit
 
+> `terminology-db.json` is the canonical source scripts read. Each rule has an
+> id, category, regex flag, case sensitivity, severity (`error` = must-fix:
+> banned terms, prompt leakage, banned subtitles; `warning` = review), a
+> suggestion, and a message. This file is the human-readable companion —
+> keep them in sync.
+
 Each entry flags a sentence for review. Flag means review, not auto delete. Ari decides.
 
 ## Corporate and AI transition filler

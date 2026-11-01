@@ -1,0 +1,46 @@
+# DRAFT — GitHub Actions workflow for the writing audit.
+#
+# Muse cannot write under .github/workflows/ (connector permission limit),
+# so commit this file yourself:
+#   1. Copy it to .github/workflows/writing-audit.yml in the target repo
+#      (keep the writing-audit/ directory at the repo root, or adjust paths).
+#   2. Push. It runs on PRs that touch docs and fails on severity=error
+#      findings (banned terms, prompt leakage, banned subtitles).
+#
+# No dependencies: the scripts are stdlib-only Python 3.
+
+name: Writing Audit
+
+on:
+  pull_request:
+    paths:
+      - '**.md'
+      - '**.html'
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Per-file audit on changed docs
+        run: |
+          files=$(git diff --name-only "origin/${{ github.base_ref }}"...HEAD -- '*.md' '*.html' | grep -v '^\.github/' || true)
+          if [ -z "$files" ]; then echo "No docs changed."; exit 0; fi
+          failed=0
+          for f in $files; do
+            [ -f "$f" ] || continue
+            echo "=== $f ==="
+            python3 writing-audit/scripts/audit.py "$f" || failed=1
+          done
+          exit $failed
+
+      - name: Corpus duplicate check
+        run: |
+          mapfile -t docs < <(git ls-files '*.md' 'docs/*.html' | grep -v node_modules || true)
+          if [ "${#docs[@]}" -ge 2 ]; then
+            python3 writing-audit/scripts/audit_corpus.py "${docs[@]}" || echo "Corpus clusters found (review, non-blocking)."
+          fi

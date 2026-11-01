@@ -8,12 +8,14 @@ Systematic writing audit tools. Two steps, always in order.
 
 ```bash
 python3 scripts/audit.py <file.md>
+python3 scripts/audit.py <file.md> --json   # structured report
 ```
 
 When auditing a set of pages, also run the corpus pass:
 
 ```bash
 python3 scripts/audit_corpus.py <file1> <file2> ...
+python3 scripts/audit_corpus.py <file1> <file2> ... --json
 ```
 
 It reports sentences, paragraphs, and distinctive claims repeated
@@ -21,7 +23,23 @@ It reports sentences, paragraphs, and distinctive claims repeated
 stripped so markdown and HTML pages compare as prose.
 
 Stdlib only, no installs needed. Same input gives same output every time.
-Output is flags for review, not verdicts.
+Output is flags for review, not verdicts. Exit code is 1 when a
+severity=error finding exists (banned terms, prompt leakage, banned
+subtitles), else 0 — so CI can fail the build on errors.
+
+## Terminology database
+
+`terminology-db.json` is the source of truth: 70 rules with ids,
+categories, regex support, case sensitivity, severity (error/warning),
+suggestions, and messages. `terminology-db.md` is the human-readable
+companion. Extend per project by adding rules to the JSON.
+
+## CI
+
+`github-workflow.yml.draft` is a GitHub Actions workflow that runs the
+audit on PRs touching docs and fails on errors. The connector cannot write
+under `.github/workflows/`, so commit it manually at
+`.github/workflows/writing-audit.yml`.
 
 **Step 2 — Agent checklist.** Copy `checklist-template.md` for each page
 reviewed and fill every item: paragraph walk, terminology, duplication,
