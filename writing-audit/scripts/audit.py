@@ -48,6 +48,16 @@ BOX_RE = re.compile(r"^>\s*\[!|^\s*:::+|<div[^>]*class=\"[^\"]*(box|callout|admo
 DB_PATH = Path(__file__).parent.parent / "terminology-db.json"
 DB_MD_FALLBACK = Path(__file__).parent.parent / "terminology-db.md"
 
+# Boilerplate blocks that are not prose: styles, scripts, SVG figures.
+# Replaced with blank lines so line numbers stay accurate.
+STRIP_BLOCKS_RE = re.compile(
+    r"<(style|script|svg)[^>]*>.*?</\1>", re.DOTALL | re.IGNORECASE)
+
+
+def strip_boilerplate(text):
+    return STRIP_BLOCKS_RE.sub(
+        lambda m: "\n" * m.group().count("\n"), text)
+
 
 def load_rules():
     """Load structured terminology rules. JSON is canonical; md is fallback."""
@@ -64,7 +74,8 @@ def load_rules():
                 compiled = re.compile(pattern, flags)
             except re.error:
                 continue
-            rules.append({**r, "compiled": compiled})
+            exc = [re.compile(e, flags & ~re.MULTILINE) for e in r.get("exceptions", [])]
+            rules.append({**r, "compiled": compiled, "exceptions_compiled": exc})
         return rules
     # fallback: flat md list, warning severity
     rules = []
@@ -105,7 +116,7 @@ def main():
         print("Usage: python3 audit.py <file.md> [--json]")
         sys.exit(2)
     path = Path(args[0])
-    text = path.read_text()
+    text = strip_boilerplate(path.read_text())
     rules = load_rules()
 
     line_starts = [0]
@@ -190,7 +201,7 @@ def main():
             if r["category"] == "banned subtitle":
                 continue
             m = r["compiled"].search(s)
-            if m:
+            if m and not any(e.search(s) for e in r.get("exceptions_compiled", [])):
                 add("terminology", r["severity"], pi, off,
                     m.group()[:80], r["message"], r["suggestion"], r["id"])
                 shown += 1
