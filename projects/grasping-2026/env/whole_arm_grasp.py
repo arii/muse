@@ -20,6 +20,7 @@ info also carries "isolation": min xy center-distance from the target
 object to any other object — the singulation objective (push clutter
 away before grasping).
 """
+import math
 import pathlib
 
 import mujoco
@@ -29,6 +30,15 @@ XML_PATH = pathlib.Path(__file__).parent / "arm.xml"
 
 LINK_GEOMS = ("link1_geom", "link2_geom", "link3_geom")
 JOINT_NAMES = ("j1", "j2", "j3")
+
+# Spawn separation: min corner clearance between boxes and between a
+# box and the reset-pose arm (straight along +x), enforced via
+# circumcircles. Overlapping starts are unsolvable and pop apart.
+SPAWN_BOX_GAP = 0.01
+SPAWN_ARM_GAP = 0.01
+SPAWN_MAX_TRIES = 500
+ARM_RESET_REACH = 0.75  # 0.30 + 0.25 + 0.20 link lengths
+ARM_MAX_RADIUS = 0.035  # largest link capsule radius
 
 PALETTE = {
     # Red deepened 2026-10-28: (0.85, 0.2, 0.2) rendered as
@@ -63,6 +73,7 @@ class WholeArmGraspEnv:
         spec = mujoco.MjSpec.from_file(str(XML_PATH))
         self.objects = []
         colors = list(PALETTE)
+        placed = []  # (x, y, circumradius) of accepted boxes
         for i in range(self.n_objects):
             # WORKSPACE (2026-10-28 fix, from the compare-report
             # video review seeds 0-9): the old range r in [0.28, 0.55],
@@ -80,12 +91,29 @@ class WholeArmGraspEnv:
             # seed-locked expectations from the old range are stale
             # by design, and old PPO/diffusion models (trained on the
             # old range, old physics) are stale again — retrain.
-            r = self.rng.uniform(0.28, 0.40)
-            th = self.rng.uniform(-2.4, 2.4)
-            x, y = r * np.cos(th), r * np.sin(th)
             sx = self.rng.uniform(0.03, 0.06)
             sy = self.rng.uniform(0.03, 0.06)
             sz = 0.06
+            rad = math.hypot(sx, sy)
+            # SEPARATION (2026-11-01): rejection-sample the position
+            # so the box clears already-placed boxes and the
+            # reset-pose arm. This reshuffles seed scenes again by
+            # design; seed-locked expectations need re-verifying.
+            for _ in range(SPAWN_MAX_TRIES):
+                r = self.rng.uniform(0.28, 0.40)
+                th = self.rng.uniform(-2.4, 2.4)
+                x, y = r * np.cos(th), r * np.sin(th)
+                if all(math.hypot(x - px, y - py) >= rad + pr + SPAWN_BOX_GAP
+                       for px, py, pr in placed):
+                    cx = min(max(x, 0.0), ARM_RESET_REACH)
+                    if (math.hypot(x - cx, y)
+                            >= rad + ARM_MAX_RADIUS + SPAWN_ARM_GAP):
+                        break
+            else:
+                raise RuntimeError(
+                    f"could not place object {i} after {SPAWN_MAX_TRIES} "
+                    f"tries (n_objects={self.n_objects})")
+            placed.append((x, y, rad))
             cname = colors[i % len(colors)]
             body = spec.worldbody.add_body(name=f"obj{i}", pos=[x, y, sz])
             # PLANAR constraint (2026-10-28 fix): boxes used to be
@@ -333,23 +361,27 @@ class WholeArmGraspEnv:
         wrenches on one side — extreme rays of the separating cone are
         pair intersections. If no such direction exists, the origin is
         strictly inside and the grasp is force closure. Needs >=4
-        wrenches (2 contacts x 2 cone edges) to span R^3.
+        wrenches (2 contacts x 2 cone edges) to span R^3; with no
+        spanning pair at all (all wrenches parallel), there is no
+        closure — return False, not a vacuous True.
         """
         W = np.array(wrenches, dtype=float)
         n = len(W)
         if n < 4:
             return False
+        tested = False
         for i in range(n):
             for j in range(i + 1, n):
                 u = np.cross(W[i], W[j])
                 norm = np.linalg.norm(u)
                 if norm < 1e-9:
                     continue
+                tested = True
                 u = u / norm
                 for s in (u, -u):
                     if np.min(W @ s) >= -1e-9:
                         return False
-        return True
+        return tested
 
     def _reward(self):
         touching = set()

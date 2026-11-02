@@ -357,6 +357,38 @@ def test_spawn_in_enveloping_workspace():
             assert abs(th) <= 2.4, (seed, o, th)
 
 
+def test_spawn_separated_no_overlap():
+    """Reset scenes are solvable starts: min 10 mm corner clearance
+    between boxes and between boxes and the reset-pose arm (straight
+    along +x), and no penetrating box contacts at reset.
+
+    Regression: ~60% of seeds used to spawn overlapping boxes, and
+    the median box jumped 18 mm on the first hold-still step as
+    penetration resolved.
+    """
+    import math
+    for seed in range(3):
+        env = WholeArmGraspEnv(seed=seed)
+        env.reset(seed=seed)
+        pts = [np.array(o["spawn_xy"]) for o in env.objects]
+        rad = [math.hypot(o["half"][0], o["half"][1])
+               for o in env.objects]
+        for a in range(len(pts)):
+            for b in range(a + 1, len(pts)):
+                gap = (float(np.linalg.norm(pts[a] - pts[b]))
+                       - rad[a] - rad[b])
+                assert gap >= 0.01 - 1e-9, (seed, a, b, gap)
+            cx = float(np.clip(pts[a][0], 0.0, 0.75))
+            d = float(np.linalg.norm(pts[a] - np.array([cx, 0.0])))
+            assert d - rad[a] - 0.035 >= 0.01 - 1e-9, (seed, a, d)
+        for i in range(env.data.ncon):
+            c = env.data.contact[i]
+            names = (env._geom_name(c.geom1), env._geom_name(c.geom2))
+            assert not (c.dist < -0.001
+                        and any("obj" in n for n in names)), \
+                (seed, names, c.dist)
+
+
 def test_cage_lead_and_sign():
     """Lead offset parks link1 beside the box; curl swings back.
 
@@ -554,6 +586,10 @@ def test_force_closure_math():
     same = (cone(np.array([0., -1.]), np.array([-0.05, 0.])) +
             cone(np.array([0., -1.]), np.array([0.05, 0.])))
     assert fc(same) is False
+    # exactly parallel wrenches (one push direction, no spanning
+    # pair at all) -> False, not a vacuous True
+    par = [np.array([1., 0., 0.])] * 4
+    assert fc(par) is False
 
 
 def test_force_closure_vs_caging_seed5():
@@ -577,13 +613,14 @@ def test_force_closure_vs_caging_seed5():
     env.reset(seed=5)
     env.target_index = 0
     _, info = scripted_cage(env, 0, frames=[])
-    # Unified-cage outcome, verified locally 2026-10-28 after
-    # removing the legacy branch: FC=True, caged=True, 3 links,
-    # disp 0.164 m (run_episode heuristic seed 5, same cage).
-    # The old FC=False/caged=False was the legacy branch, not
-    # a policy result — do not restore it.
+    # Unified-cage outcome, verified 2026-11-01 after the spawn
+    # separation change reshuffled seed scenes: FC=True (pinch on
+    # 2 links) WITHOUT enclosure — force closure without caging,
+    # the mirror of the synthetic caged-without-FC case in
+    # test_scripted_cage_achieves_true_enclosure.
     assert info["force_closure"] is True
-    assert info["caged"] is True
+    assert info["caged"] is False
+    assert info["enclosed"] is False
     assert info["links_touching"] >= 2
 
 
@@ -724,51 +761,61 @@ def test_scripted_cage_achieves_true_enclosure():
     assert info["force_closure"] is False
 
 
-def test_singulate_touching_distractor_cap():
-    """Seed 7 singulation: a push that moves the target >0.12 m
-    is reverted (non-strict cap; strict keeps 0.10 m).
+def _adjacent_scene(seed=7, gap=0.015):
+    """Reset scene with blue placed `gap` east of red (crowded).
 
-    Seed 7 distractor (blue) touches the target (iso 0.054 m).
-    The radial push moves the target 0.32-0.39 m, so it must be
-    reverted by snapshot restore (target displacement 0, iso
+    Reset scenes now enforce min separation, so crowded starts no
+    longer occur by seed lottery — tests build them explicitly.
+    """
+    env = WholeArmGraspEnv(seed=seed)
+    env.reset(seed=seed)
+    env.target_index = 0
+    tx, ty = env._obj_xy(0)
+    sx0 = env.objects[0]["half"][0]
+    sx1 = env.objects[1]["half"][0]
+    env.set_object_pose(1, (tx + sx0 + sx1 + gap, ty), yaw=0.0)
+    return env
+
+
+def test_singulate_adjacent_distractor_cap():
+    """Singulation: a push that moves the target >0.12 m is reverted
+    (non-strict cap; strict keeps 0.10 m).
+
+    Explicit crowded geometry (blue 15 mm east of red): the radial
+    shove drags the target with the distractor, so it must be
+    reverted by snapshot restore (target displacement 0, isolation
     unchanged). A tangential start offset was tried and made
-    target movement worse (0.389 m), so it is not used — see
-    the note in scripted_singulate. Safe singulation for
-    touching distractors remains open.
+    target movement worse, so it is not used — see the note in
+    scripted_singulate. Safe singulation for adjacent distractors
+    remains open.
     """
     from scripts.demo_vlm_grasp import scripted_singulate
-    env = WholeArmGraspEnv(seed=7)
-    env.reset(seed=7)
-    env.target_index = 0
+    env = _adjacent_scene()
+    assert env.target_isolation() < 0.15  # crowded premise
     t0 = env._obj_xy(0).copy()
     push_log = []
     scripted_singulate(env, 0, frames=[],
                        push_targets=[{"index": 1, "effort": "shove"}],
                        push_log=push_log)
-    assert push_log, "seed 7 singulate logged no push"
+    assert push_log, "singulate logged no push"
     assert push_log[0]["status"] == "reverted"
     disp = float(np.linalg.norm(env._obj_xy(0) - t0))
     assert disp < 1e-9, f"reverted push moved target {disp:.3f} m"
 
 
-def test_singulation_improves_isolation():
-    """Singulate on seed 7 reverts an unsafe touching push.
+def test_singulation_crowded_no_regress():
+    """Auto singulate on a crowded scene never regresses isolation.
 
-    Old version of this test locked in an unsafe push: blue was
-    pushed with target moving 0.318 m, kept only because
-    tmove_limit was dmove + 0.05 (both boxes moved together).
-    With the 0.12 m cap, that push is reverted, so isolation
-    does NOT improve on seed 7 — and that is the correct
-    behaviour for a push primitive that cannot safely separate
-    touching boxes. Safe singulation for touching distractors
-    is still open (see docs/iteration-plan.md Step 1); do not
-    restore the old test to claim it is solved.
+    Explicit adjacent geometry (see _adjacent_scene): unsafe
+    pushes revert, so isolation is unchanged and the target
+    unmoved — the correct behaviour for a push primitive that
+    cannot safely separate adjacent boxes. Safe singulation for
+    adjacent distractors is still open (see docs/iteration-plan.md
+    Step 1); do not loosen the cap to claim it is solved.
     """
     from scripts.demo_vlm_grasp import scripted_singulate
-    env = WholeArmGraspEnv(seed=7)
-    env.reset(seed=7)
-    env.target_index = 0
-    assert env.target_isolation() < 0.15  # seed 7 starts crowded
+    env = _adjacent_scene()
+    assert env.target_isolation() < 0.15  # crowded premise
     t0 = env._obj_xy(0).copy()
     iso_before, iso_after = scripted_singulate(env, 0, frames=[])
     # Revert restores the snapshot, so the target must not move.
@@ -811,10 +858,10 @@ def test_push_moves_object_along_theta():
     impossible without link3 crossing the box, and the old test
     only passed because the freejoint box tipped/rolled east.
     This test uses a feasible geometry instead: target at
-    (0.45, 0), others moved away, oriented link3 (see
-    ik_tip_oriented) — push +x must move the box +x. Exact
-    distance varies with contact dynamics and approach sweep;
-    singulate's revert logic handles the rest.
+    (0.40, -0.15), clear of the reset-pose arm, others moved away,
+    oriented link3 (see ik_tip_oriented) — push +x must move the
+    box +x. Exact distance varies with contact dynamics and
+    approach sweep; singulate's revert logic handles the rest.
     """
     import numpy as np
     from planning.primitives import push
@@ -823,7 +870,12 @@ def test_push_moves_object_along_theta():
     for idx, xy in [(1, [-0.5, -0.5]), (2, [0.5, 0.5]),
                     (3, [-0.5, 0.5])]:
         env.set_object_pose(idx, xy)
-    env.set_object_pose(0, [0.45, 0.0])
+    # Box clear of the reset-pose arm (straight along +x): the old
+    # (0.45, 0.0) spot straddles link2, so the joint-interpolated
+    # approach sweep clips the box (2026-11-01: seed 7's bigger box
+    # got shoved sideways). (0.40, -0.15) keeps the approach clear
+    # for a clean +x push.
+    env.set_object_pose(0, [0.40, -0.15])
     p0 = env._obs()["objects"][0][:2].copy()
     sx = env.objects[0]["half"][0]
     theta = 0.0  # +x

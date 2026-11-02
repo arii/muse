@@ -15,8 +15,9 @@ for a pinch grasp.
 
 Usage:
     MUJOCO_GL=osmesa python scripts/collect_ppo_demos.py \
-        --model models/grasp_ppo_500k --seeds 0-99 --keep fc \
+        --model models/grasp_ppo_500k --seeds 0-2 --keep fc \
         --out data/demos_ppo_fc
+    # full collection: --seeds 0-99
 """
 import argparse
 import json
@@ -34,7 +35,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", required=True)
     ap.add_argument("--algo", choices=["ppo", "sac"], default="ppo")
-    ap.add_argument("--seeds", default="0-99")
+    ap.add_argument("--seeds", default="0-2")
     ap.add_argument("--max-steps", type=int, default=200)
     ap.add_argument("--n-objects", type=int, default=4)
     ap.add_argument("--contact-obs", action="store_true")

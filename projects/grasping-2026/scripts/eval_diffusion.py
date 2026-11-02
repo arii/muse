@@ -8,7 +8,8 @@ model's obs dim won't fit.
 
 Usage:
     MUJOCO_GL=osmesa python scripts/eval_diffusion.py \
-        --model models/diffusion --episodes 10 --seeds 0-9
+        --model models/diffusion --episodes 3 --seeds 0-2
+    # full sweep: --episodes 10 --seeds 0-9
 """
 import argparse
 import pathlib
@@ -27,8 +28,8 @@ from scripts.diffusion_policy import DiffusionMLP, sample_chunk  # noqa: E402
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", required=True)
-    ap.add_argument("--episodes", type=int, default=10)
-    ap.add_argument("--seeds", default="0-9")
+    ap.add_argument("--episodes", type=int, default=3)
+    ap.add_argument("--seeds", default="0-2")
     ap.add_argument("--max-steps", type=int, default=200)
     ap.add_argument("--n-objects", type=int, default=1)
     ap.add_argument("--contact-obs", action="store_true")

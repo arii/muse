@@ -19,8 +19,9 @@ Output: <out>.npz (obs, actions padded to max length, lengths) plus
 
 Usage:
     MUJOCO_GL=osmesa python scripts/collect_demos.py \
-        --demonstrator envelop --seeds 0-99 --n-objects 1 \
+        --demonstrator envelop --seeds 0-2 --n-objects 1 \
         --out data/demos_envelop
+    # full collection: --seeds 0-99
 """
 import argparse
 import json
@@ -78,7 +79,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--demonstrator", choices=["cage", "envelop"],
                     default="envelop")
-    ap.add_argument("--seeds", default="0-99")
+    ap.add_argument("--seeds", default="0-2")
     ap.add_argument("--n-objects", type=int, default=1)
     ap.add_argument("--contact-obs", action="store_true")
     ap.add_argument("--keep", choices=["fc", "caged", "all"],
