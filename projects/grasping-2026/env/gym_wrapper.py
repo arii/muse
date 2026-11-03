@@ -46,6 +46,12 @@ checkpoints stay loadable under the defaults):
   a tight cap would also slow the 1-2 step pinches, so opt in
   per run (1.0 is a reasonable value) and keep it identical
   across train/eval/collect for a given policy.
+- fail_penalty: thesis failure states (Anders 2014, S3.2/S4.2.2),
+  train-only like success_bonus: object beyond arm's length
+  (0.75 m) terminates at -penalty, and a non-goal timeout takes
+  -penalty. The thesis used -100 with 35-step episodes
+  (pass --max-steps 35 to match). Default 0 = fully off: no
+  penalty, no extra termination, no new info keys.
 """
 import math
 
@@ -60,7 +66,8 @@ class GraspGymWrapper(gym.Env):
 
     def __init__(self, seed=None, target_index=0, max_steps=200,
                  n_objects=4, contact_obs=False, step_penalty=0.0,
-                 max_delta_q=None, success_bonus=0.0):
+                 max_delta_q=None, success_bonus=0.0,
+                 fail_penalty=0.0):
         super().__init__()
         self.env = WholeArmGraspEnv(n_objects=n_objects, seed=seed)
         self.target_index = target_index
@@ -68,6 +75,7 @@ class GraspGymWrapper(gym.Env):
         self.contact_obs = contact_obs
         self.step_penalty = step_penalty
         self.max_delta_q = max_delta_q
+        self.fail_penalty = fail_penalty
         # success_bonus: added on force-closure steps (train-only
         # shaping; eval/compare use 0 so reports stay comparable).
         # The base +2.0 FC bonus never compensates a forfeited 200-step
@@ -137,6 +145,19 @@ class GraspGymWrapper(gym.Env):
         shaped = float(reward) - self.step_penalty
         if terminated:
             shaped += self.success_bonus
+        if self.fail_penalty:
+            # Thesis failure states (Anders 2014, S3.2/S4.2.2): timeout
+            # and object-beyond-arm's-length end the episode at -100.
+            # (The third thesis failure, arm self-collision, is
+            # dual-arm-only, so it has no single-arm counterpart.)
+            tpos = self.env._obs()["objects"][self.target_index][:2]
+            if float(np.linalg.norm(tpos)) > 0.75:  # 0.30+0.25+0.20
+                terminated = True
+                shaped -= self.fail_penalty
+                info["failed_out_of_reach"] = True
+            elif truncated and not terminated:
+                shaped -= self.fail_penalty
+                info["failed_timeout"] = True
         return (self._flat_obs(info), shaped, terminated, truncated, info)
 
     def render(self):

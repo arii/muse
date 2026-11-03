@@ -1282,6 +1282,64 @@ def test_gym_wrapper_success_bonus():
     assert (r, term) == (21.5, True)
 
 
+def test_fail_penalty_timeout():
+    """Timeout with fail_penalty takes -penalty (thesis failure)."""
+    from env.gym_wrapper import GraspGymWrapper
+    env = GraspGymWrapper(seed=0, max_steps=2, fail_penalty=100.0)
+    env.reset(seed=0)
+    real_step = env.env.step
+
+    def canned(action, substeps=20):
+        obs, _, done, info = real_step(action, substeps)
+        return obs, 1.5, done, dict(info)
+
+    env.env.step = canned
+    env.step(np.zeros(3))
+    _, r, term, trunc, info = env.step(np.zeros(3))
+    assert (term, trunc) == (False, True)
+    assert r == -98.5
+    assert info["failed_timeout"] is True
+
+
+def test_fail_out_of_reach_terminates():
+    """Target beyond arm's length (0.75 m) fails at -penalty."""
+    from env.gym_wrapper import GraspGymWrapper
+    env = GraspGymWrapper(seed=0, fail_penalty=100.0)
+    env.reset(seed=0)
+    env.env.set_object_pose(0, (0.90, 0.0), yaw=0.0)
+    real_step = env.env.step
+
+    def canned(action, substeps=20):
+        obs, _, done, info = real_step(action, substeps)
+        return obs, 1.5, done, dict(info)
+
+    env.env.step = canned
+    _, r, term, _, info = env.step(np.zeros(3))
+    assert term is True
+    assert r == -98.5
+    assert info["failed_out_of_reach"] is True
+
+
+def test_fail_penalty_default_off():
+    """fail_penalty=0: no penalty, no extra termination or keys."""
+    from env.gym_wrapper import GraspGymWrapper
+    env = GraspGymWrapper(seed=0, max_steps=1)
+    env.reset(seed=0)
+    env.env.set_object_pose(0, (0.90, 0.0), yaw=0.0)
+    real_step = env.env.step
+
+    def canned(action, substeps=20):
+        obs, _, done, info = real_step(action, substeps)
+        return obs, 1.5, done, dict(info)
+
+    env.env.step = canned
+    _, r, term, trunc, info = env.step(np.zeros(3))
+    assert (term, trunc) == (False, True)
+    assert r == 1.5
+    assert "failed_out_of_reach" not in info
+    assert "failed_timeout" not in info
+
+
 def test_gym_wrapper_distractors_angle_sorted():
     """Distractor offsets are sorted by angle around the target.
 

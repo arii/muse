@@ -35,6 +35,7 @@ def main():
     ap.add_argument("--contact-obs", action="store_true")
     ap.add_argument("--step-penalty", type=float, default=0.0)
     ap.add_argument("--success-bonus", type=float, default=0.0)
+    ap.add_argument("--fail-penalty", type=float, default=0.0)
     ap.add_argument("--max-delta-q", type=float, default=None)
     # Checkpoint every N steps so a VM restart doesn't lose a long run;
     # resume with --resume <checkpoint.zip>.
@@ -54,7 +55,8 @@ def main():
                           contact_obs=args.contact_obs,
                           step_penalty=args.step_penalty,
                           max_delta_q=args.max_delta_q,
-                          success_bonus=args.success_bonus)
+                          success_bonus=args.success_bonus,
+                          fail_penalty=args.fail_penalty)
     if args.resume:
         model = cls.load(args.resume, env=env)
         print(f"[train] resumed from {args.resume}")
