@@ -171,9 +171,19 @@ the scene either — and it never withholds pushes where blind
 pushing harms (s8: VLM pushed and won, autopush-clear pushed
 and lost). Conclusion: on these clutter presets no VLM
 selection edge is observed at all; VLM ≡ autopush-shove on
-every seed both ran. The remaining case for the VLM is scenes
-where the *targets* genuinely admit a choice (asymmetric
-clutter), which neither preset provides.
+every seed both ran. The `decoy` preset (sandwich blockers +
+loose distractor toward the base) was built to provide the
+remaining case — asymmetric clutter where target choice
+matters — and the 10-seed scan still finds no selective-push
+regime: seeds 0–5 fail under every arm (decoy blocks the
+corridor unpushed), 6 solves under every arm (degraded, no
+decoy), 7–8 are effort-gated (shove wins, clear loses), and 9
+is a *withholding* regime (ladder wins push-free, any shove
+breaks it). The live VLM on decoy 9 shows no restraint either
+(pushed blue-shove + green-clear, skipped yellow, lost —
+1 call, 6326 tokens). Net: across sandwich, adjacent, and
+decoy, VLM target/effort/restraint selection never beats the
+matching blind rule.
 
 ### Reactive — the deliberate floor
 
@@ -364,6 +374,8 @@ top, per-seed side-by-side GIFs below. Metrics glossary:
 | autopush (adjacent 0-9) | 8/10 | +2 over heuristic (fixes 8,9), breaks nothing |
 | autopush-shove (sandwich) | 7/10 | matches VLM 3/3 (s3✗ s8✓ s9✓); fixes 5,8 breaks 3 |
 | autopush-shove (adjacent) | 7/10 | shove loses s3 vs clear's 8/10: effort is scene-dependent |
+| decoy scan (0-9) | no selective regime | 0-5 all-fail, 6 all-pass, 7-8 effort-gated, 9 withholding |
+| VLM (decoy 9) | 0/1 | pushed blue/green, lost where ladder wins push-free: no restraint |
 | VLM (sandwich 3,8) | 1/2 | s8 kept (autopush broke it), s3 lost (autopush kept it) |
 | SARSA(λ) thesis port | 0/10 ×6 configs | negative; relative-xy shows weak in-dist sign of life (13/60 vs 7/60, p≈0.07) |
 

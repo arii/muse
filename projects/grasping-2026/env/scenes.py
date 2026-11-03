@@ -8,7 +8,11 @@ to fail them honestly today; they measure future singulation work.
 The 10 mm single-neighbor `adjacent` preset was the VLM-win regime
 until the side ladder grasped it push-free; the `sandwich` preset
 (two-sided 15 mm clutter) is the current frontier: the push-free
-ladder fails all 4 rungs on seed 9, push-then-ladder wins.
+ladder fails all 4 rungs on seed 9, push-then-ladder wins. The
+`decoy` preset adds a loose distractor toward the arm base: blind
+pushing shoves it into the approach corridor (harm), so only
+*selective* pushing wins — the VLM-selection regime neither
+sandwich (VLM identical to autopush-shove) nor adjacent provides.
 
 Poses derive from the reset box sizes, so each (seed, preset) scene
 is deterministic. Yaws are 0 (axis-aligned). All spots clear the
@@ -16,7 +20,7 @@ reset-pose arm (straight along +x).
 """
 import math
 
-PRESETS = ("surround", "row", "gate", "adjacent", "sandwich")
+PRESETS = ("surround", "row", "gate", "adjacent", "sandwich", "decoy")
 
 _GAP = 0.008  # 8 mm corner gaps: singulation-necessary clutter
 
@@ -102,6 +106,52 @@ def _layout(env, preset):
                     out[i] = xy
                     occupied.append((xy, _half(env, i)))
                     break
+        return out
+    if preset == "decoy":
+        # Asymmetric clutter: sandwich E/W blockers (15 mm, both must
+        # move) plus green as a LOOSE decoy 0.22 m toward the arm base
+        # (face gap ~120 mm, so the radial shove moves only the decoy
+        # — no target contact, no revert — and lands it in the
+        # approach corridor; at 0.16 m the push jostled red and the
+        # revert rule erased the harm). Blind
+        # pushing clears the blockers nearest-first, then ruins the
+        # scene with the decoy push; selective pushing (blockers
+        # only) should win. Falls back to the mirror spot (away from
+        # base) when blocked, else green stays at reset (degraded).
+        t = env._obj_xy(0)
+        sx0, _ = _half(env, 0)
+        green_reset = (env._obj_xy(2), _half(env, 2))
+        occupied = []
+
+        def fits(xy, i, others):
+            ri = math.hypot(*_half(env, i))
+            return all(math.hypot(xy[0] - q[0], xy[1] - q[1])
+                       >= ri + math.hypot(*h) + 0.005
+                       for q, h in others)
+
+        out = {}
+        for i, dx in ((1, 1.0), (3, -1.0)):
+            sxi, _ = _half(env, i)
+            for sign in (dx, -dx):
+                xy = (t[0] + sign * (sx0 + sxi + 0.015), t[1])
+                if fits(xy, i, [green_reset] + occupied):
+                    out[i] = xy
+                    occupied.append((xy, _half(env, i)))
+                    break
+        tnorm = math.hypot(t[0], t[1]) or 1.0
+        toward = (-t[0] / tnorm, -t[1] / tnorm)
+        r2 = math.hypot(*_half(env, 2))
+        for sign in (1.0, -1.0):
+            xy = (t[0] + sign * toward[0] * 0.22,
+                  t[1] + sign * toward[1] * 0.22)
+            # Arm-clear (same formula as the preset test): the
+            # toward-base spot can land on the reset arm (+x) or the
+            # base disc when red sits near the axis or at min radius.
+            cx = min(max(xy[0], 0.0), 0.75)
+            arm_d = math.hypot(xy[0] - cx, xy[1]) - r2 - 0.035
+            if arm_d >= 0.0 and fits(xy, 2, occupied):
+                out[2] = xy
+                break
         return out
     if preset == "gate":
         # W neighbor plus a two-deep clutter chain east of the target.

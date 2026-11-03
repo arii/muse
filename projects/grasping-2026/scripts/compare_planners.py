@@ -718,8 +718,9 @@ def main():
     ap.add_argument("--bc-model", default=None,
                     help="path to BC .pt checkpoint (default auto-detect)")
     ap.add_argument("--scene", default="random",
-                    help="scene preset: random (default) or adversarial "
-                    "surround, row, gate (see env/scenes.py)")
+                    help="scene preset: random (default), adversarial "
+                    "surround/row/gate, or clutter adjacent/sandwich/decoy "
+                    "(see env/scenes.py)")
     ap.add_argument("--ablate", default="none",
                     choices=["none", "no-push", "no-retry"],
                     help="VLM attribution ablation: run VLM rows with "

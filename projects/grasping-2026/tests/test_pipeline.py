@@ -2097,6 +2097,42 @@ def test_sandwich_preset_is_vlm_win_regime():
     assert any(p["status"] == "kept" for p in pushed["pushes"])
 
 
+def test_decoy_preset_is_withholding_regime():
+    """Decoy seed 9: push-free ladder wins, pushing breaks it.
+
+    Inverse of the sandwich frontier: the E/W blockers look
+    push-worthy, but any shove (selective or blind) ruins this
+    scene while the 4-rung ladder threads it push-free. The
+    winning move is restraint — which the live VLM does not show
+    (it pushed blue/green and lost). Hand-fed plans, no API.
+    """
+    from env.scenes import apply_scene
+    from scripts.demo_vlm_grasp import run_episode
+
+    def run(pushes):
+        env = WholeArmGraspEnv(seed=9)
+        env.reset(seed=9)
+        env.target_index = 0
+        apply_scene(env, "decoy")
+        plan = {"grasp_target": 0, "push_away": pushes,
+                "approach_side": "near", "rationale": "t"}
+        m, _, _ = run_episode(env, plan, "grasp the red box",
+                              verbose=False)
+        return m
+
+    env = WholeArmGraspEnv(seed=9)
+    env.reset(seed=9)
+    apply_scene(env, "decoy")
+    for i in (1, 2, 3):  # full decoy formed on seed 9
+        d = float(np.linalg.norm(env._obj_xy(i) - env._obj_xy(0)))
+        assert d < 0.35, (i, d)
+    alone = run([])
+    assert alone["force_closure"] is True
+    pushed = run([{"index": 1, "effort": "shove"},
+                  {"index": 3, "effort": "shove"}])
+    assert pushed["force_closure"] is False
+
+
 def test_empty_push_away_means_no_pushes():
     """Regression (2026-10-28 rerun): run_episode with push_away=[]
     must push nothing, even on a crowded seed where the old
