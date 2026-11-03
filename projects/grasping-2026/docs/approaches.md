@@ -214,7 +214,7 @@ A 3-layer MLP, obs → action, trained with plain MSE on the demo
 pairs (`train_bc.py`, 150 epochs). One forward pass per env step,
 no memory, no chunking. This is the "simplest thing that could
 work" for imitation, and the baseline diffusion must beat. It
-currently matches the heuristic at 7/10. On presets (zero-shot,
+sits 3 below the ladder heuristic's 10/10 on random scenes. On presets (zero-shot,
 never in demos): sandwich 4/10, adjacent 4/10, surround 2/10
 ({2,7} — beating every script's 0/10 there, barely), decoy
 1/10 ({6}). Cloning degrades everywhere out of distribution,
@@ -425,6 +425,32 @@ top, per-seed side-by-side GIFs below. Metrics glossary:
 | tactile force probe | gate viable, shove not | contact at 0.01-0.04 N / 1.3 cm red motion; glide + chatter after |
 | VLM (sandwich 3,8) | 1/2 | s8 kept (autopush broke it), s3 lost (autopush kept it) |
 | SARSA(λ) thesis port | 0/10 ×6 configs | negative; relative-xy shows weak in-dist sign of life (13/60 vs 7/60, p≈0.07) |
+| autopush (random 0-9) | 10/10 | blind pushing ties the ladder on easy scenes; costs nothing |
+
+Scene × planner matrix (FC /10, seeds 0–9, default configs;
+VLM preset grids unmeasured — API cost; probes only):
+
+| Scene | Heur | Reac | Auto | BC | Diff | v3 | f100 | VLM |
+|---|---|---|---|---|---|---|---|---|
+| random | 10 | 0 | 10 | 7 | 5 | 7 | 7 | 9 |
+| surround | 0 | 0 | 0 | 2 | 0 | 4 | 9 | — |
+| decoy | 2 | 0 | 2 | 1 | 0 | 7 | 6 | — |
+| sandwich | 6 | 0 | 6 | 4 | 5 | 6 | 6 | — |
+| adjacent | 6 | 0 | 8 | 4 | 3 | 4 | 5 | — |
+
+Per-seed wins (FC): surround v3 {0,2,6,8}, BC {2,7};
+decoy heur {6,9}, auto {3,6}, BC {6}; sandwich heur
+{2,4,5,6,7,8}, auto {2,3,4,6,7,9}, BC {4,5,6,7}, diff
+{2,4,5,7,8}; adjacent heur {2–7}, auto {2–9}, BC
+{2,4,5,7}, diff {2,4,5}. The fresh scripted grid
+reproduced the earlier gap runs seed-for-seed
+(determinism check passes). Three readings: (1) scripts
+collapse only on surround/decoy, where restraint +
+bulldozing must mix — exactly where PPO wins; (2) cloning
+never beats its demonstrator anywhere (BC ≤ heur on all 5
+scenes); (3) autopush ≥ heuristic on all 5 scenes (ties 4,
+wins adjacent +2) — blind pushing never hurts, sometimes
+helps.
 
 Seed 0 falls only to the scripted pair (heuristic + VLM); seeds
 2/5/7 fall to all capable ones. Four live failure modes, all
