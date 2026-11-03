@@ -194,9 +194,11 @@ orders diverge by pass 3 (solver-history effects the snapshot
 doesn't capture), and extra passes can over-push a winnable
 scene (nearest-first order loses the same seed multi-pass
 wins by hand order). Matrix: sandwich-shove unchanged 7/10,
-decoy-shove unchanged 3/10, surround-shove 1/10. Verdict:
-experimental, non-default; the robust fix for dense scenes
-remains approach-aware sequencing, not more sweeps.
+decoy-shove unchanged 3/10, surround-shove 1/10. Cached VLM
+replays (sandwich 9 win, decoy 9 loss) are unchanged too —
+extra passes correctly no-op via the fruitless-pass stop.
+Verdict: experimental, non-default; the robust fix for dense
+scenes remains approach-aware sequencing, not more sweeps.
 
 ### Reactive — the deliberate floor
 
