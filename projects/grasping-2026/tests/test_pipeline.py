@@ -2205,6 +2205,38 @@ def test_approach_transit_clear_flags_blocked_push():
     assert out[3] < -0.02, out
 
 
+def test_tmove_cap_gates_bulldoze_keeps():
+    """tmove_cap raises the tolerated target motion per push.
+
+    Surround s0 obj3 shoves red 0.43 m: reverted under the default
+    0.12 m cap, kept with cap 0.50 (iso still rises, no launch).
+    Mechanism test only — bulldoze-through still fails the grasp
+    (displaced red ungrasped), so this stays experimental.
+    """
+    from env.scenes import apply_scene
+    from scripts.demo_vlm_grasp import run_episode
+
+    def status_of(cap):
+        env = WholeArmGraspEnv(seed=0)
+        env.reset(seed=0)
+        env.target_index = 0
+        apply_scene(env, "surround")
+        plan = {"grasp_target": 0,
+                "push_away": [{"index": i, "effort": "nudge"}
+                              for i in (1, 2, 3)],
+                "approach_side": "near", "rationale": "t"}
+        m, _, _ = run_episode(env, plan, "grasp the red box",
+                              verbose=False, tmove_cap=cap)
+        return m
+
+    default = status_of(0.12)
+    assert default["pushes"][2]["status"] == "reverted"
+    loose = status_of(0.50)
+    assert loose["pushes"][2]["status"] == "kept"
+    assert loose["pushes"][2]["tmove_m"] > 0.30
+    assert loose["force_closure"] is False
+
+
 def test_multipass_compounds_kept_pushes():
     """Multi-pass singulation compounds partial progress (decoy s0).
 

@@ -54,7 +54,8 @@ ISOLATION_GATE = 0.15  # meters of clearance; singulate stops past it
 
 def scripted_singulate(env, target_idx, frames, push_radius=0.35,
                        push_targets=None, strict=False, frame_info=None,
-                       push_log=None, max_passes=1, defer_blocked=False):
+                       push_log=None, max_passes=1, defer_blocked=False,
+                       tmove_cap=0.12):
     """Push-away phase: isolate the target before grasping.
 
     For each entry in push_targets (in order) when explicitly given, or
@@ -76,6 +77,9 @@ def scripted_singulate(env, target_idx, frames, push_radius=0.35,
     defer_blocked defers corridor-blocked pushes (approach sweep
     crosses another box) until later in the pass, so clear pushes
     go first; all-blocked rounds attempt anyway (revert guards).
+    tmove_cap bounds tolerated target motion per push (non-strict;
+    strict keeps 0.10): raising it permits bulldoze-through pushes
+    that relocate red into the open instead of clearing the crowd.
     Returns (isolation_before, isolation_after) in meters.
     """
     def xy(i):
@@ -243,10 +247,11 @@ def scripted_singulate(env, target_idx, frames, push_radius=0.35,
             maxmove = max(float(np.linalg.norm(xy(j) - p0[j])) for j in p0)
             # Non-strict cap: dmove + 0.05 alone lets a push that
             # moves target and distractor together pass (Seed 7), since
-            # a large dmove raises the limit. Cap at 0.12 m; strict
-            # keeps its tighter 0.10 m limit (an unconditional 0.12 m
-            # would loosen strict mode).
-            tmove_limit = 0.10 if strict else min(dmove + 0.05, 0.12)
+            # a large dmove raises the limit. Cap at tmove_cap (0.12 m
+            # default); strict keeps its tighter 0.10 m limit (an
+            # unconditional 0.12 m would loosen strict mode).
+            tmove_limit = (0.10 if strict
+                           else min(dmove + 0.05, tmove_cap))
             if (iso_new < iso_before - 1e-9 or maxmove > 0.6 or dmove < 0.03
                     or tmove > tmove_limit):
                 env.restore(snap)
@@ -465,7 +470,8 @@ def _mirror_side(side):
 
 
 def run_episode(env, plan, instruction, frames=None, verbose=True,
-                allow_retry=True, max_passes=1, defer_blocked=False):
+                allow_retry=True, max_passes=1, defer_blocked=False,
+                tmove_cap=0.12):
     """Execute one episode: plan -> singulate -> gate -> cage.
 
     env must already be reset; target_index is set from the plan here.
@@ -526,7 +532,7 @@ def run_episode(env, plan, instruction, frames=None, verbose=True,
     iso_before, iso_after = scripted_singulate(
         env, target_idx, frames, push_targets=push_targets, strict=strict,
         frame_info=frame_info, push_log=push_log, max_passes=max_passes,
-        defer_blocked=defer_blocked)
+        defer_blocked=defer_blocked, tmove_cap=tmove_cap)
     if verbose:
         print(f"[demo] singulation: isolation {iso_before:.3f} -> "
               f"{iso_after:.3f} m")

@@ -237,7 +237,7 @@ def autopush_plan(env, radius=0.35, effort="clear"):
 def run_one(seed, planner, instruction, ppo_model=None, diffusion_model=None,
             bc_model=None, contact_obs=False, max_delta_q=None,
             scene="random", ablate="none", autopush_effort="clear",
-            max_passes=1, defer_blocked=False):
+            max_passes=1, defer_blocked=False, tmove_cap=0.12):
     """One episode with one planner. Returns (metrics row, frames).
 
     Never raises: a planner failure is recorded as planner_error.
@@ -308,6 +308,7 @@ def run_one(seed, planner, instruction, ppo_model=None, diffusion_model=None,
         row["ablate"] = ablate
         row["max_passes"] = max_passes
         row["defer_blocked"] = defer_blocked
+        row["tmove_cap"] = tmove_cap
         if planner == "vlm":
             # last_cache_hit False => API call (tokens from last_response)
             row["api_call"] = labeller.last_cache_hit is False
@@ -325,7 +326,8 @@ def run_one(seed, planner, instruction, ppo_model=None, diffusion_model=None,
                                      allow_retry=ablate != "no-retry"
                                      or planner != "vlm",
                                      max_passes=max_passes,
-                                     defer_blocked=defer_blocked)
+                                     defer_blocked=defer_blocked,
+                                     tmove_cap=tmove_cap)
     pos1 = env._obs()["objects"][t_idx][:2].copy()
     metrics["target_start_r"] = float(np.linalg.norm(pos0))
     metrics["target_end_r"] = float(np.linalg.norm(pos1))
@@ -742,6 +744,10 @@ def main():
     ap.add_argument("--defer-blocked", action="store_true",
                     help="defer corridor-blocked pushes until clear "
                     "pushes go first (experimental)")
+    ap.add_argument("--tmove-cap", type=float, default=0.12,
+                    help="tolerated target motion per push in meters "
+                    "(default 0.12); raising permits bulldoze-through "
+                    "pushes that relocate the target (experimental)")
     ap.add_argument("--contact-obs", action="store_true",
                     help="learned-planner wrapper uses contact obs "
                     "(must match training)")
@@ -801,7 +807,8 @@ def main():
                                   ablate=args.ablate,
                                   autopush_effort=args.autopush_effort,
                                   max_passes=args.max_passes,
-                                  defer_blocked=args.defer_blocked)
+                                  defer_blocked=args.defer_blocked,
+                                  tmove_cap=args.tmove_cap)
             rows.append(row)
             frames_by_seed.setdefault(seed, {})[planner] = (row, frames)
             status = (f"FC={row.get('force_closure')} "

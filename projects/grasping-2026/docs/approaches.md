@@ -450,10 +450,16 @@ diagnosed with probes:
    first): mechanically correct (surround s0 reorders 2-first),
    outcome-neutral on all 30 seeds (surround 1, decoy 3,
    sandwich 7 of 10, identical miss sets) — because arrival
-   graze, not transit, binds once corridors clear. The remaining
-   fix is start-pose clearance filtering (reject push starts
-   whose final pose overlaps red). Push-log entries carry
-   `approach` + `tmove_m`/`dmove_m` telemetry;
+   graze, not transit, binds once corridors clear. Two more
+   inversions failed: deliberate red-transport (corner-drag red
+   south into the open: tip wedges, red flung 0.27 m, iso
+   drops) and bulldoze-through (`--tmove-cap 0.50`: shoves keep
+   with red displaced 0.43 m, but displaced red is ungrasped —
+   the revert rule's 0.12 m cap turns out to protect graspability,
+   not just tidiness). Eight approaches ruled out total; dense
+   3-sided 8 mm clutter wants closed-loop tactile pushing or
+   grasp-in-clutter, not open-loop primitives. Push-log entries
+   carry `approach` + `tmove_m`/`dmove_m` telemetry;
    `test_surround_pushes_revert_on_target_bulldoze` stays red.
 
 ## 9. Code map
