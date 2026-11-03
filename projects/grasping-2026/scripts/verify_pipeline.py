@@ -7,7 +7,8 @@ Checks:
   1. Grounding  — labeller picks the right object for 3 color instructions.
   2. Segmentation — live SAM on a canary frame when SAM_CHECKPOINT is
      set, else SKIP (M2 wired; 358MB checkpoint not in CI).
-  3. Grasp synthesis — STUB (M3), reported as not-yet-verifiable.
+  3. Grasp synthesis — antipodal sampler on the stage-2 mask (M3 live),
+     else SKIP with M2.
   4. Motion planning — plan() trajectory shape/continuity + executes in env.
   5. Execution — full demo loop (grounding -> singulation -> cage);
      screenshots saved to verification/.
@@ -55,7 +56,7 @@ def check_segmentation(seed=2):
     print("== [2/5] segmentation ==")
     if not os.environ.get("SAM_CHECKPOINT"):
         print("  [SKIP] SAM_CHECKPOINT unset — M2 wired, checkpoint absent.")
-        return None
+        return None, None
     from perception.segment import SAMSegmenter
     env = WholeArmGraspEnv(seed=seed)
     env.reset(seed=seed)
@@ -73,6 +74,20 @@ def check_segmentation(seed=2):
     ok = iou > 0.5
     print(f"  [{'OK ' if ok else 'FAIL'}] mask/red IoU {iou:.2f} "
           f"(box prompt {box})")
+    return ok, mask
+
+
+def check_grasp(mask):
+    print("== [3/5] grasp synthesis ==")
+    if mask is None:
+        print("  [SKIP] no stage-2 mask (M2 skipped).")
+        return None
+    from perception.grasp import synthesize_grasps
+    grasps = synthesize_grasps(mask, n_candidates=10)
+    ok = len(grasps) > 0
+    print(f"  [{'OK ' if ok else 'FAIL'}] {len(grasps)} antipodal "
+          f"candidates" + (f", top width {grasps[0]['width']:.1f}px"
+                            if ok else ""))
     return ok
 
 
@@ -138,15 +153,15 @@ def main():
     outdir.mkdir(parents=True, exist_ok=True)
 
     g = check_grounding(seed=args.seed)
-    s = check_segmentation()
-    print("== [3/5] grasp synthesis ==\n  [STUB] M3 — antipodal sampler not "
-          "yet implemented; nothing to verify.")
+    s, mask = check_segmentation()
+    gs = check_grasp(mask)
     m = check_motion(seed=args.seed)
     info = run_demo_screenshots(args.seed, outdir)
 
     print("\n== summary ==")
     print(f"  grounding: {'PASS' if g else 'FAIL'}")
     print(f"  segmentation: {'PASS' if s else ('SKIP' if s is None else 'FAIL')}")
+    print(f"  grasp synthesis: {'PASS' if gs else ('SKIP' if gs is None else 'FAIL')}")
     print(f"  motion planning: {'PASS' if m else 'FAIL'}")
     print(f"  execution: {'CAGED' if info['caged'] else 'no cage'} "
           f"(seed {args.seed})")
