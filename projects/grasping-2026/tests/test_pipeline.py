@@ -704,6 +704,43 @@ def test_make_side_by_side_gif(tmp_path):
     assert im.size == (124, 96)
 
 
+def test_bc_train_and_rollout(tmp_path):
+    """train_bc pipeline: collect 2 scripted demos, train briefly,
+    roll out the ckpt through compare's bc planner without error."""
+    import torch
+    demos = tmp_path / "demos"
+    proc = subprocess.run(
+        [sys.executable, "scripts/collect_demos.py",
+         "--demonstrator", "cage", "--seeds", "0-1",
+         "--n-objects", "4", "--keep", "all",
+         "--out", str(demos)],
+        cwd=REPO, capture_output=True, text=True, timeout=300,
+        env={**os.environ, "MUJOCO_GL": "osmesa",
+             "PYTHONDONTWRITEBYTECODE": "1"},
+    )
+    assert proc.returncode == 0, proc.stderr[-2000:]
+    ckpt_path = tmp_path / "bc_test"
+    proc = subprocess.run(
+        [sys.executable, "scripts/train_bc.py",
+         "--demos", str(demos), "--epochs", "2",
+         "--out", str(ckpt_path)],
+        cwd=REPO, capture_output=True, text=True, timeout=300,
+        env={**os.environ, "MUJOCO_GL": "osmesa",
+             "PYTHONDONTWRITEBYTECODE": "1"},
+    )
+    assert proc.returncode == 0, proc.stderr[-2000:]
+    ckpt = torch.load(ckpt_path.with_suffix(".pt"), map_location="cpu",
+                      weights_only=False)
+    assert ckpt["obs_dim"] == 16
+    assert set(ckpt) >= {"state", "obs_mean", "obs_std", "hidden"}
+    from scripts.compare_planners import run_one
+    row, frames = run_one(0, "bc", "grasp the red box",
+                          bc_model=str(ckpt_path.with_suffix(".pt")))
+    assert row["planner_error"] is None, row["planner_error"]
+    assert len(frames) > 10
+    assert row["planner"] == "bc"
+
+
 def test_compare_run_one_returns_frames():
     """run_one returns (row, frames) for the compare GIF path."""
     from scripts.compare_planners import run_one
@@ -1106,25 +1143,27 @@ def test_collect_scripted_demos_smoke(tmp_path):
 
 
 def test_collect_ppo_demo_fc_seed9(tmp_path):
-    """PPO demo collection runs on the new spawn, outcome not locked.
+    """PPO demo collection runs, outcome not locked.
 
-    History: old test locked seed 9 FC=False under planar physics
-    (old spawn) — the old 2-step pass was a 3D tipping jam, not a
-    planar grasp. Under the new spawn (r 0.28-0.40, theta +-2.4)
-    the same 500k model gets FC=True in 1 step on seed 9, verified
-    as a planar pinch (z fixed, pure yaw, 2 links, 8 wrenches
-    spanning, target moved 0.13 m — not a tipping jam). That is a
-    coincidental policy/scene interaction, not a regression
-    invariant, so this test no longer locks FC True or False.
-    It locks the pipeline: returncode 0, a seed-9 row, and
-    kept == FC when --keep fc (kept 1/1 if FC, 0/1 if not).
-    Do not "fix" a future FC change by restoring freejoint boxes.
+    History: old versions locked a trained 500k checkpoint's seed-9
+    outcome (first FC=False, then FC=True after the spawn change) —
+    a coincidental policy/scene interaction, not a regression
+    invariant. This test locks the pipeline: returncode 0, a seed-9
+    row, and kept == FC when --keep fc (kept 1/1 if FC, 0/1 if not).
+    The policy is an untrained PPO fixture built in-test: models/
+    is gitignored, so a checkpoint path would fail on a fresh
+    checkout (CI has no weights). Do not "fix" a future FC change
+    by restoring freejoint boxes.
     """
     import subprocess
+    from stable_baselines3 import PPO
+    from env.gym_wrapper import GraspGymWrapper
+    fix = GraspGymWrapper(seed=9, n_objects=4)
+    PPO("MlpPolicy", fix, seed=9).save(str(tmp_path / "ppo_fixture"))
     out = tmp_path / "ppo_demo"
     proc = subprocess.run(
         [sys.executable, "scripts/collect_ppo_demos.py",
-         "--model", "models/grasp_ppo_500k", "--seeds", "9",
+         "--model", str(tmp_path / "ppo_fixture"), "--seeds", "9",
          "--keep", "fc", "--out", str(out)],
         cwd=REPO, capture_output=True, text=True, timeout=300,
         env={**os.environ, "MUJOCO_GL": "osmesa",

@@ -39,6 +39,7 @@ from scripts.demo_vlm_grasp import run_episode  # noqa: E402
 
 _PPO_CACHE = {}
 _DIFF_CACHE = {}
+_BC_CACHE = {}
 
 
 def parse_seeds(spec):
@@ -62,12 +63,18 @@ def _resolve_default_model(candidates):
     return candidates[0]
 
 
-def _run_learned(seed, planner, instruction, model_path=None, max_steps=200):
+def _run_learned(seed, planner, instruction, model_path=None, max_steps=200,
+                 contact_obs=False, max_delta_q=None):
     """Roll out a trained PPO or Diffusion policy on `seed` and return
-    (row, frames) matching the compare_planners row schema."""
+    (row, frames) matching the compare_planners row schema.
+
+    contact_obs / max_delta_q must match training, or the model's obs
+    dim won't fit and the dynamics won't match.
+    """
     from env.gym_wrapper import GraspGymWrapper
 
-    w = GraspGymWrapper(seed=seed, max_steps=max_steps, n_objects=4)
+    w = GraspGymWrapper(seed=seed, max_steps=max_steps, n_objects=4,
+                        contact_obs=contact_obs, max_delta_q=max_delta_q)
     obs, _ = w.reset(seed=seed)
     env = w.env
     target_idx = w.target_index
@@ -99,6 +106,32 @@ def _run_learned(seed, planner, instruction, model_path=None, max_steps=200):
             if terminated or truncated:
                 break
         rationale = f"PPO policy ({pathlib.Path(mpath).stem}, {steps} steps)"
+    elif planner == "bc":
+        import torch
+        from scripts.train_bc import BCMLP
+        mpath = model_path or _resolve_default_model(["models/bc_v1.pt"])
+        if mpath not in _BC_CACHE:
+            ckpt = torch.load(mpath, map_location="cpu", weights_only=False)
+            bm = BCMLP(ckpt["obs_dim"], hidden=ckpt["hidden"])
+            bm.load_state_dict(ckpt["state"])
+            bm.eval()
+            _BC_CACHE[mpath] = (
+                bm, torch.from_numpy(ckpt["obs_mean"]).float(),
+                torch.from_numpy(ckpt["obs_std"]).float())
+        bm, obs_mean, obs_std = _BC_CACHE[mpath]
+        while True:
+            with torch.no_grad():
+                obs_n = (torch.from_numpy(obs).float() - obs_mean) / obs_std
+                action = bm(obs_n.unsqueeze(0))[0].numpy().clip(-1, 1)
+            obs, r, terminated, truncated, info = w.step(action)
+            total_rew += float(r)
+            steps += 1
+            if steps % 2 == 0 or terminated or truncated:
+                frames.append(env.render())
+                f_info.append(frame_status(info))
+            if terminated or truncated:
+                break
+        rationale = f"BC policy ({pathlib.Path(mpath).stem}, {steps} steps)"
     elif planner == "diffusion":
         import torch
         from diffusers import DDIMScheduler
@@ -173,15 +206,19 @@ def _run_learned(seed, planner, instruction, model_path=None, max_steps=200):
     return row, frames
 
 
-def run_one(seed, planner, instruction, ppo_model=None, diffusion_model=None):
+def run_one(seed, planner, instruction, ppo_model=None, diffusion_model=None,
+            bc_model=None, contact_obs=False, max_delta_q=None):
     """One episode with one planner. Returns (metrics row, frames).
 
     Never raises: a planner failure is recorded as planner_error.
     """
-    if planner in ("ppo", "diffusion"):
+    if planner in ("ppo", "diffusion", "bc"):
         try:
-            mpath = ppo_model if planner == "ppo" else diffusion_model
-            return _run_learned(seed, planner, instruction, model_path=mpath)
+            mpath = {"ppo": ppo_model, "diffusion": diffusion_model,
+                     "bc": bc_model}[planner]
+            return _run_learned(seed, planner, instruction, model_path=mpath,
+                                contact_obs=contact_obs,
+                                max_delta_q=max_delta_q)
         except Exception as e:
             env = WholeArmGraspEnv(seed=seed)
             env.reset(seed=seed)
@@ -275,7 +312,7 @@ def write_html_report(rows, gif_map, out_path, instruction, planners):
 
     def fmt_primitives(r):
         """Format concrete executed geometric primitives (push / scripted_cage)."""
-        if r.get("planner") in ("ppo", "diffusion"):
+        if r.get("planner") in ("ppo", "diffusion", "bc"):
             return (f"<code>env.step(q_target)</code> × {r.get('steps', 0)} steps "
                     f"(closed-loop joint targets in [-2.6, 2.6] rad)")
         lines = []
@@ -590,11 +627,20 @@ def main():
     ap.add_argument("--seeds", default="2,4",
                     help="seed specification, e.g. '2,4' (default canary seeds: 2 isolated, 4 cluttered) or '0-9'")
     ap.add_argument("--planners", default="heuristic,vlm,ppo,diffusion",
-                    help="comma-separated subset of heuristic,vlm,ppo,diffusion")
+                    help="comma-separated subset of "
+                    "heuristic,vlm,ppo,diffusion,bc")
     ap.add_argument("--ppo-model", default=None,
                     help="path to PPO .zip checkpoint (default auto-detect)")
     ap.add_argument("--diffusion-model", default=None,
                     help="path to Diffusion .pt checkpoint (default auto-detect)")
+    ap.add_argument("--bc-model", default=None,
+                    help="path to BC .pt checkpoint (default auto-detect)")
+    ap.add_argument("--contact-obs", action="store_true",
+                    help="learned-planner wrapper uses contact obs "
+                    "(must match training)")
+    ap.add_argument("--max-delta-q", type=float, default=None,
+                    help="learned-planner wrapper caps per-step joint change "
+                    "(must match training)")
     ap.add_argument("--out", default=None,
                     help="write per-episode rows as JSON")
     ap.add_argument("--gifs", action="store_true",
@@ -625,6 +671,9 @@ def main():
             if not (pathlib.Path("models/diffusion_v2.pt").exists()
                     or pathlib.Path("models/diffusion.pt").exists()):
                 continue
+        if p == "bc" and args.bc_model is None:
+            if not pathlib.Path("models/bc_v1.pt").exists():
+                continue
         planners.append(p)
 
     rows = []
@@ -633,7 +682,10 @@ def main():
         for planner in planners:
             row, frames = run_one(seed, planner, args.instruction,
                                   ppo_model=args.ppo_model,
-                                  diffusion_model=args.diffusion_model)
+                                  diffusion_model=args.diffusion_model,
+                                  bc_model=args.bc_model,
+                                  contact_obs=args.contact_obs,
+                                  max_delta_q=args.max_delta_q)
             rows.append(row)
             frames_by_seed.setdefault(seed, {})[planner] = (row, frames)
             status = (f"FC={row.get('force_closure')} "
