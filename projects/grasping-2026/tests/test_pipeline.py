@@ -899,6 +899,35 @@ def test_ablate_no_retry_disables_second_entry(monkeypatch):
     assert row["force_closure"] is False
 
 
+def test_autopush_targets_crowders_nearest_first():
+    """Autopush plans every crowder within 0.35 m, nearest first.
+
+    Seed 7: only yellow (index 3, 0.307 m) crowds red; blue/green
+    are 0.6+ m away. No API involved.
+    """
+    from scripts.compare_planners import autopush_plan
+    env = WholeArmGraspEnv(seed=7)
+    env.reset(seed=7)
+    plan = autopush_plan(env)
+    assert [p["index"] for p in plan["push_away"]] == [3]
+    assert all(p["effort"] == "clear" for p in plan["push_away"])
+    assert plan["grasp_target"] == 0
+
+
+def test_autopush_wins_adjacent():
+    """Blind pushing wins adjacent: the push action, not the planner.
+
+    Same scene the VLM wins with a planned shove: autopush clears
+    blue without vision and grasps. This is the baseline VLM
+    *selection* must beat on harder scenes.
+    """
+    from scripts.compare_planners import run_one
+    row, _ = run_one(7, "autopush", "grasp the red box",
+                     scene="adjacent")
+    assert row["planner_error"] is None, row["planner_error"]
+    assert row["force_closure"] is True
+
+
 def test_compare_run_one_returns_frames():
     """run_one returns (row, frames) for the compare GIF path."""
     from scripts.compare_planners import run_one

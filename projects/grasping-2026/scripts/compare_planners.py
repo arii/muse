@@ -209,6 +209,31 @@ def _run_learned(seed, planner, instruction, model_path=None, max_steps=200,
     return row, frames
 
 
+def autopush_plan(env, radius=0.35, effort="clear"):
+    """Blind-pushing baseline plan: shove every crowder, no vision.
+
+    Push all distractors within `radius` of the target (nearest
+    first) with a fixed effort. Same executor as heuristic/VLM, so
+    autopush-vs-VLM isolates what VLM *selection* adds over blind
+    pushing. Comparison-only; not a product planner.
+    """
+    t = env._obs()["objects"][0][:2]
+    near = []
+    for o in env.objects:
+        if o["index"] == 0:
+            continue
+        d = float(np.linalg.norm(env._obs()["objects"][o["index"]][:2]
+                                 - t))
+        if d < radius:
+            near.append((d, o["index"]))
+    near.sort()
+    return {"grasp_target": 0,
+            "push_away": [{"index": i, "effort": effort} for _, i in near],
+            "approach_side": "near",
+            "rationale": "autopush: clear every crowder within "
+                         f"{radius} m"}
+
+
 def run_one(seed, planner, instruction, ppo_model=None, diffusion_model=None,
             bc_model=None, contact_obs=False, max_delta_q=None,
             scene="random", ablate="none"):
@@ -255,6 +280,8 @@ def run_one(seed, planner, instruction, ppo_model=None, diffusion_model=None,
         if planner == "heuristic":
             from perception.grounding import HeuristicLabeller
             labeller = HeuristicLabeller()
+        elif planner == "autopush":
+            labeller = None
         elif planner == "vlm":
             # PURE VLM: construct the API labeller directly, never via
             # make_labeller's heuristic fallback — that would label
@@ -266,7 +293,12 @@ def run_one(seed, planner, instruction, ppo_model=None, diffusion_model=None,
         else:
             from perception.grounding import make_labeller
             labeller = make_labeller()
-        plan = labeller.plan(frames[0], env.objects, instruction)
+        if planner == "autopush":
+            from perception.grounding import normalize_plan
+            valid = {o["index"] for o in env.objects}
+            plan = normalize_plan(autopush_plan(env), valid)
+        else:
+            plan = labeller.plan(frames[0], env.objects, instruction)
         if ablate == "no-push" and planner == "vlm":
             # Attribution ablation: run the VLM's side choice with the
             # pushes removed (no-push on heuristic is already its plan).
@@ -677,7 +709,7 @@ def main():
                     help="seed specification, e.g. '2,4' (default canary seeds: 2 isolated, 4 cluttered) or '0-9'")
     ap.add_argument("--planners", default="heuristic,vlm,ppo,diffusion",
                     help="comma-separated subset of "
-                    "heuristic,vlm,ppo,diffusion,bc,reactive")
+                    "heuristic,vlm,ppo,diffusion,bc,reactive,autopush")
     ap.add_argument("--ppo-model", default=None,
                     help="path to PPO .zip checkpoint (default auto-detect)")
     ap.add_argument("--diffusion-model", default=None,
