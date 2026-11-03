@@ -256,8 +256,9 @@ top, per-seed side-by-side GIFs below. Metrics glossary:
 | VLM (canary 2,4) | 2/2 | inherits cage retry; $0 via cache |
 | VLM (adjacent 7) | 1/1 vs heur 0/1 | strict win: kept shear unlocks cage |
 
-Seed 0 beats every planner; seeds 2/5/7 fall to all four capable
-ones. Three live failure modes, all diagnosed with probes:
+Seed 0 now falls only to the retried heuristic; seeds 2/5/7 fall to
+all four capable ones. Three live failure modes, all diagnosed with
+probes:
 
 1. **VLM singulation is region-dependent.** Canary pushes skip:
    seed 2's radial start has 0/13 oriented-reachable waypoints

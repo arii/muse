@@ -3,19 +3,21 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>grasping-2026 — Language-Conditioned Grasping in Simulation</title>
+<title>grasping-2026 — Revisiting Whole-Arm Grasping</title>
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 
 <header class="hero">
-  <p class="kicker">grasping-2026 &middot; simulation benchmark &middot; 6 approaches, 10 seeds</p>
-  <h1>A robot arm that understands grasping instructions</h1>
-  <p class="lede">Instruction in, whole-arm grasp out: <code>"grasp the red box in isolation"</code>.
-  A 3-link planar arm in MuJoCo must singulate clutter and wrap its links around the target box &mdash;
-  no gripper, no hardware, no fine-tuning. The VLM handles language
-  (<em>which object? what to push?</em>); classical robotics handles geometry
-  (<em>where it is, how to move</em>).</p>
+  <p class="kicker">grasping-2026 &middot; revisiting a master's thesis &middot; 6 approaches, 10 seeds</p>
+  <h1>Revisiting my master's-thesis work on whole-arm grasping</h1>
+  <p class="lede">The same planar cross-section whole-arm grasping problem from my 2014 thesis
+  (Anders, <em>Learning a Strategy for Whole-Arm Grasping</em>, MIT): a 3-DOF arm with no gripper
+  must wrap its links around a target in an enveloping grasp &mdash; rebuilt in 2026 with a MuJoCo
+  simulator, modern learned policies (PPO, behavior cloning, diffusion), and VLM planning standing in
+  for the hand-written state machine. Language plays a small role: only the heuristic/VLM planners
+  take an instruction (<code>"grasp the red box in isolation"</code>); the learned policies see flat
+  simulator state with a designated target slot and no words at all.</p>
   <nav class="toc">
     <a href="#overview">Overview</a>
     <a href="#spaces">Action / observation</a>
@@ -30,17 +32,34 @@
 
 <section id="overview">
   <h2>Overview</h2>
-  <p>The task: a 3-link planar arm, viewed top-down, grasps a target box (red)
-  among distractor boxes on a table. All boxes slide and yaw &mdash; they never tip
-  or lift. The arm has three revolute joints and no gripper: it grasps
-  <em>whole-arm</em>, by wrapping its links around the box (caging / force closure).
-  Default scenes carry 4 boxes; some need a distractor pushed aside (singulation)
-  before the grasp.</p>
+  <p>The thesis problem: a 3-DOF arm with no gripper grasps a target object
+  <em>whole-arm</em>, wrapping its links around it in an enveloping grasp (caging / force closure) &mdash;
+  modeled, as in the thesis, as a planar cross-section through the arms, with the object free to
+  slide and yaw on the table. Here the arm is a single 3-link planar arm viewed top-down, the target
+  is the red box, and distractor boxes add clutter: some scenes need a distractor pushed aside
+  (singulation) before the grasp.</p>
+  <p class="lineage"><strong>Thesis lineage.</strong> Anders (2014) learned enveloping-grasp policies
+  for a PR2 (single arm, plus a mirrored dual-arm mode) in a 2D Box2D cross-section simulator:
+  continuous states (joint angles + object x, y, &theta;), a 3-DOF incremental-joint action, and
+  linear gradient-descent SARSA. This project keeps the problem shape &mdash; planar cross-section,
+  3-DOF arm, continuous states, force-closure goal &mdash; but swaps the 2D sim for a MuJoCo planar
+  scene and the SARSA learner for modern counterparts (PPO, behavior cloning, diffusion policy),
+  plus scripted and VLM-planned references. A similar setup, not a 1-1 replication: single arm only,
+  no torso contacts, no sim-to-real. Full mapping in the
+  <a href="https://github.com/arii/muse/blob/main/projects/grasping-2026/docs/thesis-alignment.md">thesis-alignment note</a>.</p>
   <figure>
     <img src="assets/scene-labeled.png" alt="Labeled top-down scene: arm and four boxes">
     <figcaption>What the top-down camera sees. When the target crowds a distractor, singulation runs first.</figcaption>
   </figure>
-  <h3>One instruction through the pipeline</h3>
+  <h3>One instruction through the plan-based pipeline</h3>
+  <p>Only the heuristic/VLM planners follow this pipeline &mdash; they are the only approaches that
+  take an instruction. The learned policies (BC, diffusion, PPO) skip all of it: they map the flat
+  simulator state straight to joint targets, with the target box designated by its observation slot.
+  They are target-agnostic &mdash; the identical trained weights grasped blue/green targets 9/12 with
+  zero retraining when the target slot pointed there (PPO 3/4, BC 3/4, diffusion 3/4 on seeds 2, 4) &mdash;
+  because they see target positions, never color or words; color-to-index grounding has to come from
+  outside (e.g. the VLM). A truly different task (new verb/objective, not just a new target color)
+  still needs retraining: a new reward for PPO, new demos for BC/diffusion.</p>
   <figure>
     <img src="assets/pipeline.png" alt="Pipeline diagram: grounding, singulation, isolation gate, grasp">
     <figcaption>The plan-based pipeline: ground the instruction, singulate, check the isolation gate, then grasp.</figcaption>
@@ -55,7 +74,8 @@
     <li><strong>Isolation gate</strong> &mdash; grasp starts only if target isolation &ge; 0.15&nbsp;m
       (logged either way; the grasp is attempted as fallback regardless).</li>
     <li><strong>Grasp</strong> &mdash; the executor yaws at the target (biased by approach side),
-      reaches, and curls the links around it. Goal criterion: <strong>force closure</strong>.</li>
+      reaches, and curls the links around it. If the first cage entry misses, a snapshot-and-retry
+      second entry re-attempts it tucked from a pristine restore. Goal criterion: <strong>force closure</strong>.</li>
   </ol>
   <h3>Success criteria (weakest first)</h3>
   <dl class="criteria">
@@ -112,12 +132,12 @@
   observe every step and react. Compared head to head on identical seeds.</p>
   <table class="approaches">
     <tr><th>Approach</th><th>Family</th><th>How it works</th><th>FC (seeds 0&ndash;9)</th></tr>
-    <tr><td><strong>Heuristic</strong></td><td>plan</td><td>Regex-parsed plan (target red, no pushes, approach near), then scripted cage: park link 1 beside the target, curl links 2&ndash;3 over ~120 interpolated steps, early stop on FC + caged. Deterministic reference bar.</td><td class="good">7/10</td></tr>
-    <tr><td><strong>VLM</strong></td><td>plan</td><td>Same executor, smarter plan: top-down render + object list + instruction &rarr; Nemotron-3.5-Super-VL on Nebius (strict JSON schema) &rarr; semantic plan, no coordinates. Calls logged + cached in <code>episodes/vlm_ledger.jsonl</code>. Only earns its keep through singulation.</td><td>1/2 canary</td></tr>
+    <tr><td><strong>Heuristic</strong></td><td>plan</td><td>Regex-parsed plan (target red, no pushes, approach near), then scripted cage: park link 1 beside the target, curl links 2&ndash;3 over ~120 interpolated steps, early stop on FC + caged &mdash; plus a tucked snapshot-and-retry second entry when the first misses. Deterministic reference bar.</td><td class="good">10/10</td></tr>
+    <tr><td><strong>VLM</strong></td><td>plan</td><td>Same executor, smarter plan: top-down render + object list + instruction &rarr; Nemotron-3.5-Super-VL on Nebius (strict JSON schema) &rarr; semantic plan, no coordinates. Calls logged + cached in <code>episodes/vlm_ledger.jsonl</code>. Only earns its keep through singulation.</td><td>2/2 canary</td></tr>
     <tr><td><strong>Reactive</strong></td><td>closed-loop</td><td>Proportional tip servo toward the target (5&nbsp;cm/step cap, DLS IK), open-loop curl on contact. Deliberate floor: anything that can't beat it is broken.</td><td class="bad">0/10</td></tr>
-    <tr><td><strong>BC</strong></td><td>closed-loop</td><td>3-layer MLP, obs &rarr; action, plain MSE on 130 scripted-cage FC demos. One forward pass per step, no memory, no chunking. Cloned the script and tied it.</td><td class="good">7/10</td></tr>
+    <tr><td><strong>BC</strong></td><td>closed-loop</td><td>3-layer MLP, obs &rarr; action, plain MSE on 130 scripted-cage FC demos. One forward pass per step, no memory, no chunking. Cloned the script and trails it (7/10 vs 10/10).</td><td class="good">7/10</td></tr>
     <tr><td><strong>Diffusion</strong></td><td>closed-loop</td><td>State-based Diffusion Policy: FiLM UNet-1D denoiser predicts 16-action chunks conditioned on obs; DDIM sampling (20 steps), execute 8, replan. Gentlest of the grasping policies.</td><td class="mid">5/10</td></tr>
-    <tr><td><strong>PPO</strong></td><td>closed-loop</td><td>SB3 PPO from scratch, 500k steps, zero demos &mdash; shaped reward only (contact payments &minus; time penalty + FC bonus). Tied the bar but shoves boxes (reward doesn't punish displacement).</td><td class="good">7/10</td></tr>
+    <tr><td><strong>PPO</strong></td><td>closed-loop</td><td>SB3 PPO from scratch, 500k steps, zero demos &mdash; shaped reward only (contact payments &minus; time penalty + FC bonus). Trails the bar (7/10 vs 10/10) and shoves boxes (reward doesn't punish displacement).</td><td class="good">7/10</td></tr>
   </table>
   <h3>Data flow</h3>
   <pre>scripted_cage ──demonstrates──▶ demos_cage_fc (130 FC episodes)
@@ -129,17 +149,19 @@
   <p>The honesty constraint on cloning: <strong>BC/diffusion cannot exceed their demonstrator.</strong>
   They train on scripted-cage trajectories, so their ceiling is "the cage, generalized to new scenes."
   PPO is the only approach that can discover anything the scripts can't do
-  (and the only one that needed 500k steps to tie them).</p>
+  (and the only one that needed 500k steps to trail them, 7/10 to 10/10).</p>
 </section>
 
 <section id="results">
   <h2>Benchmark results (seeds 0&ndash;9)</h2>
-  <p>Instruction: <code>grasp the red box in isolation</code>. Headline metric is
-  <strong>force-closure rate</strong>. Source: <code>episodes/compare-0-9.json</code>
+  <p>Benchmark instruction (<code>grasp the red box in isolation</code>) goes to the plan-based
+  planners; the learned policies get the same scenes with the target designated by observation slot
+  (no words). Headline metric is <strong>force-closure rate</strong>.
+  Source: <code>episodes/compare-0-9.json</code>
   (full per-seed breakdown in the generated compare report, linked below).</p>
   <table class="results">
     <tr><th>Planner</th><th>FC rate</th><th>Caged</th><th>Mean steps</th><th>Mean reward</th><th>Isolation &Delta;</th><th>Target disp</th></tr>
-    <tr><td><strong>Heuristic</strong></td><td class="good">0.70</td><td>0.60</td><td>124</td><td>17.7</td><td>+0.000&nbsp;m</td><td>0.241&nbsp;m</td></tr>
+    <tr><td><strong>Heuristic</strong></td><td class="good">1.00</td><td>0.80</td><td>174</td><td>28.6</td><td>+0.000&nbsp;m</td><td>0.192&nbsp;m</td></tr>
     <tr><td><strong>BC</strong></td><td class="good">0.70</td><td>0.30</td><td>122</td><td>13.2</td><td>&minus;0.101&nbsp;m</td><td>0.175&nbsp;m</td></tr>
     <tr><td><strong>PPO</strong></td><td class="good">0.70</td><td>0.60</td><td>64</td><td>3.7</td><td>+0.264&nbsp;m</td><td>0.650&nbsp;m</td></tr>
     <tr><td><strong>Diffusion</strong></td><td class="mid">0.50</td><td>0.10</td><td>166</td><td>8.8</td><td>&minus;0.059&nbsp;m</td><td>0.155&nbsp;m</td></tr>
@@ -148,9 +170,9 @@
   <ul class="notes">
     <li>Preconditions rate 1.00 for all (property of the seeds, not the planners); singulation rate 0.00 everywhere &mdash; no push has produced a kept isolation gain on these seeds yet.</li>
     <li>Reward is <em>not</em> comparable across planners (learned ones accumulate contact payments differently); steps roughly is.</li>
-    <li>Seed 0 beats every planner; seeds 2/5/7 fall to all four capable ones.</li>
-    <li>VLM canary (seeds 2, 4): 1/2 at $0 via ledger cache. VLM singulation never executes yet &mdash; planned pushes prove kinematically unreachable and get reverted/skipped, so VLM &asymp; heuristic wherever the cage alone decides.</li>
-    <li>Seed-4 cage bulldozes from every side (target knocked 0.59&nbsp;m, zero contacts) while BC grasps the same scene &mdash; trajectory, not clutter, is at fault; under diagnosis.</li>
+    <li>Seed 0 now falls only to the retried heuristic; seeds 2/5/7 fall to all four capable ones.</li>
+    <li>VLM canary (seeds 2, 4): 2/2 at $0 via ledger cache. VLM singulation never executes yet on these seeds &mdash; planned pushes prove kinematically unreachable and get reverted/skipped, so VLM &asymp; heuristic wherever the cage alone decides. Strict VLM win on the adjacent preset: 1/1 vs heuristic 0/1 (kept shear unlocks the cage).</li>
+    <li>Seed-4 cage used to bulldoze from every side (target knocked 0.59&nbsp;m, zero contacts) while BC grasped the same scene &mdash; diagnosed as the opening yaw dominoing blue into red; the tucked snapshot-and-retry second entry now grasps it (retry success story in the demos below).</li>
   </ul>
 </section>
 
@@ -165,9 +187,10 @@
     (heuristic, BC, and PPO caged; diffusion FC). The README's singulation story seed.</figcaption>
   </figure>
   <figure>
-    <img src="assets/seed-4-panels.gif" alt="Seed 4: heuristic bulldozes the target while BC grasps it">
-    <figcaption><strong>Seed 4 &mdash; the diagnosed failure.</strong> The scripted cage bulldozes the target
-    0.59&nbsp;m with zero contacts &mdash; identically from every approach side &mdash; while BC grasps the same scene.</figcaption>
+    <img src="assets/seed-4-panels.gif" alt="Seed 4: the retried heuristic grasps after the first entry misses">
+    <figcaption><strong>Seed 4 &mdash; the retry success story.</strong> The first cage entry used to bulldoze
+    the target 0.59&nbsp;m with zero contacts; now the tucked snapshot-and-retry second entry grasps it
+    from a pristine restore.</figcaption>
   </figure>
   <figure>
     <img src="assets/seed-5-panels.gif" alt="Seed 5: every planner grasps, diffusion cages">
