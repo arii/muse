@@ -16,6 +16,14 @@ close), not a single end-effector pose.
 
 Control: env.step(q) drives position actuators toward q with 20 physics
 substeps per call, so motions are quasi-static and contacts resolve.
+
+Push approach (2026-11-04, measured): joint interpolation to the push
+start sweeps links through dense clusters (surround s0: red moved 0.12 m
+before the push began), tripping the keep-rule. Cartesian lines, staged
+via detours, and quasi-static micro-stepping were all tried and all still
+bulldoze — link segments provably cross box discs, so the fix is
+approach-aware push sequencing, not path shape. Telemetry: push()
+returns (q, approach) and the push-log records per-push travel.
 """
 import numpy as np
 
@@ -209,13 +217,24 @@ def push(env, start_xy, theta, dist, frames, n_waypoints=12, settle=3,
     wrist is unreachable the code falls back to plain ik_dls — the
     old crossing behaviour — and singulate's revert logic is the
     guardrail for those pushes.
+
+    Approach limitation (2026-11-04, measured): joint interpolation
+    to the start pose sweeps links through dense clusters (surround
+    s0: red moved 0.12 m before the push began). Cartesian lines,
+    staged via detours, and 100-step quasi-static legs were all
+    tried and all still bulldoze — geometry, not dynamics: link
+    segments provably cross box discs (link1 7 cm through the east
+    neighbor; start pose itself grazes red). No single-push
+    approach path-shape fixes this; the fix is approach-aware push
+    sequencing (clear the corridor first). Returns (q_final,
+    approach) with approach in {"interp", "dls"} for push-log
+    telemetry.
     """
     direction = np.array([np.cos(theta), np.sin(theta)])
     start = np.asarray(start_xy, dtype=float)
     q_oriented = ik_tip_oriented(start, theta, _qpos(env))
     if q_oriented is not None:
-        # Approach to the oriented start pose (joint interpolation,
-        # like move_tip, but to the oriented q, not the DLS q).
+        approach = "interp"
         q_cur = _qpos(env)
         for a in np.linspace(0.0, 1.0, 25):
             _, _, _, info = env.step((1 - a) * q_cur + a * q_oriented)
@@ -229,6 +248,7 @@ def push(env, start_xy, theta, dist, frames, n_waypoints=12, settle=3,
                 frame_info.append(frame_status(info))
         q = q_oriented
     else:
+        approach = "dls"
         move_tip(env, start_xy, frames, frame_info=frame_info)
         q = _qpos(env)
     for i in range(1, n_waypoints + 1):
@@ -240,7 +260,7 @@ def push(env, start_xy, theta, dist, frames, n_waypoints=12, settle=3,
             frames.append(env.render())
             if frame_info is not None:
                 frame_info.append(frame_status(info))
-    return q
+    return q, approach
 
 
 def reactive_grasp(env, target_xy, frames, frame_info=None,

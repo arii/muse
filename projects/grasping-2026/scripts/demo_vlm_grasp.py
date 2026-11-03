@@ -196,8 +196,8 @@ def scripted_singulate(env, target_idx, frames, push_radius=0.35,
         nframes0 = len(frames)
         ninfo0 = len(frame_info) if frame_info is not None else 0
         p0 = {o["index"]: xy(o["index"]) for o in env.objects}
-        push(env, start_xy, theta, dist, frames,
-             frame_info=frame_info)
+        _, approach = push(env, start_xy, theta, dist, frames,
+                         frame_info=frame_info)
         # evaluate: keep the push only if it moved the DISTRACTOR away
         # (not the target), without launching anything
         iso_new = env.target_isolation()
@@ -229,6 +229,7 @@ def scripted_singulate(env, target_idx, frames, push_radius=0.35,
                     "distance_m": round(float(dist), 2),
                     "status": "reverted",
                     "mode": mode,
+                    "approach": approach,
                     "iso_after": round(float(iso_new), 3),
                     "tmove_m": round(tmove, 3),
                     "dmove_m": round(dmove, 3),
@@ -252,6 +253,7 @@ def scripted_singulate(env, target_idx, frames, push_radius=0.35,
                     "distance_m": round(float(dist), 2),
                     "status": "kept",
                     "mode": mode,
+                    "approach": approach,
                     "iso_after": round(float(iso_new), 3),
                     "tmove_m": round(tmove, 3),
                     "dmove_m": round(dmove, 3),

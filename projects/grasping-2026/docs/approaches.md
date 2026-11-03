@@ -416,18 +416,22 @@ diagnosed with probes:
    push has produced a kept isolation gain on the benchmark
    seeds. Adversarial presets (surround/row/gate) exist for
    stress-testing this once pushes land.
-4. **Push execution bulldozes the target in dense scenes.**
-   Surround s0: a 0.06 m nudge moves red 0.40+ m (6× the
-   command — arm motion through the 8 mm cluster, not the push
-   itself), the keep-rule correctly reverts, isolation stays
-   flat, ladder fails all 4. Order- and effort-independent
-   (4 push orders revert the same pushes; nudge/clear/shove all
-   revert them too); decoy s0 obj2 is the same mechanism
-   (0.22 m target motion).
-   Push-log entries now carry `tmove_m`/`dmove_m` telemetry.
-   Fix: collision-aware push approach — the characterization
-   test `test_surround_pushes_revert_on_target_bulldoze` is the
-   red-to-green target for that work.
+4. **Push approach bulldozes the target in dense scenes.**
+   Surround s0: red moves 0.12 m during the 33-step approach,
+   before the push begins (execution adds ~0.01) — a 0.06 m
+   nudge totals 0.40+ m target motion, the keep-rule correctly
+   reverts, isolation stays flat, ladder fails all 4. Ruled
+   out, all measured: push order, push effort, Cartesian-line
+   approach (reshuffles, one regression), staged via detour
+   (worse: 0.73 m — travel length dominates), quasi-static
+   micro-stepping (worse: sustained drag). Geometry, not
+   dynamics: link segments provably cross box discs (link1
+   7 cm through the east neighbor; push start pose grazes red),
+   so no single-push path shape can fix it — the fix is
+   approach-aware push sequencing (clear the corridor first).
+   Push-log entries carry `approach` + `tmove_m`/`dmove_m`
+   telemetry; `test_surround_pushes_revert_on_target_bulldoze`
+   is the red-to-green target.
 
 ## 9. Code map
 

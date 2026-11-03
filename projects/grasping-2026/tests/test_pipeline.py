@@ -1856,6 +1856,7 @@ def test_singulate_effort_sets_push_distance(monkeypatch):
 
     def fake_push(env_, start_xy, theta, dist, frames, frame_info=None):
         calls.append((np.asarray(start_xy, dtype=float), theta, dist))
+        return None, "interp"
 
     monkeypatch.setattr(demo, "push", fake_push)
     # The oriented-start guard is covered elsewhere; this test is
