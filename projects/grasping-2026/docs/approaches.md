@@ -256,6 +256,7 @@ top, per-seed side-by-side GIFs below. Metrics glossary:
 | VLM (canary 2,4) | 2/2 | inherits cage ladder; $0 via cache |
 | VLM (seeds 0-9) | 9/10 | lone miss seed 8 (wrong side); ladder fixes |
 | VLM (adjacent 7) | 1/1, 1 attempt | push saves 3 ladder rungs vs push-free |
+| VLM (sandwich 9) | 1/1 vs heur 0/1 | strict win restored: kept shear, first-try cage |
 
 Seed 0 falls only to the scripted pair (heuristic + VLM); seeds
 2/5/7 fall to all capable ones. Three live failure modes, all
@@ -273,6 +274,9 @@ diagnosed with probes:
    VLM-worse case — seed 8, where side=left misses twice and near
    wins first try — fixed by the side ladder (mirror side after
    both entries fail), which restores structural VLM >= heuristic.
+   The strict-win frontier is now the `sandwich` preset (two-sided
+   15 mm, seed 9): VLM shoves both neighbors (blue kept) and grasps
+   first try while the push-free ladder fails all 4 rungs.
    At 8 mm multi-sided gaps (surround/row/gate) one side always
    reverts, so min-isolation never crosses the gate — VLM == 0/3
    there too, with correct plans and insufficient primitive.

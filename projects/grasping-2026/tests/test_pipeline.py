@@ -1863,6 +1863,45 @@ def test_adjacent_preset_push_saves_three_rungs():
     assert pushed["pushes"] and pushed["pushes"][0]["status"] == "kept"
 
 
+def test_sandwich_preset_is_vlm_win_regime():
+    """Sandwich seed 9: push-free ladder fails all 4, pushed wins.
+
+    Two-sided 15 mm clutter is the strict-win frontier after the
+    side ladder saturated adjacent: no-push exhausts both sides x
+    both entries, while shoving both neighbors (blue kept) unlocks
+    the grasp. Hand-fed plans lock the executor half without API;
+    the live VLM demo (same scene, VLM-planned pushes) is the
+    planning half.
+    """
+    from env.scenes import apply_scene
+    from scripts.demo_vlm_grasp import run_episode
+
+    def run(pushes):
+        env = WholeArmGraspEnv(seed=9)
+        env.reset(seed=9)
+        env.target_index = 0
+        apply_scene(env, "sandwich")
+        plan = {"grasp_target": 0, "push_away": pushes,
+                "approach_side": "near", "rationale": "t"}
+        m, _, _ = run_episode(env, plan, "grasp the red box",
+                              verbose=False)
+        return m
+
+    env = WholeArmGraspEnv(seed=9)
+    env.reset(seed=9)
+    apply_scene(env, "sandwich")
+    for i in (1, 3):  # full sandwich formed on seed 9
+        d = float(np.linalg.norm(env._obj_xy(i) - env._obj_xy(0)))
+        assert d < 0.15, (i, d)
+    alone = run([])
+    assert alone["force_closure"] is False
+    assert alone["cage_trace"]["attempts"] == 4
+    pushed = run([{"index": 1, "effort": "shove"},
+                  {"index": 3, "effort": "shove"}])
+    assert pushed["force_closure"] is True
+    assert any(p["status"] == "kept" for p in pushed["pushes"])
+
+
 def test_empty_push_away_means_no_pushes():
     """Regression (2026-10-28 rerun): run_episode with push_away=[]
     must push nothing, even on a crowded seed where the old

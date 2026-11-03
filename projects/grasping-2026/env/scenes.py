@@ -5,8 +5,10 @@ distractors at fingertip-scale gaps (< 25 mm) around the target so
 singulation is NECESSARY. The 8 mm presets (surround/row/gate) beat
 the current push primitive (revert cap) — the heuristic is expected
 to fail them honestly today; they measure future singulation work.
-The 10 mm single-neighbor `adjacent` preset is the VLM-win regime:
-cage-alone fails both entries, shear-then-cage wins.
+The 10 mm single-neighbor `adjacent` preset was the VLM-win regime
+until the side ladder grasped it push-free; the `sandwich` preset
+(two-sided 15 mm clutter) is the current frontier: the push-free
+ladder fails all 4 rungs on seed 9, push-then-ladder wins.
 
 Poses derive from the reset box sizes, so each (seed, preset) scene
 is deterministic. Yaws are 0 (axis-aligned). All spots clear the
@@ -14,7 +16,7 @@ reset-pose arm (straight along +x).
 """
 import math
 
-PRESETS = ("surround", "row", "gate", "adjacent")
+PRESETS = ("surround", "row", "gate", "adjacent", "sandwich")
 
 _GAP = 0.008  # 8 mm corner gaps: singulation-necessary clutter
 
@@ -73,6 +75,34 @@ def _layout(env, preset):
             if clear:
                 return {1: (bx, by)}
         raise ValueError("adjacent preset: no overlap-free neighbor spot")
+    if preset == "sandwich":
+        # Two-sided medium clutter: blue 15 mm east + yellow 15 mm
+        # west of red's reset spot (green untouched). Each neighbor
+        # falls back to the other side when blocked, else stays at
+        # reset (seed 2 degrades: green sits east). Seed 9 forms the
+        # full sandwich and is the VLM-win regime.
+        t = env._obj_xy(0)
+        sx0, _ = _half(env, 0)
+        # Red excluded: the 15 mm face gap is exact by construction
+        # (circumradii legitimately overlap at that gap).
+        occupied = [(env._obj_xy(2), _half(env, 2))]
+
+        def fits(xy, i):
+            ri = math.hypot(*_half(env, i))
+            return all(math.hypot(xy[0] - q[0], xy[1] - q[1])
+                       >= ri + math.hypot(*h) + 0.005
+                       for q, h in occupied)
+
+        out = {}
+        for i, dx in ((1, 1.0), (3, -1.0)):
+            sxi, _ = _half(env, i)
+            for sign in (dx, -dx):
+                xy = (t[0] + sign * (sx0 + sxi + 0.015), t[1])
+                if fits(xy, i):
+                    out[i] = xy
+                    occupied.append((xy, _half(env, i)))
+                    break
+        return out
     if preset == "gate":
         # W neighbor plus a two-deep clutter chain east of the target.
         tx, ty = 0.30, 0.14
