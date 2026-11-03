@@ -255,6 +255,14 @@ def run_one(seed, planner, instruction, ppo_model=None, diffusion_model=None,
         if planner == "heuristic":
             from perception.grounding import HeuristicLabeller
             labeller = HeuristicLabeller()
+        elif planner == "vlm":
+            # PURE VLM: construct the API labeller directly, never via
+            # make_labeller's heuristic fallback — that would label
+            # heuristic trajectories "vlm". Without a key/model this
+            # raises a clear error into planner_error (instead of an
+            # AttributeError on last_cache_hit).
+            from perception.grounding import NebiusVLMLabeller
+            labeller = NebiusVLMLabeller()
         else:
             from perception.grounding import make_labeller
             labeller = make_labeller()

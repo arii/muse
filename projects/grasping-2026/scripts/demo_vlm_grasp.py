@@ -360,6 +360,13 @@ def scripted_cage(env, target_idx, frames, frame_info=None,
     # If starting from a post-push configuration (or crossing theta_t),
     # tuck link2/link3 to the outer (-s) side so the arm stays inside
     # r <= 0.30m while rotating q1 to face, avoiding sweeping through the target.
+    # NOTE: always-tuck was tried 2026-11-03 for the seed-4 bulldoze
+    # (sweep dominoes blue into red, 0.59 m, zero arm contact) but
+    # regressed 7/10 -> 6/10 (fixed 0/4/9, broke canary 2 plus 5/7/8:
+    # arrival-path changes reshuffle wrap outcomes). The tucked and
+    # untucked entries are complementary (union 10/10) — a snapshot +
+    # retry second entry is the principled version of this, not a
+    # trajectory swap. See docs/approaches.md §8.
     if np.linalg.norm(q_cur) > 0.05:
         waypoints.append(([q_cur[0], -2.2 * s, -2.2 * s], 20))
         waypoints.append(([face, -2.2 * s, -2.2 * s], 25))

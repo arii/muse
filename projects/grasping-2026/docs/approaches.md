@@ -268,8 +268,13 @@ ones. Three live failure modes, all diagnosed with probes:
 2. **Seed-4 cage bulldozes from every side.** The scripted cage
    knocks the target 0.59 m with zero final contacts, identically
    for near/left/right/far entries — while BC grasps the same
-   scene. The trajectory, not the clutter or the plan, is at
-   fault; under diagnosis.
+   scene. Diagnosed: the opening yaw sweeps extended links through
+   blue, which dominoes into red before the arm ever touches it.
+   Always-tucking before the yaw was tried and reverted (7/10 →
+   6/10: fixed 0/4/9, broke canary 2 plus 5/7/8 — arrival-path
+   edits reshuffle wrap outcomes). The tucked/untucked entries are
+   complementary (union 10/10), so a snapshot-and-retry second
+   entry is the principled fix, not a trajectory swap.
 3. **Singulation rate 0.00 everywhere.** Follows from (1): no
    push has produced a kept isolation gain on the benchmark
    seeds. Adversarial presets (surround/row/gate) exist for

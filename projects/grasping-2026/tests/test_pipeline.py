@@ -828,6 +828,24 @@ def test_reactive_episode_runs():
         assert key in row, key
 
 
+def test_vlm_without_key_fails_clean_not_heuristic(monkeypatch):
+    """Pure VLM: no key means a clear error, never a heuristic run.
+
+    run_one("vlm") must not fall back to HeuristicLabeller (that
+    would label heuristic trajectories "vlm"). Without
+    NEBIUS_API_KEY/NEBIUS_VLM_MODEL the row carries the missing
+    credential error — not an AttributeError on last_cache_hit.
+    """
+    from scripts.compare_planners import run_one
+    monkeypatch.delenv("NEBIUS_API_KEY", raising=False)
+    monkeypatch.delenv("NEBIUS_VLM_MODEL", raising=False)
+    row, _ = run_one(0, "vlm", "grasp the red box")
+    assert row["planner_error"] is not None
+    assert "last_cache_hit" not in row["planner_error"]
+    assert ("NEBIUS_VLM_MODEL" in row["planner_error"]
+            or "NEBIUS_API_KEY" in row["planner_error"])
+
+
 def test_compare_run_one_returns_frames():
     """run_one returns (row, frames) for the compare GIF path."""
     from scripts.compare_planners import run_one
