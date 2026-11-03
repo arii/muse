@@ -1283,6 +1283,166 @@ def test_gym_wrapper_success_bonus():
     assert (r, term) == (21.5, True)
 
 
+def test_tile_coder_deterministic_bounded_sharing():
+    """TileCoder: deterministic, in-range, neighbors share tiles."""
+    from scripts.tile_coding import TileCoder
+    coder = TileCoder(lows=[-2.6] * 3 + [-0.75] * 2 + [-np.pi],
+                      highs=[2.6] * 3 + [0.75] * 2 + [np.pi],
+                      tiles=[5, 5, 5, 6, 6, 4], tilings=8, wrap=(5,))
+    s = np.array([0.1, -0.2, 0.3, 0.1, -0.1, 0.5])
+    a = coder.tiles_for(s)
+    assert a.shape == (8,)
+    assert a.min() >= 0 and a.max() < coder.n_tiles
+    assert (coder.tiles_for(s) == a).all()
+    assert len(set(a.tolist())) == 8  # one tile per tiling
+    near = coder.tiles_for(s + 1e-4)
+    assert (near == a).sum() >= 6  # nearby states generalize
+    far = coder.tiles_for(s + np.array([2.0, 0, 0, 0, 0, 0]))
+    assert (far == a).sum() <= 2  # distant states (mostly) differ
+
+
+def test_tile_coder_yaw_wraps():
+    """TileCoder: wrapped yaw dim identifies -pi and +pi."""
+    from scripts.tile_coding import TileCoder
+    coder = TileCoder(lows=[-np.pi], highs=[np.pi], tiles=[4],
+                      tilings=4, wrap=(0,))
+    a = coder.tiles_for([-np.pi + 1e-6])
+    b = coder.tiles_for([np.pi - 1e-6])
+    assert (a == b).sum() >= 3
+    acts = coder.all_actions()
+    assert acts.shape == (27, 3)
+    assert set(np.unique(acts)) == {-0.1, 0.0, 0.1}
+
+
+def test_thesis_reward_schedule():
+    """thesis_reward: exact S3.2 schedule (0/-100/-0.25/-0.5/-1)."""
+    import pytest
+    from env.gym_wrapper import GraspGymWrapper
+    with pytest.raises(ValueError, match="cannot combine"):
+        GraspGymWrapper(seed=0, thesis_reward=True, fail_penalty=1.0)
+    env = GraspGymWrapper(seed=0, max_steps=4, thesis_reward=True)
+    env.reset(seed=0)
+    real_step = env.env.step
+
+    def canned(fc, links):
+        def step(action, substeps=20):
+            obs, _, done, info = real_step(action, substeps)
+            info = dict(info)
+            info["force_closure"] = fc
+            info["links_touching"] = links
+            return obs, 9.9, done, info  # base ignored under thesis
+        return step
+
+    env.env.step = canned(False, 0)
+    _, r, term, _, _ = env.step(np.zeros(3))
+    assert (r, term) == (-1.0, False)
+    env.env.step = canned(False, 1)
+    _, r, _, _, _ = env.step(np.zeros(3))
+    assert r == -0.5
+    env.env.step = canned(False, 3)
+    _, r, _, _, _ = env.step(np.zeros(3))
+    assert r == -0.25
+    env.env.step = canned(True, 2)
+    _, r, term, _, _ = env.step(np.zeros(3))
+    assert (r, term) == (0.0, True)
+
+
+def test_thesis_reward_failures():
+    """thesis_reward: out-of-reach and timeout both pay -100."""
+    from env.gym_wrapper import GraspGymWrapper
+    env = GraspGymWrapper(seed=0, max_steps=1, thesis_reward=True)
+    env.reset(seed=0)
+    env.env.set_object_pose(0, (0.90, 0.0), yaw=0.0)
+    real_step = env.env.step
+
+    def canned(action, substeps=20):
+        obs, _, done, info = real_step(action, substeps)
+        return obs, 9.9, done, dict(info)
+
+    env.env.step = canned
+    _, r, term, _, info = env.step(np.zeros(3))
+    assert (r, term) == (-100.0, True)
+    assert info["failed_out_of_reach"] is True
+    env2 = GraspGymWrapper(seed=0, max_steps=1, thesis_reward=True)
+    env2.reset(seed=0)
+    real2 = env2.env.step
+
+    def canned2(action, substeps=20):
+        obs, _, done, info = real2(action, substeps)
+        return obs, 9.9, done, dict(info)
+
+    env2.env.step = canned2
+    _, r, term, trunc, info = env2.step(np.zeros(3))
+    assert (r, term, trunc) == (-100.0, False, True)
+    assert info["failed_timeout"] is True
+    env3 = GraspGymWrapper(seed=0, max_steps=1, thesis_reward=True,
+                           thesis_timeout=0.0)
+    env3.reset(seed=0)
+    real3 = env3.env.step
+
+    def canned3(action, substeps=20):
+        obs, _, done, info = real3(action, substeps)
+        return obs, 9.9, done, dict(info)
+
+    env3.env.step = canned3
+    _, r, term, trunc, info = env3.step(np.zeros(3))
+    assert (r, term, trunc) == (0.0, False, True)
+    assert info["failed_timeout"] is True
+
+
+def test_sarsa_update_moves_q_toward_target():
+    """LinearSarsa: one update shrinks the TD error on (s, a)."""
+    from scripts.tile_coding import TileCoder
+    from scripts.train_sarsa import LinearSarsa
+    coder = TileCoder(lows=[-1.0], highs=[1.0], tiles=[4],
+                      tilings=4)
+    agent = LinearSarsa(coder, n_actions=3, alpha=0.5, gamma=1.0,
+                        seed=0)
+    s, ns = np.array([0.1]), np.array([0.2])
+    before = agent.q_values(s)[1]
+    agent.update(s, 1, 1.0, ns, 2, False)
+    after = agent.q_values(s)[1]
+    assert after > before  # TD target 1.0 > Q=0 pulls Q up
+    assert agent.q_values(ns)[0] == 0.0  # untouched state unchanged
+
+
+def test_tile_state_contact_dims():
+    """tile_state: contact dims appended iff requested; touch varies."""
+    from scripts.train_sarsa import make_coder, tile_state
+    coder6 = make_coder(8, [7, 7, 7, 9, 9, 5], 4096)
+    coder8 = make_coder(8, [7, 7, 7, 9, 9, 5], 4096, True)
+    obs = np.zeros(16)
+    s6 = tile_state(obs, 0.0)
+    assert s6.shape == (6,)
+    assert coder6.tiles_for(s6).shape == (8,)
+    s8a = tile_state(obs, 0.0, touch=0, include_contact=True)
+    s8b = tile_state(obs, 0.0, touch=2, enclosed=True,
+                     include_contact=True)
+    assert s8a.shape == (8,)
+    assert (coder8.tiles_for(s8a) != coder8.tiles_for(s8b)).any()
+
+
+def test_sarsa_traces_propagate_one_step_back():
+    """SARSA(λ): second update also moves Q at the first state."""
+    from scripts.tile_coding import TileCoder
+    from scripts.train_sarsa import LinearSarsa
+    coder = TileCoder(lows=[-1.0], highs=[1.0], tiles=[8],
+                      tilings=4)
+    traced = LinearSarsa(coder, n_actions=2, alpha=0.5, gamma=1.0,
+                         lmbda=0.9, seed=0)
+    s0, s1, s2 = np.array([-0.5]), np.array([0.0]), np.array([0.5])
+    traced.update(s0, 0, 0.0, s1, 1, False)
+    q0 = traced.q_values(s0)[0]
+    traced.update(s1, 1, 1.0, s2, 0, False)
+    assert traced.q_values(s0)[0] > q0  # trace carries credit back
+    onestep = LinearSarsa(coder, n_actions=2, alpha=0.5, gamma=1.0,
+                          lmbda=0.0, seed=0)
+    onestep.update(s0, 0, 0.0, s1, 1, False)
+    q0 = onestep.q_values(s0)[0]
+    onestep.update(s1, 1, 1.0, s2, 0, False)
+    assert onestep.q_values(s0)[0] == q0  # λ=0: no propagation
+
+
 def test_fail_penalty_timeout():
     """Timeout with fail_penalty takes -penalty (thesis failure)."""
     from env.gym_wrapper import GraspGymWrapper

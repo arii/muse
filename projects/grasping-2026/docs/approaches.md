@@ -110,7 +110,7 @@ grasp wins) and `+20` on the force-closure step (without it PPO
 discovered grasps and then *unlearned* them, because ending the
 episode forfeited the camp reward).
 
-## 5. The six approaches
+## 5. The seven approaches
 
 They fall into two families. **Plan-based** approaches
 (heuristic/VLM) run open-loop scripts: plan once, push, then execute
@@ -202,6 +202,66 @@ unlearned them. Price of RL here: high displacement (0.65 m) —
 it shoves boxes around and still gets paid, since the reward
 doesn't punish displacement.
 
+### SARSA(λ) — the thesis learner, ported
+
+`scripts/train_sarsa.py` + `scripts/tile_coding.py`: linear
+SARSA(λ) with hashed tile coding, the closest port of the Anders
+(2014) learner. 27 discrete joint-increment actions ({−0.1, 0,
++0.1}³ per step), tile-coded linear Q over 6 continuous features
+(q₀, q₁, q₂, red-x, red-y, red-yaw), the exact thesis reward
+schedule (goal 0, failures −100, contacts −0.25/−0.5, else −1
+per step via `thesis_reward=True`), ε-greedy, accumulating
+traces (λ = 0.9). (Tiling, coords) pairs hash into a fixed
+memory à la Sutton & Barto §12.7, so resolution (7³×9²×5) stays
+affordable at 4096 buckets. Differs from the thesis only in the
+plant (MuJoCo top-down scene instead of Box2D) and episode
+length (60 steps).
+
+What porting it taught us (all measured, seeds 0–29 probes):
+
+- **The contact desert.** From home starts, a random joint walk
+  touches the red block in ~1/10 episodes — the −0.25/−0.5
+  shaping is nearly absent, so there is almost no gradient to
+  climb. The thesis never faced this (single object, dense
+  contact). Fix, straight from the thesis: noise on the initial
+  position (`--random-init 2.0` samples starting joints), which
+  raises target-touch episodes to ~1/3.
+- **Optimism learns to hide.** With γ = 1 and −100 timeouts,
+  true Q ≈ −160 while weights start at 0; timeout (the 97%
+  outcome) smears −100 over every trail via traces, so explored
+  regions go deeply negative and the greedy policy surfs the
+  optimism frontier into unvisited corners (3000 eps, α = 1.0:
+  weights ∈ [−883, +70], greedy touches 2/10 vs random 4/10).
+  Near-starts (`--near-start 0.25`: tip within 25 cm of red)
+  restore dense contact and 4× the training FC rate (12–14%).
+- **FC is reachable by chance.** ~3% of random-init training
+  episodes stumble into force closure, so the 0-terminal signal
+  exists in the training distribution — the agent's job is to
+  carve those accidents into a greedy corridor.
+- **Raw pose features are sub-tile.** XY tiles span ~17 cm but
+  contact happens within ~2 cm: touching vs 10 cm away often
+  share all tiles, so the shaping signal is unlearnable noise.
+  `--contact-state` appends exact touch-count + enclosed dims
+  (same fix PPO needed as `contact_obs`), letting Q represent
+  "on contact, tighten".
+
+Result: **negative — 0/10 eval FC in all five configurations**
+(five configs × 3000 episodes × 60 steps: home/random-init/
+near starts × 6/8 features × −100/0 timeout). Greedy never
+beats chance
+(near-start in-distribution: 0–2/20 FC vs random 1–2/20), and
+two configs learn to *avoid* contact (optimism surfing). The
+port is faithful and the machinery verified (tile/traces/unit
+tests all pass) — the failure is representational: FC value
+depends on sub-tile geometry (2 cm alignments under ~17 cm
+tiles) that uniform hashed tiles alias away, and 85–97%
+timeouts let the −100 cliff (or converged pessimism) drown the
+shaping gradient. Takeaway for the thesis revisit: the 2014
+result depended on dense contact in a small workspace; on the
+harder cluttered problem, linear tiles don't scale — the MLP
+in PPO (7/10) earns its keep by learning adaptive nonlinear
+features. See §8.
+
 ## 6. How they relate (data flow)
 
 ```text
@@ -217,9 +277,11 @@ The honesty constraint on cloning: **BC/diffusion cannot exceed
 their demonstrator.** They train on scripted-cage trajectories, so
 their ceiling is "the cage, generalized to new scenes" — worth
 remembering when BC ties heuristic at 7/10: it learned the script,
-it didn't invent grasping. PPO is the only approach that can
-discover anything the scripts can't do (and the only one that
-needed 500k steps to tie them).
+it didn't invent grasping. PPO is the only approach that
+discovered anything the scripts can't do; SARSA(λ) tried from
+reward alone too and learned nothing (0/10 × 5 configs) — the
+cluttered problem defeats linear tiles, which is exactly why
+the learned-features half of this project exists.
 
 ## 7. Reading the comparison report
 
@@ -257,6 +319,7 @@ top, per-seed side-by-side GIFs below. Metrics glossary:
 | VLM (seeds 0-9) | 9/10 | lone miss seed 8 (wrong side); ladder fixes |
 | VLM (adjacent 7) | 1/1, 1 attempt | push saves 3 ladder rungs vs push-free |
 | VLM (sandwich 9) | 1/1 vs heur 0/1 | strict win restored: kept shear, first-try cage |
+| SARSA(λ) thesis port | 0/10 ×5 configs | negative result: greedy never beats chance (see §5) |
 
 Seed 0 falls only to the scripted pair (heuristic + VLM); seeds
 2/5/7 fall to all capable ones. Three live failure modes, all

@@ -52,6 +52,11 @@ checkpoints stay loadable under the defaults):
   -penalty. The thesis used -100 with 35-step episodes
   (pass --max-steps 35 to match). Default 0 = fully off: no
   penalty, no extra termination, no new info keys.
+- thesis_reward: replace the whole schedule with the exact thesis
+  one (S3.2) for the SARSA port: goal 0; failure (out-of-reach,
+  timeout) -100; >=2 contacts -0.25; 1 contact -0.5; else -1.
+  Mutually exclusive with step_penalty/success_bonus/fail_penalty
+  (raises). Default off.
 """
 import math
 
@@ -67,7 +72,8 @@ class GraspGymWrapper(gym.Env):
     def __init__(self, seed=None, target_index=0, max_steps=200,
                  n_objects=4, contact_obs=False, step_penalty=0.0,
                  max_delta_q=None, success_bonus=0.0,
-                 fail_penalty=0.0):
+                 fail_penalty=0.0, thesis_reward=False,
+                 thesis_timeout=-100.0):
         super().__init__()
         self.env = WholeArmGraspEnv(n_objects=n_objects, seed=seed)
         self.target_index = target_index
@@ -76,6 +82,17 @@ class GraspGymWrapper(gym.Env):
         self.step_penalty = step_penalty
         self.max_delta_q = max_delta_q
         self.fail_penalty = fail_penalty
+        self.thesis_reward = thesis_reward
+        # Timeout price under thesis_reward (default: exact thesis
+        # -100). Lowered only for ablations: with sparse contact
+        # the modal outcome is timeout, and -100 smears over every
+        # trail and drowns the shaping gradient (see train_sarsa).
+        self.thesis_timeout = float(thesis_timeout)
+        if thesis_reward and (step_penalty or success_bonus
+                              or fail_penalty):
+            raise ValueError("thesis_reward replaces the reward "
+                             "schedule; it cannot combine with "
+                             "step_penalty/success_bonus/fail_penalty")
         # success_bonus: added on force-closure steps (train-only
         # shaping; eval/compare use 0 so reports stay comparable).
         # The base +2.0 FC bonus never compensates a forfeited 200-step
@@ -158,6 +175,23 @@ class GraspGymWrapper(gym.Env):
             elif truncated and not terminated:
                 shaped -= self.fail_penalty
                 info["failed_timeout"] = True
+        if self.thesis_reward:
+            # Exact thesis schedule (S3.2): goal 0; failure -100;
+            # contacts -0.25/-0.5; else -1. Contact locations are the
+            # touching links; out-of-reach reuses the 0.75 m rule.
+            tpos = self.env._obs()["objects"][self.target_index][:2]
+            oor = float(np.linalg.norm(tpos)) > 0.75
+            if terminated:
+                shaped = 0.0
+            elif oor or truncated:
+                terminated = oor
+                truncated = (not oor) and truncated
+                shaped = (-100.0 if oor else self.thesis_timeout)
+                info["failed_out_of_reach" if oor
+                     else "failed_timeout"] = True
+            else:
+                n = info["links_touching"]
+                shaped = -0.25 if n >= 2 else (-0.5 if n == 1 else -1.0)
         return (self._flat_obs(info), shaped, terminated, truncated, info)
 
     def render(self):
