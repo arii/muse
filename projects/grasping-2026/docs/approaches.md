@@ -268,22 +268,28 @@ What porting it taught us (all measured, seeds 0–29 probes):
   (same fix PPO needed as `contact_obs`), letting Q represent
   "on contact, tighten".
 
-Result: **negative — 0/10 eval FC in all five configurations**
-(five configs × 3000 episodes × 60 steps: home/random-init/
-near starts × 6/8 features × −100/0 timeout). Greedy never
-beats chance
-(near-start in-distribution: 0–2/20 FC vs random 1–2/20), and
-two configs learn to *avoid* contact (optimism surfing). The
-port is faithful and the machinery verified (tile/traces/unit
-tests all pass) — the failure is representational: FC value
+Result: **negative — 0/10 eval FC in all six configurations**
+(3000 episodes × 60 steps each: home/random-init/near starts ×
+6/8 features × −100/0 timeout × absolute/relative xy). Greedy never
+beats chance at home-start eval; the sixth config (tip-relative
+xy + contact, `--relative`) shows the first sign of life
+*within* the near-start training distribution: 13/60 FC vs
+random 7/60 (one-sided p ≈ 0.07, suggestive not significant),
+driven by better contact→FC conversion (fewer touch steps,
+identical time-to-first-touch) — i.e. the exact contact dims
+support a weak reactive close, while coarse tiles still cannot
+servo the approach. The 2014 result depended on dense contact
+in a small workspace; on the harder cluttered problem, linear
+tiles don't scale — the MLP in PPO (7/10) earns its keep by
+learning adaptive nonlinear features. (Absolute-xy configs:
+0–2/20 FC vs random 1–2/20 in-distribution, and two learn to
+*avoid* contact via optimism surfing.) The port is faithful
+and the machinery verified (tile/traces/unit tests all pass) —
+the failure is representational: FC value
 depends on sub-tile geometry (2 cm alignments under ~17 cm
 tiles) that uniform hashed tiles alias away, and 85–97%
 timeouts let the −100 cliff (or converged pessimism) drown the
-shaping gradient. Takeaway for the thesis revisit: the 2014
-result depended on dense contact in a small workspace; on the
-harder cluttered problem, linear tiles don't scale — the MLP
-in PPO (7/10) earns its keep by learning adaptive nonlinear
-features. See §8.
+shaping gradient. See §8.
 
 ## 6. How they relate (data flow)
 
@@ -302,7 +308,7 @@ their ceiling is "the cage, generalized to new scenes" — worth
 remembering when BC ties heuristic at 7/10: it learned the script,
 it didn't invent grasping. PPO is the only approach that
 discovered anything the scripts can't do; SARSA(λ) tried from
-reward alone too and learned nothing (0/10 × 5 configs) — the
+reward alone too and learned nothing at eval (0/10 × 6 configs) — the
 cluttered problem defeats linear tiles, which is exactly why
 the learned-features half of this project exists.
 
@@ -346,7 +352,7 @@ top, per-seed side-by-side GIFs below. Metrics glossary:
 | autopush (sandwich 0-9) | 6/10 | ties heuristic; fixes 3,9 breaks 5,8 |
 | autopush (adjacent 0-9) | 8/10 | +2 over heuristic (fixes 8,9), breaks nothing |
 | VLM (sandwich 3,8) | 1/2 | s8 kept (autopush broke it), s3 lost (autopush kept it) |
-| SARSA(λ) thesis port | 0/10 ×5 configs | negative result: greedy never beats chance (see §5) |
+| SARSA(λ) thesis port | 0/10 ×6 configs | negative; relative-xy shows weak in-dist sign of life (13/60 vs 7/60, p≈0.07) |
 
 Seed 0 falls only to the scripted pair (heuristic + VLM); seeds
 2/5/7 fall to all capable ones. Three live failure modes, all

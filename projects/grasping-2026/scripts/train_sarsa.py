@@ -40,17 +40,26 @@ def target_yaw(env, target_index):
 
 
 def tile_state(obs, yaw, touch=0, enclosed=False,
-               include_contact=False):
-    """State vector: joints + target (x, y, yaw) [+ contact]."""
-    s = [obs[0], obs[1], obs[2], obs[6], obs[7], yaw]
+               include_contact=False, rel=None):
+    """State vector: joints + target (x, y, yaw) [+ contact].
+
+    rel overrides the target-xy dims with a caller-supplied vector
+    (tip-relative with --relative); otherwise absolute tpos.
+    """
+    tx, ty = (rel[0], rel[1]) if rel is not None else (obs[6], obs[7])
+    s = [obs[0], obs[1], obs[2], tx, ty, yaw]
     if include_contact:
         s += [min(touch, 3) + 0.5, (1.5 if enclosed else 0.5)]
     return np.array(s, dtype=float)
 
 
-def make_coder(tilings, tiles, memory, include_contact=False):
+def make_coder(tilings, tiles, memory, include_contact=False,
+               relative=False):
     """TileCoder over q(±2.6) x target-xy(±0.75) x yaw(wrapped)
-    [+ touch-count(4) x enclosed(2) when include_contact]."""
+    [+ touch-count(4) x enclosed(2)]. With relative, the xy dims
+    carry tip-relative vector (clipped past ±0.75: all far states
+    alias, by design) at the same 16.7 cm resolution, so the
+    absolute-vs-relative comparison is resolution-matched."""
     lows = [-2.6] * 3 + [-0.75] * 2 + [-np.pi]
     highs = [2.6] * 3 + [0.75] * 2 + [np.pi]
     if include_contact:
@@ -59,6 +68,12 @@ def make_coder(tilings, tiles, memory, include_contact=False):
         tiles = list(tiles) + [4, 2]
     return TileCoder(lows=lows, highs=highs, tiles=tiles,
                      tilings=tilings, wrap=(5,), memory=memory)
+
+
+def tip_relative(env, obs):
+    """Target xy minus tip xy (hand-frame position feature)."""
+    tip = env.env._arm_joint_xy()[-1]
+    return np.array([obs[6] - tip[0], obs[7] - tip[1]], dtype=float)
 
 
 class LinearSarsa:
@@ -113,7 +128,7 @@ class LinearSarsa:
 
 def run_episode(agent, env, epsilon, actions, max_delta=2.6,
                 random_init=0.0, near_start=0.0, rng=None,
-                include_contact=False):
+                include_contact=False, relative=False):
     """One SARSA episode; returns (return, fc, steps).
 
     random_init > 0 samples the starting joints uniform in
@@ -147,7 +162,9 @@ def run_episode(agent, env, epsilon, actions, max_delta=2.6,
             mujoco.mj_forward(env.env.model, env.env.data)
         obs = env._flat_obs()
     yaw = target_yaw(env.env, env.target_index)
-    state = tile_state(obs, yaw, include_contact=include_contact)
+    rel = tip_relative(env, obs) if relative else None
+    state = tile_state(obs, yaw, include_contact=include_contact,
+                       rel=rel)
     action = agent.act(state, epsilon)
     q_cmd = obs[:3].astype(float).copy()
     total, steps = 0.0, 0
@@ -161,10 +178,11 @@ def run_episode(agent, env, epsilon, actions, max_delta=2.6,
         done = terminated or truncated
         fc = fc or bool(info["force_closure"])
         yaw = target_yaw(env.env, env.target_index)
+        rel = tip_relative(env, obs) if relative else None
         next_state = tile_state(
             obs, yaw, touch=info.get("links_touching", 0),
             enclosed=info.get("enclosed", False),
-            include_contact=include_contact)
+            include_contact=include_contact, rel=rel)
         next_action = agent.act(next_state, epsilon) if not done else 0
         agent.update(state, action, reward, next_state, next_action,
                      done)
@@ -184,7 +202,8 @@ def evaluate(agent, args, actions):
             thesis_timeout=args.timeout_penalty)
         total, fc, _ = run_episode(
             agent, env, 0.0, actions,
-            include_contact=args.contact_state)
+            include_contact=args.contact_state,
+            relative=args.relative)
         fcs.append(fc)
         rets.append(total)
     return sum(fcs) / len(fcs), sum(rets) / len(rets)
@@ -198,6 +217,7 @@ def main(argv=None):
     ap.add_argument("--random-init", type=float, default=2.0)
     ap.add_argument("--near-start", type=float, default=0.25)
     ap.add_argument("--contact-state", action="store_true")
+    ap.add_argument("--relative", action="store_true")
     ap.add_argument("--timeout-penalty", type=float, default=-100.0)
     ap.add_argument("--n-objects", type=int, default=4)
     ap.add_argument("--alpha", type=float, default=0.2)
@@ -217,7 +237,7 @@ def main(argv=None):
     args = ap.parse_args(argv)
 
     coder = make_coder(args.tilings, args.tiles, args.memory,
-                       args.contact_state)
+                       args.contact_state, args.relative)
     agent = LinearSarsa(coder, alpha=args.alpha, gamma=args.gamma,
                         lmbda=args.lmbda, seed=args.seed)
     actions = coder.all_actions()
@@ -241,7 +261,8 @@ def main(argv=None):
             agent, env, eps, actions,
             random_init=args.random_init,
             near_start=args.near_start, rng=train_rng,
-            include_contact=args.contact_state)
+            include_contact=args.contact_state,
+            relative=args.relative)
         if ep % max(args.eval_every // 5, 1) == 0:
             print(f"[sarsa] ep={ep} eps={eps:.3f} ret={total:.1f} "
                   f"fc={int(fc)} steps={steps}", flush=True)
@@ -259,6 +280,7 @@ def main(argv=None):
                         "random_init": args.random_init,
                         "near_start": args.near_start,
                         "contact_state": args.contact_state,
+                        "relative": args.relative,
                         "timeout_penalty": args.timeout_penalty,
                         "n_objects": args.n_objects,
                         "episodes": ep, "eval_fc": fc_rate}

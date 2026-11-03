@@ -1422,6 +1422,27 @@ def test_tile_state_contact_dims():
     assert (coder8.tiles_for(s8a) != coder8.tiles_for(s8b)).any()
 
 
+def test_tile_state_relative_override():
+    """tile_state: rel replaces absolute tpos dims; coder matches."""
+    from scripts.train_sarsa import make_coder, tile_state, \
+        tip_relative
+    from env.gym_wrapper import GraspGymWrapper
+    coder = make_coder(8, [7, 7, 7, 9, 9, 5], 4096, True, True)
+    obs = np.zeros(16)
+    obs[6:8] = [0.5, -0.3]
+    s_abs = tile_state(obs, 0.0, include_contact=True)
+    s_rel = tile_state(obs, 0.0, include_contact=True,
+                       rel=np.array([0.05, 0.02]))
+    assert (s_abs[3:5] == [0.5, -0.3]).all()
+    assert (s_rel[3:5] == [0.05, 0.02]).all()
+    assert coder.tiles_for(s_rel).shape == (8,)
+    env = GraspGymWrapper(seed=0)
+    flat, _ = env.reset(seed=0)
+    tip = env.env._arm_joint_xy()[-1]
+    np.testing.assert_allclose(tip_relative(env, flat),
+                               flat[6:8] - tip, rtol=1e-5)
+
+
 def test_sarsa_traces_propagate_one_step_back():
     """SARSA(λ): second update also moves Q at the first state."""
     from scripts.tile_coding import TileCoder
