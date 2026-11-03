@@ -335,8 +335,25 @@ policy simply never meets pins in training. Fix under
 test: mixed-scene training (`--train-scenes`, round-robin
 layouts across resets, duplicates weight the mix;
 infeasible presets re-draw 3× then fall back to random,
-counted) — `models/grasp_ppo_mix5`, equal 5-way mix,
-training.
+counted) — `models/grasp_ppo_mix5`, equal 5-way mix, 500k
+steps, 0 training fallbacks.
+
+mix5 lands at 35/50 — a wash with enc1's 36, with
+competence reallocated, not added: surround jumps back to
+**9/10** (matches fail100; the only miss is low-contact
+seed 7, no push-into-pin anywhere) and random holds 9/10
+while winning seed 0 caged — the first PPO to take the
+nemesis seed. But decoy falls 8→6 and sandwich 7→6, both
+below enc1. Traces show why: **strategy interference**.
+mix5 opens with surround-style bulldozing everywhere, and
+on restraint scenes the first touch whiffs red 1.3–1.8 m
+out of reach (decoy 4, sandwich 0), followed by 180 steps
+of contactless flailing. Training on a scene can hurt it:
+decoy/sandwich transferred better from random-only enc1
+(500k focused steps) than from 100k direct steps
+shouting over a bulldoze prior. Random mix5 misses: {1}.
+Learning curve on random: 0/10 at 100k → 6/10 at 250k →
+9/10 at 500k — the 5-way mix learns slower, then arrives.
 
 ### SARSA(λ) — the thesis learner, ported
 
@@ -481,17 +498,19 @@ top, per-seed side-by-side GIFs below. Metrics glossary:
 | autopush (random 0-9) | 10/10 | blind pushing ties the ladder on easy scenes; costs nothing |
 | PPO enc1 (random 0-9) | 9/10, 6 caged | ties VLM; only seed 0 fails (first-touch whiff) |
 | PPO enc1 (presets) | 7/8/7/5 surr/decoy/sand/adj | best overall 36/50; surround −2 vs fail100 (enclose-attempts stall) |
+| PPO mix5 (random 0-9) | 9/10, 4 caged | holds enc1; wins nemesis seed 0 caged; only seed 1 fails |
+| PPO mix5 (presets) | 9/6/6/5 surr/decoy/sand/adj | 35/50: surround fixed, decoy/sandwich regress (bulldoze interference) |
 
 Scene × planner matrix (FC /10, seeds 0–9, default configs;
 VLM preset grids unmeasured — API cost; probes only):
 
-| Scene | Heur | Reac | Auto | BC | Diff | v3 | f100 | enc1 | VLM |
-|---|---|---|---|---|---|---|---|---|---|
-| random | 10 | 0 | 10 | 7 | 5 | 7 | 7 | 9 | 9 |
-| surround | 0 | 0 | 0 | 2 | 0 | 4 | 9 | 7 | — |
-| decoy | 2 | 0 | 2 | 1 | 0 | 7 | 6 | 8 | — |
-| sandwich | 6 | 0 | 6 | 4 | 5 | 6 | 6 | 7 | — |
-| adjacent | 6 | 0 | 8 | 4 | 3 | 4 | 5 | 5 | — |
+| Scene | Heur | Reac | Auto | BC | Diff | v3 | f100 | enc1 | mix5 | VLM |
+|---|---|---|---|---|---|---|---|---|---|---|
+| random | 10 | 0 | 10 | 7 | 5 | 7 | 7 | 9 | 9 | 9 |
+| surround | 0 | 0 | 0 | 2 | 0 | 4 | 9 | 7 | 9 | — |
+| decoy | 2 | 0 | 2 | 1 | 0 | 7 | 6 | 8 | 6 | — |
+| sandwich | 6 | 0 | 6 | 4 | 5 | 6 | 6 | 7 | 6 | — |
+| adjacent | 6 | 0 | 8 | 4 | 3 | 4 | 5 | 5 | 5 | — |
 
 Per-seed wins (FC): surround v3 {0,2,6,8}, BC {2,7};
 decoy heur {6,9}, auto {3,6}, BC {6}; sandwich heur
@@ -499,7 +518,9 @@ decoy heur {6,9}, auto {3,6}, BC {6}; sandwich heur
 {2,4,5,7,8}; adjacent heur {2–7}, auto {2–9}, BC
 {2,4,5,7}, diff {2,4,5}; enc1 random {1–9}, surround
 {2,4–9}, decoy {1–7,9}, sandwich {1,2,4–8}, adjacent
-{1–4,6}. The fresh scripted grid
+{1–4,6}; mix5 random {0,2–9}, surround {0–6,8,9},
+decoy {0,2,3,5,7,8}, sandwich {2–5,7,9}, adjacent
+{2–5,7}. The fresh scripted grid
 reproduced the earlier gap runs seed-for-seed
 (determinism check passes). Three readings: (1) scripts
 collapse only on surround/decoy, where restraint +
