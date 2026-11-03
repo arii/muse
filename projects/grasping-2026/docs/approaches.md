@@ -393,6 +393,7 @@ top, per-seed side-by-side GIFs below. Metrics glossary:
 | VLM (decoy 9) | 0/1 | pushed blue/green, lost where ladder wins push-free: no restraint |
 | multipass-3 (sandwich/decoy/surround) | 7/3/1 of 10 | helps one seed (decoy s0 hand-order), neutral else; order-chaotic |
 | defer-blocked (+multipass-3) | 7/3/1 of 10 | identical miss sets: reorders correctly, arrival graze binds |
+| tactile force probe | gate viable, shove not | contact at 0.01-0.04 N / 1.3 cm red motion; glide + chatter after |
 | VLM (sandwich 3,8) | 1/2 | s8 kept (autopush broke it), s3 lost (autopush kept it) |
 | SARSA(λ) thesis port | 0/10 ×6 configs | negative; relative-xy shows weak in-dist sign of life (13/60 vs 7/60, p≈0.07) |
 
@@ -458,8 +459,17 @@ diagnosed with probes:
    the revert rule's 0.12 m cap turns out to protect graspability,
    not just tidiness). Eight approaches ruled out total; dense
    3-sided 8 mm clutter wants closed-loop tactile pushing or
-   grasp-in-clutter, not open-loop primitives. Push-log entries
-   carry `approach` + `tmove_m`/`dmove_m` telemetry;
+   grasp-in-clutter, not open-loop primitives. A force-
+   observability probe (2 mm tip steps into red, cleared scene)
+   says contact-gating is viable but force-shoving is not:
+   first contact registers at 0.008–0.04 N with red moved
+   ~1.3 cm (usable stop threshold), but contact is intermittent
+   (shove → glide → catch-up: 0.000, 0.038, 0.000, …,
+   occasional 1 N spikes) because table friction is too low to
+   hold red — it escapes at 5.5 cm over a 3 cm commanded press.
+   So a future servo can stop *before* bulldozing, but cannot
+   push precisely. Push-log entries carry `approach` +
+   `tmove_m`/`dmove_m` telemetry;
    `test_surround_pushes_revert_on_target_bulldoze` stays red.
 
 ## 9. Code map
