@@ -261,6 +261,18 @@ Wins are near-instant (2–7 steps); seed 8 is a 200-step camp
 (contact payments, no FC), so the −100 did not cure camping
 either — it just moved the failure.
 
+Preset generalization (both checkpoints zero-shot, never
+trained on presets): fail100 crushes the hardest scripted
+preset, surround, **9/10** (only seed 7 camps) where every
+planner scores 0 — bulldoze-with-restraint: shove the crowd
+while the −100 keeps red in reach. v3 manages 4/10 there
+({0,2,6,8}; unpunished shoving loses red out of reach).
+Elsewhere: decoy 7/10 v3 vs 6/10 fail100, sandwich 6/10 both,
+adjacent 4/10 v3 vs 5/10 fail100 (fail100 camps seeds 1–2 for
+117–184 contact reward). So the −100 teaches PPO exactly the
+skill dense clutter demands — while the same −100 killed
+linear SARSA stone dead. Representation is the whole game.
+
 ### SARSA(λ) — the thesis learner, ported
 
 `scripts/train_sarsa.py` + `scripts/tile_coding.py`: linear
@@ -379,6 +391,9 @@ top, per-seed side-by-side GIFs below. Metrics glossary:
 | BC v2 | 7/10 | cloned the script, lower disp |
 | PPO v3 | 7/10 | learned it, but shoves (0.65 m) |
 | PPO + fail 100 | 7/10 | ties v3; misses 0,4,8 (v3: 0,1,4); wins in 2–7 steps |
+| PPO fail100 (surround 0-9) | 9/10 | scripts score 0 here; only seed 7 camps |
+| PPO v3 (surround 0-9) | 4/10 | passes 0,2,6,8; shoves red out elsewhere |
+| PPO presets (decoy/sand/adj) | 6-7/6/4-5 | v3/fail100 close; camping persists (fail100 adj s1-2: 184 rew) |
 | Diffusion UNet | 5/10 | gentlest grasps (0.16 m) |
 | Reactive | 0/10 | floor, as designed |
 | VLM (canary 2,4) | 2/2 | inherits cage ladder; $0 via cache |
@@ -458,8 +473,10 @@ diagnosed with probes:
    with red displaced 0.43 m, but displaced red is ungrasped —
    the revert rule's 0.12 m cap turns out to protect graspability,
    not just tidiness). Eight approaches ruled out total; dense
-   3-sided 8 mm clutter wants closed-loop tactile pushing or
-   grasp-in-clutter, not open-loop primitives. A force-
+   3-sided 8 mm clutter wants closed-loop control, not open-loop
+   primitives — proven by PPO fail100's 9/10 on surround (shove
+   the crowd, keep red in reach), which also reframes the gap as
+   scripts-vs-learning rather than task impossibility. A force-
    observability probe (2 mm tip steps into red, cleared scene)
    says contact-gating is viable but force-shoving is not:
    first contact registers at 0.008–0.04 N with red moved

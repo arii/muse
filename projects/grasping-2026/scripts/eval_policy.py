@@ -21,6 +21,7 @@ import numpy as np
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
 from env.gym_wrapper import GraspGymWrapper
+from env.scenes import apply_scene
 
 
 def main():
@@ -33,6 +34,7 @@ def main():
     ap.add_argument("--n-objects", type=int, default=4)
     ap.add_argument("--contact-obs", action="store_true")
     ap.add_argument("--max-delta-q", type=float, default=None)
+    ap.add_argument("--scene", default="random")
     ap.add_argument("--gif", default=None)
     args = ap.parse_args()
 
@@ -60,6 +62,9 @@ def main():
                               contact_obs=args.contact_obs,
                               max_delta_q=args.max_delta_q)
         obs, _ = env.reset(seed=seed)
+        if args.scene != "random":
+            apply_scene(env.env, args.scene)
+            obs = env._flat_obs()
         frames = []
         total, steps = 0.0, 0
         while True:
