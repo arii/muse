@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>grasping-2026 — Language-Conditioned Grasping in Simulation</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="hero">
+  <p class="kicker">grasping-2026 &middot; simulation benchmark &middot; 6 approaches, 10 seeds</p>
+  <h1>A robot arm that understands grasping instructions</h1>
+  <p class="lede">Instruction in, whole-arm grasp out: <code>"grasp the red box in isolation"</code>.
+  A 3-link planar arm in MuJoCo must singulate clutter and wrap its links around the target box &mdash;
+  no gripper, no hardware, no fine-tuning. The VLM handles language
+  (<em>which object? what to push?</em>); classical robotics handles geometry
+  (<em>where it is, how to move</em>).</p>
+  <nav class="toc">
+    <a href="#overview">Overview</a>
+    <a href="#spaces">Action / observation</a>
+    <a href="#approaches">Approaches</a>
+    <a href="#results">Results</a>
+    <a href="#demos">Demos</a>
+    <a href="#docs">Docs</a>
+  </nav>
+</header>
+
+<main>
+
+<section id="overview">
+  <h2>Overview</h2>
+  <p>The task: a 3-link planar arm, viewed top-down, grasps a target box (red)
+  among distractor boxes on a table. All boxes slide and yaw &mdash; they never tip
+  or lift. The arm has three revolute joints and no gripper: it grasps
+  <em>whole-arm</em>, by wrapping its links around the box (caging / force closure).
+  Default scenes carry 4 boxes; some need a distractor pushed aside (singulation)
+  before the grasp.</p>
+  <figure>
+    <img src="assets/scene-labeled.png" alt="Labeled top-down scene: arm and four boxes">
+    <figcaption>What the top-down camera sees. When the target crowds a distractor, singulation runs first.</figcaption>
+  </figure>
+  <h3>One instruction through the pipeline</h3>
+  <figure>
+    <img src="assets/pipeline.png" alt="Pipeline diagram: grounding, singulation, isolation gate, grasp">
+    <figcaption>The plan-based pipeline: ground the instruction, singulate, check the isolation gate, then grasp.</figcaption>
+  </figure>
+  <ol class="pipeline">
+    <li><strong>Grounding</strong> &mdash; the planner turns the instruction + scene into a semantic plan:
+      grasp target, ordered <code>push_away</code> list with effort (nudge / clear / shove),
+      approach side, rationale. The VLM never outputs raw coordinates.</li>
+    <li><strong>Singulation</strong> &mdash; each planned push executes via the Cartesian
+      <code>push()</code> primitive (IK approach, straight-line shove). Pushed optimistically and
+      <strong>reverted</strong> if isolation drops, the target moves more than the distractor, or anything launches.</li>
+    <li><strong>Isolation gate</strong> &mdash; grasp starts only if target isolation &ge; 0.15&nbsp;m
+      (logged either way; the grasp is attempted as fallback regardless).</li>
+    <li><strong>Grasp</strong> &mdash; the executor yaws at the target (biased by approach side),
+      reaches, and curls the links around it. Goal criterion: <strong>force closure</strong>.</li>
+  </ol>
+  <h3>Success criteria (weakest first)</h3>
+  <dl class="criteria">
+    <div><dt>links touching (0&ndash;3)</dt><dd>Shaping signal; also the camping exploit (lean on the box for 200 steps without grasping).</dd></div>
+    <div><dt>force closure (FC)</dt><dd><strong>The goal.</strong> Contact wrenches span opposing directions (friction-cone test), so the grasp resists disturbance. A pinch can pass FC without surrounding the box.</dd></div>
+    <div><dt>caged</dt><dd>Strictest diagnostic: &ge;2 links touching, target center inside the arm's joint polygon, <em>and</em> the loop closed. FC without caged &asymp; a pinch; caged without FC &asymp; surrounding but not squeezing.</dd></div>
+  </dl>
+  <p>Scene metrics: <strong>isolation</strong> (min center-distance target&rarr;distractor; &ge; 0.15&nbsp;m = preconditions met)
+  and <strong>target displacement</strong> (how far the target moved &mdash; high values mean shoving, not grasping).</p>
+</section>
+
+<section id="spaces">
+  <h2>Action and observation space</h2>
+  <div class="cols">
+    <div>
+      <h3>Action</h3>
+      <p>Every approach emits the same thing: <strong>target joint angles</strong>
+      <code>[q1, q2, q3]</code> in radians, clipped to &plusmn;2.6, one command per env step.
+      Soft position actuators chase the target over 20 MuJoCo substeps.</p>
+      <ul>
+        <li>Learned policies (PPO/BC/diffusion) output normalized actions in
+          <code>[-1, 1]&sup3;</code>, scaled &times;2.6 in the wrapper (SB3 convention).</li>
+        <li><code>max_delta_q</code> (1.0 for PPO) caps the per-step joint-target change &mdash;
+          a slew-rate limit that stops random exploration from commanding 5.2&nbsp;rad swings.</li>
+        <li>Link lengths 0.30 / 0.25 / 0.20&nbsp;m; workspace radius &asymp; 0.75&nbsp;m.</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Observation</h3>
+      <p>Learned policies see a flat float32 vector &mdash; <strong>no images</strong> in the loop.
+      The VLM is the only component that looks at pixels, once per episode, to plan.</p>
+      <table>
+        <tr><th>Slice</th><th>Dims</th><th>Contents</th></tr>
+        <tr><td><code>qpos</code></td><td>3</td><td>joint angles (rad)</td></tr>
+        <tr><td><code>qvel</code></td><td>3</td><td>joint velocities</td></tr>
+        <tr><td><code>target_xy</code></td><td>2</td><td>target box center</td></tr>
+        <tr><td><code>target_half</code></td><td>2</td><td>target half-extents</td></tr>
+        <tr><td>distractors</td><td>3&times;2</td><td>(dx, dy) relative to target, angle-sorted</td></tr>
+        <tr><td>contact</td><td>2</td><td>links_touching / 3, enclosed flag</td></tr>
+      </table>
+      <p>Distractor offsets are target-relative and angle-sorted (permutation invariance);
+      contact features are privileged &mdash; they expose the reward signal directly.</p>
+    </div>
+  </div>
+  <p>Reward per step: <code>0.5 &times; links_touching + 2.0 &times; force_closure</code>.
+  Episodes end on force closure, truncate at 200 steps. PPO trains with extra shaping
+  (&minus;2.0/step anti-camp penalty, +20 FC bonus); eval uses the base reward so reports stay comparable.</p>
+</section>
+
+<section id="approaches">
+  <h2>Six approaches, two families</h2>
+  <p><strong>Plan-based</strong> (heuristic/VLM) run open-loop scripts: plan once, push,
+  execute a fixed cage trajectory. <strong>Closed-loop</strong> (reactive/BC/diffusion/PPO)
+  observe every step and react. Compared head to head on identical seeds.</p>
+  <table class="approaches">
+    <tr><th>Approach</th><th>Family</th><th>How it works</th><th>FC (seeds 0&ndash;9)</th></tr>
+    <tr><td><strong>Heuristic</strong></td><td>plan</td><td>Regex-parsed plan (target red, no pushes, approach near), then scripted cage: park link 1 beside the target, curl links 2&ndash;3 over ~120 interpolated steps, early stop on FC + caged. Deterministic reference bar.</td><td class="good">7/10</td></tr>
+    <tr><td><strong>VLM</strong></td><td>plan</td><td>Same executor, smarter plan: top-down render + object list + instruction &rarr; Nemotron-3.5-Super-VL on Nebius (strict JSON schema) &rarr; semantic plan, no coordinates. Calls logged + cached in <code>episodes/vlm_ledger.jsonl</code>. Only earns its keep through singulation.</td><td>1/2 canary</td></tr>
+    <tr><td><strong>Reactive</strong></td><td>closed-loop</td><td>Proportional tip servo toward the target (5&nbsp;cm/step cap, DLS IK), open-loop curl on contact. Deliberate floor: anything that can't beat it is broken.</td><td class="bad">0/10</td></tr>
+    <tr><td><strong>BC</strong></td><td>closed-loop</td><td>3-layer MLP, obs &rarr; action, plain MSE on 130 scripted-cage FC demos. One forward pass per step, no memory, no chunking. Cloned the script and tied it.</td><td class="good">7/10</td></tr>
+    <tr><td><strong>Diffusion</strong></td><td>closed-loop</td><td>State-based Diffusion Policy: FiLM UNet-1D denoiser predicts 16-action chunks conditioned on obs; DDIM sampling (20 steps), execute 8, replan. Gentlest of the grasping policies.</td><td class="mid">5/10</td></tr>
+    <tr><td><strong>PPO</strong></td><td>closed-loop</td><td>SB3 PPO from scratch, 500k steps, zero demos &mdash; shaped reward only (contact payments &minus; time penalty + FC bonus). Tied the bar but shoves boxes (reward doesn't punish displacement).</td><td class="good">7/10</td></tr>
+  </table>
+  <h3>Data flow</h3>
+  <pre>scripted_cage ──demonstrates──▶ demos_cage_fc (130 FC episodes)
+        │                                │
+        │ mined by                       ├──▶ BC (MSE, 1 step)
+        ▼                                └──▶ Diffusion (chunks)
+ heuristic/VLM                         PPO ◀── reward only, no demos
+ executor                              reactive ◀── no learning at all</pre>
+  <p>The honesty constraint on cloning: <strong>BC/diffusion cannot exceed their demonstrator.</strong>
+  They train on scripted-cage trajectories, so their ceiling is "the cage, generalized to new scenes."
+  PPO is the only approach that can discover anything the scripts can't do
+  (and the only one that needed 500k steps to tie them).</p>
+</section>
+
+<section id="results">
+  <h2>Benchmark results (seeds 0&ndash;9)</h2>
+  <p>Instruction: <code>grasp the red box in isolation</code>. Headline metric is
+  <strong>force-closure rate</strong>. Source: <code>episodes/compare-0-9.json</code>
+  (full per-seed breakdown in the generated compare report, linked below).</p>
+  <table class="results">
+    <tr><th>Planner</th><th>FC rate</th><th>Caged</th><th>Mean steps</th><th>Mean reward</th><th>Isolation &Delta;</th><th>Target disp</th></tr>
+    <tr><td><strong>Heuristic</strong></td><td class="good">0.70</td><td>0.60</td><td>124</td><td>17.7</td><td>+0.000&nbsp;m</td><td>0.241&nbsp;m</td></tr>
+    <tr><td><strong>BC</strong></td><td class="good">0.70</td><td>0.30</td><td>122</td><td>13.2</td><td>&minus;0.101&nbsp;m</td><td>0.175&nbsp;m</td></tr>
+    <tr><td><strong>PPO</strong></td><td class="good">0.70</td><td>0.60</td><td>64</td><td>3.7</td><td>+0.264&nbsp;m</td><td>0.650&nbsp;m</td></tr>
+    <tr><td><strong>Diffusion</strong></td><td class="mid">0.50</td><td>0.10</td><td>166</td><td>8.8</td><td>&minus;0.059&nbsp;m</td><td>0.155&nbsp;m</td></tr>
+    <tr><td><strong>Reactive</strong></td><td class="bad">0.00</td><td>0.00</td><td>44</td><td>0.8</td><td>+0.017&nbsp;m</td><td>0.081&nbsp;m</td></tr>
+  </table>
+  <ul class="notes">
+    <li>Preconditions rate 1.00 for all (property of the seeds, not the planners); singulation rate 0.00 everywhere &mdash; no push has produced a kept isolation gain on these seeds yet.</li>
+    <li>Reward is <em>not</em> comparable across planners (learned ones accumulate contact payments differently); steps roughly is.</li>
+    <li>Seed 0 beats every planner; seeds 2/5/7 fall to all four capable ones.</li>
+    <li>VLM canary (seeds 2, 4): 1/2 at $0 via ledger cache. VLM singulation never executes yet &mdash; planned pushes prove kinematically unreachable and get reverted/skipped, so VLM &asymp; heuristic wherever the cage alone decides.</li>
+    <li>Seed-4 cage bulldozes from every side (target knocked 0.59&nbsp;m, zero contacts) while BC grasps the same scene &mdash; trajectory, not clutter, is at fault; under diagnosis.</li>
+  </ul>
+</section>
+
+<section id="demos">
+  <h2>Demos</h2>
+  <p>Multi-panel GIFs from the compare harness: heuristic / reactive / BC / PPO / diffusion
+  on the same seed, with a live status line per panel
+  (<code>links:N enc:Y/N cage:Y/N FC:Y/N</code>).</p>
+  <figure>
+    <img src="assets/seed-7-panels.gif" alt="Seed 7: all capable planners grasp the target">
+    <figcaption><strong>Seed 7 &mdash; the canonical success.</strong> All four capable planners reach force closure
+    (heuristic, BC, and PPO caged; diffusion FC). The README's singulation story seed.</figcaption>
+  </figure>
+  <figure>
+    <img src="assets/seed-4-panels.gif" alt="Seed 4: heuristic bulldozes the target while BC grasps it">
+    <figcaption><strong>Seed 4 &mdash; the diagnosed failure.</strong> The scripted cage bulldozes the target
+    0.59&nbsp;m with zero contacts &mdash; identically from every approach side &mdash; while BC grasps the same scene.</figcaption>
+  </figure>
+  <figure>
+    <img src="assets/seed-5-panels.gif" alt="Seed 5: every planner grasps, diffusion cages">
+    <figcaption><strong>Seed 5 &mdash; diffusion's best.</strong> Every planner grasps; diffusion's only caged run
+    (0.12&nbsp;m displacement) &mdash; the gentlest grasp in the benchmark.</figcaption>
+  </figure>
+</section>
+
+<section id="docs">
+  <h2>Docs and full reports</h2>
+  <ul>
+    <li><a href="https://github.com/arii/muse/blob/main/projects/grasping-2026/README.md">Project README</a> &mdash; setup, quickstart, training commands, container details</li>
+    <li><a href="https://github.com/arii/muse/blob/main/projects/grasping-2026/docs/approaches.md">Approaches, action space, and how the pieces fit</a> &mdash; the learning-oriented guide this page summarizes</li>
+    <li><a href="https://github.com/arii/muse/blob/main/projects/grasping-2026/docs/thesis-alignment.md">Thesis alignment</a> &mdash; Anders (2014) vs grasping-2026, what's in and out of scope</li>
+    <li><a href="https://github.com/arii/muse/blob/main/projects/grasping-2026/docs/experiment-harness.md">Experiment harness</a> &mdash; compare loop, training notes, canary protocol</li>
+    <li><a href="https://github.com/arii/muse/blob/main/projects/grasping-2026/docs/vlm-grounding-tutorial.md">VLM grounding tutorial</a> &mdash; prompt, plan parsing, failure modes</li>
+    <li><a href="../episodes/compare-report.html">Full per-seed compare report (HTML)</a> &mdash; generated, all seeds &times; planners with GIFs (available in a local checkout)</li>
+  </ul>
+  <p class="regen"><small>Numbers on this page: <code>episodes/compare-0-9.json</code> via
+  <code>scripts/compare_planners.py --seeds 0-9</code>. GIFs: same harness with <code>--gifs</code>.
+  Re-run the harness and refresh <code>site/assets/</code> to update.</small></p>
+</section>
+
+</main>
+
+<footer>
+  <p>grasping-2026 showcase &middot; static page, no build step &middot; <a href="https://github.com/arii/muse/tree/main/projects/grasping-2026">source</a></p>
+</footer>
+
+</body>
+</html>
