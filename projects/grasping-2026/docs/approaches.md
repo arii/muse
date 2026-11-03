@@ -248,12 +248,12 @@ top, per-seed side-by-side GIFs below. Metrics glossary:
 
 | Planner | FC | Notes |
 |---|---|---|
-| Heuristic | 7/10 | reference script |
+| Heuristic | 10/10 | reference script + tucked retry |
 | BC v2 | 7/10 | cloned the script, lower disp |
 | PPO v3 | 7/10 | learned it, but shoves (0.65 m) |
 | Diffusion UNet | 5/10 | gentlest grasps (0.16 m) |
 | Reactive | 0/10 | floor, as designed |
-| VLM (canary 2,4) | 1/2 | see below; $0 via cache |
+| VLM (canary 2,4) | 2/2 | inherits cage retry; $0 via cache |
 
 Seed 0 beats every planner; seeds 2/5/7 fall to all four capable
 ones. Three live failure modes, all diagnosed with probes:
@@ -272,9 +272,10 @@ ones. Three live failure modes, all diagnosed with probes:
    blue, which dominoes into red before the arm ever touches it.
    Always-tucking before the yaw was tried and reverted (7/10 →
    6/10: fixed 0/4/9, broke canary 2 plus 5/7/8 — arrival-path
-   edits reshuffle wrap outcomes). The tucked/untucked entries are
-   complementary (union 10/10), so a snapshot-and-retry second
-   entry is the principled fix, not a trajectory swap.
+   edits reshuffle wrap outcomes). Fixed instead with a
+   snapshot-and-retry second entry: a missed untucked cage
+   retries tucked from a pristine restore (the entries'
+   union is 10/10). Heuristic and VLM now 10/10 and 2/2.
 3. **Singulation rate 0.00 everywhere.** Follows from (1): no
    push has produced a kept isolation gain on the benchmark
    seeds. Adversarial presets (surround/row/gate) exist for

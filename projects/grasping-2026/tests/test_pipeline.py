@@ -1602,6 +1602,42 @@ def test_normalize_plan_legacy_and_invalid():
                         "rationale": "x"}, valid)
 
 
+def test_cage_retry_fixes_seed4():
+    """Second entry: seed 4's missed untucked cage retries tucked.
+
+    Seed 4's untucked yaw dominoes blue into red (0.59 m, no
+    contact); the tucked entry grasps the same scene from a
+    pristine restore. The trace records both attempts.
+    """
+    from scripts.demo_vlm_grasp import run_episode
+    env = WholeArmGraspEnv(seed=4)
+    env.reset(seed=4)
+    plan = {"grasp_target": 0, "push_away": [],
+            "approach_side": "near", "rationale": "t"}
+    m, _, _ = run_episode(env, plan, "grasp the red box in isolation",
+                          verbose=False)
+    assert m["force_closure"] is True
+    assert m["cage_trace"]["attempts"] == 2
+    assert m["cage_trace"]["retried"] is True
+    # The trace ships in --out JSON: no numpy scalars allowed
+    # (numpy.bool_ broke json.dumps on the first retry run).
+    json.dumps(m["cage_trace"])
+
+
+def test_cage_no_retry_on_success():
+    """A first-try cage never retries (seed 2 behavior unchanged)."""
+    from scripts.demo_vlm_grasp import run_episode
+    env = WholeArmGraspEnv(seed=2)
+    env.reset(seed=2)
+    plan = {"grasp_target": 0, "push_away": [],
+            "approach_side": "near", "rationale": "t"}
+    m, _, _ = run_episode(env, plan, "grasp the red box in isolation",
+                          verbose=False)
+    assert m["force_closure"] is True
+    assert m["cage_trace"]["attempts"] == 1
+    assert m["cage_trace"]["retried"] is False
+
+
 def test_empty_push_away_means_no_pushes():
     """Regression (2026-10-28 rerun): run_episode with push_away=[]
     must push nothing, even on a crowded seed where the old

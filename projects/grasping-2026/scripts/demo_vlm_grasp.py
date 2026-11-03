@@ -282,7 +282,8 @@ def _cage_lead_and_sign(face, target_xy):
 
 
 def scripted_cage(env, target_idx, frames, frame_info=None,
-                  approach_side="near", trace_log=None, settle_steps=16):
+                  approach_side="near", trace_log=None, settle_steps=16,
+                  force_tuck=False):
     """Scripted whole-arm cage around the target object.
 
     approach_side biases the entry yaw (see approach_face): near is
@@ -357,17 +358,18 @@ def scripted_cage(env, target_idx, frames, frame_info=None,
     # in docs/iteration-plan.md is marked rerun pending until the
     # S5 rerun fills it in.)
     waypoints = []
-    # If starting from a post-push configuration (or crossing theta_t),
-    # tuck link2/link3 to the outer (-s) side so the arm stays inside
-    # r <= 0.30m while rotating q1 to face, avoiding sweeping through the target.
-    # NOTE: always-tuck was tried 2026-11-03 for the seed-4 bulldoze
-    # (sweep dominoes blue into red, 0.59 m, zero arm contact) but
-    # regressed 7/10 -> 6/10 (fixed 0/4/9, broke canary 2 plus 5/7/8:
-    # arrival-path changes reshuffle wrap outcomes). The tucked and
-    # untucked entries are complementary (union 10/10) — a snapshot +
-    # retry second entry is the principled version of this, not a
-    # trajectory swap. See docs/approaches.md §8.
-    if np.linalg.norm(q_cur) > 0.05:
+    # Tuck before the big yaw when starting folded (post-push q) or
+    # forced: the yaw then sweeps a small disc instead of extended
+    # links across the table. Untucked from q=0 is the default entry;
+    # the two entries are complementary (union 10/10 on seeds 0-9),
+    # so run_episode retries a failed untucked cage tucked rather
+    # than swapping the trajectory (always-tuck regressed 7/10 ->
+    # 6/10: arrival-path edits reshuffle wrap outcomes).
+    tucked = bool(bool(force_tuck)
+                  or np.linalg.norm(q_cur) > 0.05)  # py-bool: trace is JSON
+    if trace_log is not None:
+        trace_log["tucked_entry"] = tucked
+    if tucked:
         waypoints.append(([q_cur[0], -2.2 * s, -2.2 * s], 20))
         waypoints.append(([face, -2.2 * s, -2.2 * s], 25))
     waypoints += [
@@ -483,10 +485,38 @@ def run_episode(env, plan, instruction, frames=None, verbose=True):
                   f"attempting grasp anyway")
 
     cage_trace = {}
+    snap = env.snapshot()
     rewards, info = scripted_cage(env, target_idx, frames,
                                   frame_info=frame_info,
                                   approach_side=approach_side,
                                   trace_log=cage_trace)
+    cage_trace["attempts"] = 1
+    cage_trace["retried"] = False
+    if (not info["force_closure"]
+            and not cage_trace.get("tucked_entry", False)):
+        # Second entry: retry the missed cage tucked from a pristine
+        # restore. The entries are complementary (union 10/10), so a
+        # retry beats either trajectory alone. Failed-attempt frames
+        # stay in (audit trail shows miss, snap-back, retry); metrics
+        # below use the retry only if it achieves force closure.
+        if verbose:
+            print("[demo] cage missed untucked — retrying tucked entry")
+        env.restore(snap)
+        retry_trace = {}
+        rewards2, info2 = scripted_cage(
+            env, target_idx, frames, frame_info=frame_info,
+            approach_side=approach_side, trace_log=retry_trace,
+            force_tuck=True)
+        rewards = rewards + rewards2
+        retry_trace["attempts"] = 2
+        retry_trace["retried"] = True
+        if info2["force_closure"]:
+            info = info2
+            cage_trace = retry_trace
+        else:
+            cage_trace["attempts"] = 2
+            cage_trace["retried"] = True
+            cage_trace["retry_fc"] = False
     if verbose:
         print(f"[demo] links touching: {info['links_touching']}, "
               f"enclosed: {info['enclosed']}, caged: {info['caged']}, "
