@@ -230,6 +230,8 @@ def scripted_singulate(env, target_idx, frames, push_radius=0.35,
                     "status": "reverted",
                     "mode": mode,
                     "iso_after": round(float(iso_new), 3),
+                    "tmove_m": round(tmove, 3),
+                    "dmove_m": round(dmove, 3),
                 })
             print(f"[singulate] reverted push on obj{i} ({color}): "
                   f"iso {iso_before:.3f}->{iso_new:.3f}, "
@@ -251,6 +253,8 @@ def scripted_singulate(env, target_idx, frames, push_radius=0.35,
                     "status": "kept",
                     "mode": mode,
                     "iso_after": round(float(iso_new), 3),
+                    "tmove_m": round(tmove, 3),
+                    "dmove_m": round(dmove, 3),
                 })
             print(f"[singulate] pushed obj{i} ({color}, {effort}): "
                   f"iso {iso_new:.3f} m")

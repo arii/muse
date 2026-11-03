@@ -2133,6 +2133,38 @@ def test_decoy_preset_is_withholding_regime():
     assert pushed["force_closure"] is False
 
 
+def test_surround_pushes_revert_on_target_bulldoze():
+    """Surround s0: push execution bulldozes red, revert trips.
+
+    A 0.06 m nudge moves the target 0.40+ m (arm motion through
+    the 8 mm cluster, not the push itself) — 6x the command —
+    so the keep-rule correctly reverts, isolation stays flat,
+    and the ladder fails all 4. Order/effort-independent (4 orders
+    revert the same pushes; 3 efforts do too). Characterization
+    test: the
+    fix is collision-aware push approach, and it must turn this
+    red-to-green. Hand-fed plans, no API.
+    """
+    from env.scenes import apply_scene
+    from scripts.demo_vlm_grasp import run_episode
+    env = WholeArmGraspEnv(seed=0)
+    env.reset(seed=0)
+    env.target_index = 0
+    apply_scene(env, "surround")
+    plan = {"grasp_target": 0,
+            "push_away": [{"index": i, "effort": "nudge"}
+                          for i in (1, 2, 3)],
+            "approach_side": "near", "rationale": "t"}
+    m, _, _ = run_episode(env, plan, "grasp the red box",
+                          verbose=False)
+    by_idx = {p["index"]: p for p in m["pushes"]}
+    for i in (1, 3):
+        assert by_idx[i]["status"] == "reverted", (i, by_idx[i])
+        assert by_idx[i]["tmove_m"] > 0.30, by_idx[i]
+    assert m["force_closure"] is False
+    assert m["cage_trace"]["attempts"] == 4
+
+
 def test_empty_push_away_means_no_pushes():
     """Regression (2026-10-28 rerun): run_episode with push_away=[]
     must push nothing, even on a crowded seed where the old

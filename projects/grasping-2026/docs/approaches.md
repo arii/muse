@@ -380,7 +380,7 @@ top, per-seed side-by-side GIFs below. Metrics glossary:
 | SARSA(λ) thesis port | 0/10 ×6 configs | negative; relative-xy shows weak in-dist sign of life (13/60 vs 7/60, p≈0.07) |
 
 Seed 0 falls only to the scripted pair (heuristic + VLM); seeds
-2/5/7 fall to all capable ones. Three live failure modes, all
+2/5/7 fall to all capable ones. Four live failure modes, all
 diagnosed with probes:
 
 1. **VLM singulation is region-dependent.** Canary pushes skip:
@@ -416,6 +416,18 @@ diagnosed with probes:
    push has produced a kept isolation gain on the benchmark
    seeds. Adversarial presets (surround/row/gate) exist for
    stress-testing this once pushes land.
+4. **Push execution bulldozes the target in dense scenes.**
+   Surround s0: a 0.06 m nudge moves red 0.40+ m (6× the
+   command — arm motion through the 8 mm cluster, not the push
+   itself), the keep-rule correctly reverts, isolation stays
+   flat, ladder fails all 4. Order- and effort-independent
+   (4 push orders revert the same pushes; nudge/clear/shove all
+   revert them too); decoy s0 obj2 is the same mechanism
+   (0.22 m target motion).
+   Push-log entries now carry `tmove_m`/`dmove_m` telemetry.
+   Fix: collision-aware push approach — the characterization
+   test `test_surround_pushes_revert_on_target_bulldoze` is the
+   red-to-green target for that work.
 
 ## 9. Code map
 

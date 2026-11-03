@@ -3,8 +3,11 @@
 Random-seed scenes exercise the average case; these presets pack
 distractors at fingertip-scale gaps (< 25 mm) around the target so
 singulation is NECESSARY. The 8 mm presets (surround/row/gate) beat
-the current push primitive (revert cap) — the heuristic is expected
-to fail them honestly today; they measure future singulation work.
+the current push primitive: execution bulldozes the target (0.06 m
+nudge moves red 0.40+ m — arm motion through the cluster, not the
+push), the keep-rule correctly reverts, isolation stays flat, and
+the ladder fails all 4 — order/effort-independent. The fix is
+collision-aware push approach; they measure that future work.
 The 10 mm single-neighbor `adjacent` preset was the VLM-win regime
 until the side ladder grasped it push-free; the `sandwich` preset
 (two-sided 15 mm clutter) is the current frontier: the push-free
