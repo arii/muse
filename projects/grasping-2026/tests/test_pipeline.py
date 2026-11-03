@@ -1624,6 +1624,31 @@ def test_cage_retry_fixes_seed4():
     json.dumps(m["cage_trace"])
 
 
+def test_cage_retry_tries_opposite_after_tucked_miss():
+    """Opposite-entry retry: a tucked first miss retries untucked.
+
+    After a kept push the arm starts folded, so the first cage
+    tucks; if it misses, the retry must try the other entry — not
+    skip, not tuck again — or push-then-cage episodes get one
+    entry while push-free ones get two. Row seed 0, hand-fed
+    shove-blue plan (push keeps, first cage tucks).
+    """
+    from env.scenes import apply_scene
+    from scripts.demo_vlm_grasp import run_episode
+    env = WholeArmGraspEnv(seed=0)
+    env.reset(seed=0)
+    env.target_index = 0
+    apply_scene(env, "row")
+    plan = {"grasp_target": 0,
+            "push_away": [{"index": 1, "effort": "shove"}],
+            "approach_side": "near", "rationale": "t"}
+    m, _, _ = run_episode(env, plan, "grasp the red box",
+                          verbose=False)
+    assert m["pushes"] and m["pushes"][0]["status"] == "kept"
+    assert m["cage_trace"]["attempts"] == 2
+    assert m["cage_trace"]["retried"] is True
+
+
 def test_cage_no_retry_on_success():
     """A first-try cage never retries (seed 2 behavior unchanged)."""
     from scripts.demo_vlm_grasp import run_episode
