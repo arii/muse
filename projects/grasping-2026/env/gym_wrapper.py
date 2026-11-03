@@ -47,6 +47,8 @@ checkpoints stay loadable under the defaults):
   per run (1.0 is a reasonable value) and keep it identical
   across train/eval/collect for a given policy.
 """
+import math
+
 import gymnasium as gym
 import numpy as np
 
@@ -84,12 +86,19 @@ class GraspGymWrapper(gym.Env):
         tpos = obs["objects"][t][:2].astype(np.float32)
         thalf = np.array(self.env.objects[t]["half"][:2],
                          dtype=np.float32)
-        distractors = []
+        # OBS CHANGE (2026-11-03): distractors sorted by angle around
+        # the target (was: index order). Index order makes identical
+        # scenes look different under permutation, which BC/diffusion
+        # cannot learn from sparse scenes (diffusion hedged to the
+        # mean). ALL checkpoints trained before this date are stale.
+        rel = []
         for o in self.env.objects:
             if o["index"] == t:
                 continue
             pos = obs["objects"][o["index"]][:2].astype(np.float32)
-            distractors.append(pos - tpos)
+            d = pos - tpos
+            rel.append((math.atan2(float(d[1]), float(d[0])), d))
+        distractors = [d for _, d in sorted(rel)]
         parts = [q, qvel, tpos, thalf] + distractors
         if self.contact_obs:
             if info is None:

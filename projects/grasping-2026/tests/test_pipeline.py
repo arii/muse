@@ -1110,6 +1110,22 @@ def test_gym_wrapper_contact_obs_and_penalty():
         assert r1 == r0 - 0.1
 
 
+def test_gym_wrapper_distractors_angle_sorted():
+    """Distractor offsets are sorted by angle around the target.
+
+    Regression: index order made identical scenes look different
+    under permutation (BC/diffusion hedged). Angles of consecutive
+    distractor blocks must be non-decreasing.
+    """
+    import math
+    from env.gym_wrapper import GraspGymWrapper
+    env = GraspGymWrapper(seed=3, n_objects=4)
+    obs, _ = env.reset(seed=3)
+    angs = [math.atan2(obs[10 + 2 * k + 1], obs[10 + 2 * k])
+            for k in range(3)]
+    assert angs == sorted(angs), angs
+
+
 def test_gym_wrapper_single_object_obs():
     """n_objects=1: no distractors, 10-dim obs (12 with contacts)."""
     from env.gym_wrapper import GraspGymWrapper

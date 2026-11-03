@@ -112,7 +112,7 @@ def _run_learned(seed, planner, instruction, model_path=None, max_steps=200,
     elif planner == "bc":
         import torch
         from scripts.train_bc import BCMLP
-        mpath = model_path or _resolve_default_model(["models/bc_v1.pt"])
+        mpath = model_path or _resolve_default_model(["models/bc_v2.pt"])
         if mpath not in _BC_CACHE:
             ckpt = torch.load(mpath, map_location="cpu", weights_only=False)
             bm = BCMLP(ckpt["obs_dim"], hidden=ckpt["hidden"])
@@ -697,7 +697,9 @@ def main():
                     or pathlib.Path("models/diffusion.pt").exists()):
                 continue
         if p == "bc" and args.bc_model is None:
-            if not pathlib.Path("models/bc_v1.pt").exists():
+            # bc_v1 (index-ordered distractors) would run with the
+            # same dim but wrong semantics — only v2+ auto-detects.
+            if not pathlib.Path("models/bc_v2.pt").exists():
                 continue
         planners.append(p)
 
