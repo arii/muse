@@ -928,13 +928,17 @@ def test_singulate_adjacent_shear_succeeds():
     assert disp < 0.12, f"shear moved target {disp:.3f} m"
 
 
-def test_singulate_unreachable_distractor_reverts():
-    """Revert path: a push that cannot reach its distractor reverts.
+def test_singulate_unreachable_distractor_skips():
+    """Skip path: a push whose oriented start is unreachable never runs.
 
-    Blue parked out of reach (0.92 m): the tip flails short, the
-    distractor never moves (dmove < 0.03 m), so the push reverts —
-    snapshot restore leaves the target exactly unmoved and
-    isolation unchanged.
+    Blue parked out of reach (0.92 m): the oriented radial start is
+    past the wrist workspace, so the push skips before any physics
+    (no DLS-fallback flail, no frames). History: this used to
+    execute and revert (dmove < 0.03 m), but executing a
+    known-unreachable push was the bug — the DLS fallback's
+    crossing link actively harms (seed 2: spun green toward red,
+    iso 0.167->0.143). The safety invariants stand: target exactly
+    unmoved, isolation unchanged.
     """
     from scripts.demo_vlm_grasp import scripted_singulate
     env = WholeArmGraspEnv(seed=7)
@@ -943,13 +947,38 @@ def test_singulate_unreachable_distractor_reverts():
     env.set_object_pose(1, (-0.65, 0.65), yaw=0.0)
     iso_b = env.target_isolation()
     t0 = env._obj_xy(0).copy()
+    frames = []
     push_log = []
-    scripted_singulate(env, 0, frames=[],
+    scripted_singulate(env, 0, frames=frames,
                        push_targets=[{"index": 1, "effort": "shove"}],
                        push_log=push_log)
-    assert push_log and push_log[0]["status"] == "reverted"
+    assert push_log and push_log[0]["status"] == "skipped"
+    assert frames == []
     assert float(np.linalg.norm(env._obj_xy(0) - t0)) < 1e-9
     assert env.target_isolation() == iso_b
+
+
+def test_singulate_unorientable_radial_start_skips():
+    """Seed-2 regression: doomed radial push skips instead of reverting.
+
+    Green's push (55 mm gap -> radial) has 0/13 waypoints
+    oriented-reachable; it used to run on full-DLS fallback and
+    spin green toward red (reverted). Now it skips cleanly: no
+    physics, no isolation change.
+    """
+    from scripts.demo_vlm_grasp import scripted_singulate
+    env = WholeArmGraspEnv(seed=2)
+    env.reset(seed=2)
+    env.target_index = 0
+    frames = []
+    push_log = []
+    iso_b, iso_a = scripted_singulate(
+        env, 0, frames, push_targets=[{"index": 2, "effort": "clear"}],
+        push_log=push_log)
+    assert push_log and push_log[0]["status"] == "skipped"
+    assert push_log[0]["mode"] == "radial"
+    assert iso_a == iso_b
+    assert frames == []
 
 
 def test_singulation_crowded_no_regress():
@@ -1475,6 +1504,10 @@ def test_singulate_effort_sets_push_distance(monkeypatch):
         calls.append((np.asarray(start_xy, dtype=float), theta, dist))
 
     monkeypatch.setattr(demo, "push", fake_push)
+    # The oriented-start guard is covered elsewhere; this test is
+    # about effort->distance plumbing, so hold the guard open.
+    monkeypatch.setattr(demo, "ik_tip_oriented",
+                        lambda *a, **k: np.zeros(3))
     target_xy = env._obs()["objects"][0][:2]
     obj2_xy = env._obs()["objects"][2][:2]
     demo.scripted_singulate(env, 0, [], push_targets=[{"index": 2,

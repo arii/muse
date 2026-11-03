@@ -26,7 +26,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 from env.whole_arm_grasp import WholeArmGraspEnv
 from perception.grounding import make_labeller
 from planning.primitives import (EFFORT_DISTANCES, approach_face,
-                                 frame_status, push)
+                                 frame_status, ik_tip_oriented, push)
 
 
 def normalize_push_targets(push_targets):
@@ -113,7 +113,6 @@ def scripted_singulate(env, target_idx, frames, push_radius=0.35,
         dist = 0.06 if strict else EFFORT_DISTANCES[effort]
         if gap < 0.05:
             mode = "shear"
-            from planning.primitives import ik_tip_oriented
             s = np.array([-direction[1], direction[0]])
             std = max(halves[i][0], halves[i][1]) + 0.025 \
                 + (0.010 if strict else 0.015)
@@ -172,6 +171,27 @@ def scripted_singulate(env, target_idx, frames, push_radius=0.35,
             sx = halves[i][0]
             clearance = sx + 0.025 + (0.010 if strict else 0.015)
             start_xy = d - direction * clearance
+            # Oriented-start guard: push() silently falls back to DLS
+            # when the oriented start is unreachable, and a crossing
+            # link spins the box the wrong way (seed 2: iso
+            # 0.167->0.143, reverted). Skip cleanly instead of
+            # executing a doomed push.
+            if ik_tip_oriented(start_xy, theta,
+                               env._obs()["qpos"]) is None:
+                if push_log is not None:
+                    push_log.append({
+                        "primitive": "push",
+                        "mode": mode,
+                        "index": i,
+                        "color": color,
+                        "effort": effort,
+                        "distance_m": round(float(dist), 2),
+                        "status": "skipped",
+                        "iso_after": round(float(iso_before), 3),
+                    })
+                print(f"[singulate] skipped push on obj{i} ({color}): "
+                      f"oriented radial start unreachable")
+                continue
         snap = env.snapshot()
         nframes0 = len(frames)
         ninfo0 = len(frame_info) if frame_info is not None else 0
