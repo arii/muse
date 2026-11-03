@@ -1297,6 +1297,39 @@ def test_gym_wrapper_success_bonus():
     assert (r, term) == (21.5, True)
 
 
+def test_gym_wrapper_enclosure_bonus():
+    """enclosure_bonus pays on enclosed steps (incl. FC), 0 elsewhere.
+
+    Contact pays 0.5/link but enclosure pays nothing, so PPO rests
+    in contact (enc=0) instead of wrapping. A +1.0 enclosed step at
+    step_penalty 2.0 nets a 2-link hold exactly 0: no farm, strictly
+    better than a camp's -1/step, far below FC's +20 premium.
+    """
+    from env.gym_wrapper import GraspGymWrapper
+    env = GraspGymWrapper(seed=0, max_steps=10, enclosure_bonus=1.0)
+    env.reset(seed=0)
+    real_step = env.env.step
+
+    def canned(enclosed, closed):
+        def step(action, substeps=20):
+            obs, _, done, info = real_step(action, substeps)
+            info = dict(info)
+            info["enclosed"] = enclosed
+            info["force_closure"] = closed
+            return obs, 1.5, done, info
+        return step
+
+    env.env.step = canned(False, False)
+    _, r, _, _, _ = env.step(np.zeros(3))
+    assert r == 1.5
+    env.env.step = canned(True, False)
+    _, r, term, _, _ = env.step(np.zeros(3))
+    assert (r, term) == (2.5, False)
+    env.env.step = canned(True, True)
+    _, r, term, _, _ = env.step(np.zeros(3))
+    assert (r, term) == (2.5, True)
+
+
 def test_tile_coder_deterministic_bounded_sharing():
     """TileCoder: deterministic, in-range, neighbors share tiles."""
     from scripts.tile_coding import TileCoder
@@ -2396,6 +2429,12 @@ def test_export_hf_dataset_writes_splits_and_card(tmp_path):
     for fname in ("train.jsonl", "validation.jsonl", "dataset_info.json",
                   "README.md"):
         assert fname in sums
+    # Explicit provenance stamp (container runs lack .git).
+    out2 = tmp_path / "hf2"
+    info2 = export_dataset(demos, out2, name="tiny",
+                           git_commit_override="abc123")
+    assert info2["git_commit"] == "abc123"
+    assert "abc123" in (out2 / "README.md").read_text()
 
 
 def test_default_model_prefers_first_existing_checkpoint(tmp_path):

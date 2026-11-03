@@ -57,6 +57,8 @@ checkpoints stay loadable under the defaults):
   timeout) -100; >=2 contacts -0.25; 1 contact -0.5; else -1.
   Mutually exclusive with step_penalty/success_bonus/fail_penalty
   (raises). Default off.
+- enclosure_bonus: added on enclosed steps, FC or not (train-only
+  like success_bonus). Default 0 = off.
 """
 import math
 
@@ -73,7 +75,7 @@ class GraspGymWrapper(gym.Env):
                  n_objects=4, contact_obs=False, step_penalty=0.0,
                  max_delta_q=None, success_bonus=0.0,
                  fail_penalty=0.0, thesis_reward=False,
-                 thesis_timeout=-100.0):
+                 thesis_timeout=-100.0, enclosure_bonus=0.0):
         super().__init__()
         self.env = WholeArmGraspEnv(n_objects=n_objects, seed=seed)
         self.target_index = target_index
@@ -89,16 +91,24 @@ class GraspGymWrapper(gym.Env):
         # trail and drowns the shaping gradient (see train_sarsa).
         self.thesis_timeout = float(thesis_timeout)
         if thesis_reward and (step_penalty or success_bonus
-                              or fail_penalty):
+                              or fail_penalty or enclosure_bonus):
             raise ValueError("thesis_reward replaces the reward "
                              "schedule; it cannot combine with "
-                             "step_penalty/success_bonus/fail_penalty")
+                             "step_penalty/success_bonus/fail_penalty/"
+                             "enclosure_bonus")
         # success_bonus: added on force-closure steps (train-only
         # shaping; eval/compare use 0 so reports stay comparable).
         # The base +2.0 FC bonus never compensates a forfeited 200-step
         # camp (~200 raw), so PPO unlearns discovered grasps; a +20
         # bonus makes FC dominate and preserves grasping behavior.
         self.success_bonus = success_bonus
+        # enclosure_bonus: added on enclosed steps, FC or not
+        # (train-only like success_bonus). Contact pays 0.5/link
+        # but enclosure pays nothing, so PPO rests in contact
+        # (enc=0) instead of wrapping; +1.0 at step_penalty 2.0
+        # nets a 2-link enclosed hold exactly 0 (no farm),
+        # strictly above a camp's -1/step.
+        self.enclosure_bonus = enclosure_bonus
         self._steps = 0
         # Obs: q(3) + qvel(3) + target xy(2) + target half(2)
         #      + (n_objects-1) distractors x (dx, dy)
@@ -162,6 +172,8 @@ class GraspGymWrapper(gym.Env):
         shaped = float(reward) - self.step_penalty
         if terminated:
             shaped += self.success_bonus
+        if info["enclosed"]:
+            shaped += self.enclosure_bonus
         if self.fail_penalty:
             # Thesis failure states (Anders 2014, S3.2/S4.2.2): timeout
             # and object-beyond-arm's-length end the episode at -100.

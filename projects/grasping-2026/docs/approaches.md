@@ -269,21 +269,58 @@ on timeout/out-of-reach, `models/grasp_ppo_fail100.zip`, local
 only) also scores 7/10 — the cliff that killed linear SARSA
 does not hurt deep PPO (dense contact payments + GAE bridge
 it). Different misses though: {0, 4, 8} vs v3's {0, 1, 4}.
-Wins are near-instant (2–7 steps); seed 8 is a 200-step camp
-(contact payments, no FC), so the −100 did not cure camping
-either — it just moved the failure.
+Wins are near-instant (2–7 steps); seed 8 is a 200-step chase
+(flickering contact, red never still, one grazed enclosed
+step at t=50) — the −100 did not cure non-closing either,
+it just moved the failure.
 
 Preset generalization (both checkpoints zero-shot, never
 trained on presets): fail100 crushes the hardest scripted
-preset, surround, **9/10** (only seed 7 camps) where every
+preset, surround, **9/10** (only seed 7 fails) where every
 planner scores 0 — bulldoze-with-restraint: shove the crowd
 while the −100 keeps red in reach. v3 manages 4/10 there
 ({0,2,6,8}; unpunished shoving loses red out of reach).
 Elsewhere: decoy 7/10 v3 vs 6/10 fail100, sandwich 6/10 both,
-adjacent 4/10 v3 vs 5/10 fail100 (fail100 camps seeds 1–2 for
-117–184 contact reward). So the −100 teaches PPO exactly the
-skill dense clutter demands — while the same −100 killed
-linear SARSA stone dead. Representation is the whole game.
+adjacent 4/10 v3 vs 5/10 fail100. So the −100 teaches PPO
+exactly the skill dense clutter demands — while the same −100
+killed linear SARSA stone dead. Representation is the whole
+game.
+
+Per-step traces retired the word "camping" for three distinct
+fail100 failure modes, all with `enclosed=0` throughout: (1)
+**chase** (adjacent 1): 200 steps of 1↔2-link flicker, red
+batted 0.1–0.3 m, never enclosed; (2) **rest** (adjacent 2):
+static 2-link contact, red frozen, the only true camp;
+(3) **shove-out + idle** (surround 7): red ejected past 1 m
+by t=40, then 160 contactless steps — not a camp at all.
+Wins are all pinches (caged=False) in 12–16 steps. Common
+thread: contact pays 0.5/link but enclosure pays nothing, so
+there is no gradient from touching to wrapping. Fix tested:
+`--enclosure-bonus 1.0` (train-only, every enclosed step
+incl. FC) — at step_penalty 2.0 a 2-link enclosed hold nets
+exactly 0 (no farm), above a camp's −1/step and far below
+FC's +20 premium (`models/grasp_ppo_enc1`, local only).
+
+enc1 (same 500k recipe + enclosure bonus) is the best
+overall policy at 36/50 FC (fail100 33, v3 28): random
+**9/10** (only seed 0 fails — ties VLM), decoy 8/10 (best
+of all), sandwich 7/10 (best of all), adjacent 5/10 (ties
+fail100), but surround **7/10** — a −2 regression vs
+fail100's 9. Caging jumps everywhere (random 6/10, sandwich
+4/10, surround/adjacent 3/10; decoy stays all-pinch):
+the bonus teaches wrapping, and wrapping wins — except in
+the densest clutter, where fail100's bulldoze-and-pinch
+beats enc1's enclose-attempts (surround seeds 0–1 stall
+back into 150+ contact-reward rest). Learning curve on
+random: 5/10 at 200k → 8/10 at 450k → 9/10 at 500k.
+
+Fourth failure mode from the traces: **whiff** — first
+touch ejects red (2.4 m by t=20 on random seed 0) before
+any contact payment, then 200 idle steps. Seed 0 random is
+missed by all three PPO checkpoints (v3/fail100/enc1) while
+scripts win it: PPO's first approach is too violent for
+that geometry, and training's −100 terminates whiffs, so
+no recovery is ever learned.
 
 ### SARSA(λ) — the thesis learner, ported
 
@@ -403,9 +440,9 @@ top, per-seed side-by-side GIFs below. Metrics glossary:
 | BC v2 | 7/10 | cloned the script, lower disp |
 | PPO v3 | 7/10 | learned it, but shoves (0.65 m) |
 | PPO + fail 100 | 7/10 | ties v3; misses 0,4,8 (v3: 0,1,4); wins in 2–7 steps |
-| PPO fail100 (surround 0-9) | 9/10 | scripts score 0 here; only seed 7 camps |
+| PPO fail100 (surround 0-9) | 9/10 | scripts score 0 here; seed 7 shoves red out then idles |
 | PPO v3 (surround 0-9) | 4/10 | passes 0,2,6,8; shoves red out elsewhere |
-| PPO presets (decoy/sand/adj) | 6-7/6/4-5 | v3/fail100 close; camping persists (fail100 adj s1-2: 184 rew) |
+| PPO presets (decoy/sand/adj) | 6-7/6/4-5 | v3/fail100 close; fail100 failures are chase/rest/shove-out, all enc=0 |
 | BC presets (surr/decoy/sand/adj) | 2/1/4/4 of 10 | degrades OOD; beats scripts' 0 only on surround |
 | Diffusion presets (surr/decoy/sand/adj) | 0/0/5/3 of 10 | total collapse on 2 hardest; only beats BC on sandwich |
 | Diffusion UNet | 5/10 | gentlest grasps (0.16 m) |
@@ -426,23 +463,27 @@ top, per-seed side-by-side GIFs below. Metrics glossary:
 | VLM (sandwich 3,8) | 1/2 | s8 kept (autopush broke it), s3 lost (autopush kept it) |
 | SARSA(λ) thesis port | 0/10 ×6 configs | negative; relative-xy shows weak in-dist sign of life (13/60 vs 7/60, p≈0.07) |
 | autopush (random 0-9) | 10/10 | blind pushing ties the ladder on easy scenes; costs nothing |
+| PPO enc1 (random 0-9) | 9/10, 6 caged | ties VLM; only seed 0 fails (first-touch whiff) |
+| PPO enc1 (presets) | 7/8/7/5 surr/decoy/sand/adj | best overall 36/50; surround −2 vs fail100 (enclose-attempts stall) |
 
 Scene × planner matrix (FC /10, seeds 0–9, default configs;
 VLM preset grids unmeasured — API cost; probes only):
 
-| Scene | Heur | Reac | Auto | BC | Diff | v3 | f100 | VLM |
-|---|---|---|---|---|---|---|---|---|
-| random | 10 | 0 | 10 | 7 | 5 | 7 | 7 | 9 |
-| surround | 0 | 0 | 0 | 2 | 0 | 4 | 9 | — |
-| decoy | 2 | 0 | 2 | 1 | 0 | 7 | 6 | — |
-| sandwich | 6 | 0 | 6 | 4 | 5 | 6 | 6 | — |
-| adjacent | 6 | 0 | 8 | 4 | 3 | 4 | 5 | — |
+| Scene | Heur | Reac | Auto | BC | Diff | v3 | f100 | enc1 | VLM |
+|---|---|---|---|---|---|---|---|---|---|
+| random | 10 | 0 | 10 | 7 | 5 | 7 | 7 | 9 | 9 |
+| surround | 0 | 0 | 0 | 2 | 0 | 4 | 9 | 7 | — |
+| decoy | 2 | 0 | 2 | 1 | 0 | 7 | 6 | 8 | — |
+| sandwich | 6 | 0 | 6 | 4 | 5 | 6 | 6 | 7 | — |
+| adjacent | 6 | 0 | 8 | 4 | 3 | 4 | 5 | 5 | — |
 
 Per-seed wins (FC): surround v3 {0,2,6,8}, BC {2,7};
 decoy heur {6,9}, auto {3,6}, BC {6}; sandwich heur
 {2,4,5,6,7,8}, auto {2,3,4,6,7,9}, BC {4,5,6,7}, diff
 {2,4,5,7,8}; adjacent heur {2–7}, auto {2–9}, BC
-{2,4,5,7}, diff {2,4,5}. The fresh scripted grid
+{2,4,5,7}, diff {2,4,5}; enc1 random {1–9}, surround
+{2,4–9}, decoy {1–7,9}, sandwich {1,2,4–8}, adjacent
+{1–4,6}. The fresh scripted grid
 reproduced the earlier gap runs seed-for-seed
 (determinism check passes). Three readings: (1) scripts
 collapse only on surround/decoy, where restraint +

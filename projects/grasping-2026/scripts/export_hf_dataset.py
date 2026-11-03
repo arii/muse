@@ -225,8 +225,13 @@ def dataset_card(name, info, splits, meta):
 
 
 def export_dataset(demos, out, name=None, val_frac=0.0, split_seed=0,
-                   force=False):
-    """Build the dataset folder and return its dataset_info dict."""
+                   force=False, git_commit_override=None):
+    """Build the dataset folder and return its dataset_info dict.
+
+    git_commit_override stamps provenance explicitly; needed
+    because the export usually runs in a container without .git,
+    where auto-detection returns None.
+    """
     data, meta, npz_path, json_path = load_demos(demos)
     obs, actions, lengths, fc_steps = validate_demos(data, meta)
     out = pathlib.Path(out)
@@ -276,7 +281,7 @@ def export_dataset(demos, out, name=None, val_frac=0.0, split_seed=0,
         "split_seed": int(split_seed),
         "val_frac": float(val_frac),
         "files": files,
-        "git_commit": git_commit(),
+        "git_commit": git_commit_override or git_commit(),
     }
     (out / "dataset_info.json").write_text(json.dumps(info, indent=2) + "\n")
     (out / "README.md").write_text(dataset_card(info["name"], info, splits,
@@ -326,11 +331,13 @@ def main(argv=None):
     ap.add_argument("--upload", action="store_true")
     ap.add_argument("--private", action="store_true")
     ap.add_argument("--token", default=None)
+    ap.add_argument("--git-commit", default=None)
     args = ap.parse_args(argv)
 
     info = export_dataset(args.demos, args.out, name=args.name,
                           val_frac=args.val_frac,
-                          split_seed=args.split_seed, force=args.force)
+                          split_seed=args.split_seed, force=args.force,
+                          git_commit_override=args.git_commit)
     print(f"[export] {info['episodes']} episodes, {info['steps']} steps -> "
           f"{args.out}")
     if not args.upload:
