@@ -325,6 +325,25 @@ option for a full run.
   physics (solimp/solref softening would change the grasp itself).
   Default off: a tight cap would also slow the 1-2 step pinches.
 
+## Demo dataset export (Hugging Face, demos only)
+
+`scripts/export_hf_dataset.py` converts a collected demo pair into a
+self-contained dataset folder: episode JSONL split(s),
+`dataset_info.json`, a README dataset card, and checksums. No
+weights, episodes, GIFs, or secrets are included. The export is
+local and dry-run by default; `--upload` publishes with a token
+from `--token` or `HF_TOKEN` (never written to the export).
+
+```bash
+docker compose run --rm -v $(pwd):/workspace --entrypoint python demo \
+  scripts/export_hf_dataset.py --demos data/demos_cage_fc \
+  --out data/hf_demos_cage_fc --val-frac 0.1
+# publish (needs a write token):
+docker compose run --rm -v $(pwd):/workspace --entrypoint python demo \
+  scripts/export_hf_dataset.py --demos data/demos_cage_fc \
+  --out data/hf_demos_cage_fc --repo-id USER/grasping-demos --upload
+```
+
 ## VLM call ledger (audit + cache)
 
 Every VLM call is logged to `episodes/vlm_ledger.jsonl` (JSONL, one entry
