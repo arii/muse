@@ -150,6 +150,20 @@ as a cache: identical scene + instruction + prompt replays cost $0
 project: the VLM only earns its keep through **singulation** —
 where no push is needed it reduces to the heuristic.
 
+Selection-gap study (sandwich/adjacent × seeds 0–9, 2 fresh VLM
+calls): blind `autopush` (clear every crowder within 0.35 m)
+ties heuristic 6/10 on sandwich (fixes 3, 9; breaks 5, 8) and
+beats it 8/10 on adjacent (fixes 8, 9; breaks nothing) — so on
+adjacent, push *action* alone is the whole game. On the two
+decisive sandwich seeds VLM matches neither: s3 autopush-✓
+VLM-✗, s8 heuristic-✓ autopush-✗ VLM-✓. And VLM planned
+identical targets on all three probes (shove 3, shove 1) — the
+same every-crowder set autopush clears. Conclusion: VLM
+**target selection adds nothing over blind pushing** here; the
+VLM-vs-autopush differences come from push *effort* (VLM's
+shove vs autopush's clear) and downstream cage variance, not
+smarter choice of what to push.
+
 ### Reactive — the deliberate floor
 
 Proportional tip servo toward the target (capped 5 cm/step, DLS IK),
@@ -329,6 +343,9 @@ top, per-seed side-by-side GIFs below. Metrics glossary:
 | VLM (seeds 0-9) | 9/10 | lone miss seed 8 (wrong side); ladder fixes |
 | VLM (adjacent 7) | 1/1, 1 attempt | push saves 3 ladder rungs vs push-free |
 | VLM (sandwich 9) | 1/1 vs heur 0/1 | strict win restored: kept shear, first-try cage |
+| autopush (sandwich 0-9) | 6/10 | ties heuristic; fixes 3,9 breaks 5,8 |
+| autopush (adjacent 0-9) | 8/10 | +2 over heuristic (fixes 8,9), breaks nothing |
+| VLM (sandwich 3,8) | 1/2 | s8 kept (autopush broke it), s3 lost (autopush kept it) |
 | SARSA(λ) thesis port | 0/10 ×5 configs | negative result: greedy never beats chance (see §5) |
 
 Seed 0 falls only to the scripted pair (heuristic + VLM); seeds
