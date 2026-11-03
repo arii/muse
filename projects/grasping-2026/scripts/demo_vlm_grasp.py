@@ -409,7 +409,8 @@ def scripted_cage(env, target_idx, frames, frame_info=None,
     return rewards, info
 
 
-def run_episode(env, plan, instruction, frames=None, verbose=True):
+def run_episode(env, plan, instruction, frames=None, verbose=True,
+                allow_retry=True):
     """Execute one episode: plan -> singulate -> gate -> cage.
 
     env must already be reset; target_index is set from the plan here.
@@ -495,7 +496,7 @@ def run_episode(env, plan, instruction, frames=None, verbose=True):
                                   trace_log=cage_trace)
     cage_trace["attempts"] = 1
     cage_trace["retried"] = False
-    if not info["force_closure"]:
+    if not info["force_closure"] and allow_retry:
         # Second entry: retry the missed cage with the opposite entry
         # from a restore. The entries are complementary (union 10/10),
         # so a retry beats either trajectory alone — and retrying the

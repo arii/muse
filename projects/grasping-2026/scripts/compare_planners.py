@@ -211,7 +211,7 @@ def _run_learned(seed, planner, instruction, model_path=None, max_steps=200,
 
 def run_one(seed, planner, instruction, ppo_model=None, diffusion_model=None,
             bc_model=None, contact_obs=False, max_delta_q=None,
-            scene="random"):
+            scene="random", ablate="none"):
     """One episode with one planner. Returns (metrics row, frames).
 
     Never raises: a planner failure is recorded as planner_error.
@@ -267,6 +267,11 @@ def run_one(seed, planner, instruction, ppo_model=None, diffusion_model=None,
             from perception.grounding import make_labeller
             labeller = make_labeller()
         plan = labeller.plan(frames[0], env.objects, instruction)
+        if ablate == "no-push" and planner == "vlm":
+            # Attribution ablation: run the VLM's side choice with the
+            # pushes removed (no-push on heuristic is already its plan).
+            plan = {**plan, "push_away": []}
+        row["ablate"] = ablate
         if planner == "vlm":
             # last_cache_hit False => API call (tokens from last_response)
             row["api_call"] = labeller.last_cache_hit is False
@@ -280,7 +285,9 @@ def run_one(seed, planner, instruction, ppo_model=None, diffusion_model=None,
     t_idx = plan.get("grasp_target", 0)
     pos0 = env._obs()["objects"][t_idx][:2].copy()
     metrics, frames, _ = run_episode(env, plan, instruction, frames,
-                                     verbose=False)
+                                     verbose=False,
+                                     allow_retry=ablate != "no-retry"
+                                     or planner != "vlm")
     pos1 = env._obs()["objects"][t_idx][:2].copy()
     metrics["target_start_r"] = float(np.linalg.norm(pos0))
     metrics["target_end_r"] = float(np.linalg.norm(pos1))
@@ -680,6 +687,11 @@ def main():
     ap.add_argument("--scene", default="random",
                     help="scene preset: random (default) or adversarial "
                     "surround, row, gate (see env/scenes.py)")
+    ap.add_argument("--ablate", default="none",
+                    choices=["none", "no-push", "no-retry"],
+                    help="VLM attribution ablation: run VLM rows with "
+                    "pushes removed (no-push) or the second cage entry "
+                    "disabled (no-retry)")
     ap.add_argument("--contact-obs", action="store_true",
                     help="learned-planner wrapper uses contact obs "
                     "(must match training)")
@@ -735,7 +747,8 @@ def main():
                                   bc_model=args.bc_model,
                                   contact_obs=args.contact_obs,
                                   max_delta_q=args.max_delta_q,
-                                  scene=args.scene)
+                                  scene=args.scene,
+                                  ablate=args.ablate)
             rows.append(row)
             frames_by_seed.setdefault(seed, {})[planner] = (row, frames)
             status = (f"FC={row.get('force_closure')} "

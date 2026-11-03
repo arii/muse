@@ -846,6 +846,59 @@ def test_vlm_without_key_fails_clean_not_heuristic(monkeypatch):
             or "NEBIUS_API_KEY" in row["planner_error"])
 
 
+class _CannedVLMLabeller:
+    """Fake NebiusVLMLabeller: canned plan, no API (ablation tests)."""
+
+    def __init__(self, plan):
+        self._plan = plan
+        self.last_cache_hit = True
+        self.last_response = None
+
+    def plan(self, rgb, objects, instruction):
+        return dict(self._plan)
+
+
+def test_ablate_no_push_zeroes_vlm_pushes(monkeypatch):
+    """no-push ablation: VLM side choice runs with pushes removed.
+
+    Adjacent seed 7 with the VLM's own winning plan (shove blue):
+    unablated it keeps the push and grasps (regime test); with
+    no-push the row shows no pushes and fails like the heuristic.
+    """
+    import perception.grounding as grounding
+    from scripts.compare_planners import run_one
+    plan = {"grasp_target": 0,
+            "push_away": [{"index": 1, "effort": "shove"}],
+            "approach_side": "near", "rationale": "canned"}
+    monkeypatch.setattr(grounding, "NebiusVLMLabeller",
+                        lambda: _CannedVLMLabeller(plan))
+    row, _ = run_one(7, "vlm", "grasp the red box", scene="adjacent",
+                     ablate="no-push")
+    assert row["planner_error"] is None, row["planner_error"]
+    assert row["pushes"] == []
+    assert row["force_closure"] is False
+
+
+def test_ablate_no_retry_disables_second_entry(monkeypatch):
+    """no-retry ablation: a missed first cage stays missed.
+
+    Seed 4 with a VLM plan whose push skips: unablated the retry
+    saves it (attempts 2, FC); with no-retry the row shows one
+    attempt and no grasp.
+    """
+    import perception.grounding as grounding
+    from scripts.compare_planners import run_one
+    plan = {"grasp_target": 0,
+            "push_away": [{"index": 1, "effort": "shove"}],
+            "approach_side": "near", "rationale": "canned"}
+    monkeypatch.setattr(grounding, "NebiusVLMLabeller",
+                        lambda: _CannedVLMLabeller(plan))
+    row, _ = run_one(4, "vlm", "grasp the red box", ablate="no-retry")
+    assert row["planner_error"] is None, row["planner_error"]
+    assert row["cage_trace"]["attempts"] == 1
+    assert row["force_closure"] is False
+
+
 def test_compare_run_one_returns_frames():
     """run_one returns (row, frames) for the compare GIF path."""
     from scripts.compare_planners import run_one
