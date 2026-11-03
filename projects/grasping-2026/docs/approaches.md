@@ -214,7 +214,11 @@ A 3-layer MLP, obs → action, trained with plain MSE on the demo
 pairs (`train_bc.py`, 150 epochs). One forward pass per env step,
 no memory, no chunking. This is the "simplest thing that could
 work" for imitation, and the baseline diffusion must beat. It
-currently matches the heuristic at 7/10.
+currently matches the heuristic at 7/10. On presets (zero-shot,
+never in demos): sandwich 4/10, adjacent 4/10, surround 2/10
+({2,7} — beating every script's 0/10 there, barely), decoy
+1/10 ({6}). Cloning degrades everywhere out of distribution,
+worst where the demonstrator is weakest.
 
 ### Diffusion — chunked cloning with a denoiser
 
@@ -241,6 +245,14 @@ Training details that matter: demo obs are normalized (mean/std
 with floors so dead dims don't explode); FC-anchored windows
 oversample the pinch transition ×20; demos hold the final pose
 for +16 steps so the policy learns to *stay* grasped.
+
+Preset generalization (zero-shot): sandwich 5/10 (its only win
+over BC's 4/10), adjacent 3/10, surround 0/10, decoy 0/10 —
+total collapse on the two hardest presets, where even BC
+scratches 2 and 1. Chunking doesn't transfer what the demos
+never show. Surround ordering, complete: fail100 9/10 > v3
+4/10 > BC 2/10 > diffusion = scripts 0/10 — reward-learning >
+cloning > scripting on hard out-of-distribution clutter.
 
 ### PPO — reinforcement learning from scratch
 
@@ -394,6 +406,8 @@ top, per-seed side-by-side GIFs below. Metrics glossary:
 | PPO fail100 (surround 0-9) | 9/10 | scripts score 0 here; only seed 7 camps |
 | PPO v3 (surround 0-9) | 4/10 | passes 0,2,6,8; shoves red out elsewhere |
 | PPO presets (decoy/sand/adj) | 6-7/6/4-5 | v3/fail100 close; camping persists (fail100 adj s1-2: 184 rew) |
+| BC presets (surr/decoy/sand/adj) | 2/1/4/4 of 10 | degrades OOD; beats scripts' 0 only on surround |
+| Diffusion presets (surr/decoy/sand/adj) | 0/0/5/3 of 10 | total collapse on 2 hardest; only beats BC on sandwich |
 | Diffusion UNet | 5/10 | gentlest grasps (0.16 m) |
 | Reactive | 0/10 | floor, as designed |
 | VLM (canary 2,4) | 2/2 | inherits cage ladder; $0 via cache |
