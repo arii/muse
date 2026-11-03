@@ -121,7 +121,7 @@ def approach_face(target_xy, side="near"):
     return float((face + np.pi) % (2 * np.pi) - np.pi)
 
 
-def ik_tip_oriented(target_xy, link_angle):
+def ik_tip_oriented(target_xy, link_angle, q_seed=None):
     """Tip IK with the last link at a fixed absolute angle.
 
     Why this exists (2026-10-28): plain tip IK (ik_dls, seeded from
@@ -137,6 +137,12 @@ def ik_tip_oriented(target_xy, link_angle):
     a tip push from that start is geometrically impossible, and
     the caller must fall back (or the singulate revert must catch
     it), not silently push with a crossing link.
+
+    q_seed (2026-11-03): without it, each waypoint independently
+    takes the first valid branch (+1, then -1), and the branch can
+    flip between adjacent waypoints — a ~5 rad whip through the
+    clutter (seed-7 shear: 0.28 m target flight). Pass the current
+    q so the nearest valid branch wins (continuity, like ik_dls).
     """
     l0, l1, l2 = LINK_LENGTHS
     target = np.asarray(target_xy, dtype=float)
@@ -148,6 +154,7 @@ def ik_tip_oriented(target_xy, link_angle):
     cos_q1 = (d * d - l0 * l0 - l1 * l1) / (2 * l0 * l1)
     if abs(cos_q1) > 1.0:
         return None
+    cands = []
     for sign in (+1, -1):
         q1 = sign * float(np.arccos(np.clip(cos_q1, -1, 1)))
         q0 = float(np.arctan2(wrist[1], wrist[0]) - np.arctan2(
@@ -157,8 +164,12 @@ def ik_tip_oriented(target_xy, link_angle):
         q2 = (q2 + np.pi) % (2 * np.pi) - np.pi
         q = np.array([q0, q1, q2])
         if np.all(np.abs(q) <= JOINT_LIMIT):
-            return q
-    return None
+            cands.append(q)
+    if not cands:
+        return None
+    if q_seed is None:
+        return cands[0]
+    return min(cands, key=lambda q: float(np.linalg.norm(q - q_seed)))
 
 
 def move_tip(env, target_xy, frames, n_interp=25, settle=8,
@@ -201,7 +212,7 @@ def push(env, start_xy, theta, dist, frames, n_waypoints=12, settle=3,
     """
     direction = np.array([np.cos(theta), np.sin(theta)])
     start = np.asarray(start_xy, dtype=float)
-    q_oriented = ik_tip_oriented(start, theta)
+    q_oriented = ik_tip_oriented(start, theta, _qpos(env))
     if q_oriented is not None:
         # Approach to the oriented start pose (joint interpolation,
         # like move_tip, but to the oriented q, not the DLS q).
@@ -222,7 +233,7 @@ def push(env, start_xy, theta, dist, frames, n_waypoints=12, settle=3,
         q = _qpos(env)
     for i in range(1, n_waypoints + 1):
         wp = start + direction * (dist * i / n_waypoints)
-        q_wp = ik_tip_oriented(wp, theta)
+        q_wp = ik_tip_oriented(wp, theta, q)
         q = q_wp if q_wp is not None else ik_dls(wp, q)
         for _ in range(settle):
             _, _, _, info = env.step(q)

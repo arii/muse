@@ -98,25 +98,84 @@ def scripted_singulate(env, target_idx, frames, push_radius=0.35,
         if float(np.linalg.norm(to_d)) < 1e-6:
             continue
         direction = to_d / np.linalg.norm(to_d)
-        theta = float(np.arctan2(direction[1], direction[0]))
-        # Cartesian push: start at the distractor's target-facing edge
-        # (box half-size + tip radius + margin), push directly away
-        sx = next(o["half"][0] for o in env.objects if o["index"] == i)
-        clearance = sx + 0.025 + (0.010 if strict else 0.015)
-        start_xy = d - direction * clearance
-        # Touching distractor (Seed 7) note: a tangential start
-        # offset was tried 2026-10-28 and made things worse
-        # (target moved 0.389 m vs 0.318 m for the old start, push
-        # reverted by the 0.12 m cap, isolation unchanged). It is
-        # NOT used. The cap below is the safety fix; a safe
-        # singulation for touching distractors is still open
-        # (see docs/iteration-plan.md Step 1).
         color = next(o["color"] for o in env.objects if o["index"] == i)
+        # Touching-distractor history: a tangential START offset with
+        # a radial push was tried 2026-10-28 and made things worse
+        # (target moved 0.389 m); radial pushes wedge the 50 mm tip
+        # in the gap and shove both boxes. 2026-11-03 fix: push
+        # tangentially (shear) when the face gap is under one tip
+        # diameter. The tip rides at the distractor's center depth,
+        # staying sx + gap clear of the target face — no contact even
+        # at zero gap — while the stiff tip drags the box sideways.
+        halves = {o["index"]: o["half"] for o in env.objects}
+        rad = {j: float(np.hypot(h[0], h[1])) for j, h in halves.items()}
+        gap = float(np.linalg.norm(to_d)) - rad[target_idx] - rad[i]
+        dist = 0.06 if strict else EFFORT_DISTANCES[effort]
+        if gap < 0.05:
+            mode = "shear"
+            from planning.primitives import ik_tip_oriented
+            s = np.array([-direction[1], direction[0]])
+            std = max(halves[i][0], halves[i][1]) + 0.025 \
+                + (0.010 if strict else 0.015)
+            # Shear toward the reachable side with more clearance at
+            # the end of the push. Reachability first: an
+            # unreachable oriented start falls back to crossing DLS
+            # and plows the cluster (surround seed 0: 0.68 m target
+            # flight). Both unreachable -> skip cleanly, no steps.
+            q_now = env._obs()["qpos"]
+            options = []
+            for sign in (1.0, -1.0):
+                s_eff = s * sign
+                th = float(np.arctan2(s_eff[1], s_eff[0]))
+                st = d - s_eff * std
+                # Validate the whole waypoint chain (start + 12),
+                # chained exactly as push() executes: any unreachable
+                # waypoint falls back to crossing DLS mid-push.
+                q = q_now
+                chain_ok = ik_tip_oriented(st, th, q) is not None
+                if chain_ok:
+                    q = ik_tip_oriented(st, th, q)
+                    for k in range(1, 13):
+                        wp = st + s_eff * (dist * k / 12)
+                        q = ik_tip_oriented(wp, th, q)
+                        if q is None:
+                            chain_ok = False
+                            break
+                if not chain_ok:
+                    continue
+                end = d + s_eff * dist
+                clear = min(
+                    float(np.linalg.norm(xy(j) - end)) - rad[j]
+                    for j in others if j != i) if len(others) > 1 else 0.0
+                options.append((clear, s_eff, th, st))
+            if not options:
+                if push_log is not None:
+                    push_log.append({
+                        "primitive": "push",
+                        "mode": mode,
+                        "index": i,
+                        "color": color,
+                        "effort": effort,
+                        "distance_m": round(float(dist), 2),
+                        "status": "skipped",
+                        "iso_after": round(float(iso_before), 3),
+                    })
+                print(f"[singulate] skipped push on obj{i} ({color}): "
+                      f"both shear sides unreachable")
+                continue
+            _, s_eff, theta, start_xy = max(options, key=lambda o: o[0])
+        else:
+            mode = "radial"
+            theta = float(np.arctan2(direction[1], direction[0]))
+            # Cartesian push: start at the distractor's target-facing
+            # edge (box half-size + tip radius + margin), push away.
+            sx = halves[i][0]
+            clearance = sx + 0.025 + (0.010 if strict else 0.015)
+            start_xy = d - direction * clearance
         snap = env.snapshot()
         nframes0 = len(frames)
         ninfo0 = len(frame_info) if frame_info is not None else 0
         p0 = {o["index"]: xy(o["index"]) for o in env.objects}
-        dist = 0.06 if strict else EFFORT_DISTANCES[effort]
         push(env, start_xy, theta, dist, frames,
              frame_info=frame_info)
         # evaluate: keep the push only if it moved the DISTRACTOR away
@@ -149,6 +208,7 @@ def scripted_singulate(env, target_idx, frames, push_radius=0.35,
                     "theta_deg": round(float(np.degrees(theta)), 1),
                     "distance_m": round(float(dist), 2),
                     "status": "reverted",
+                    "mode": mode,
                     "iso_after": round(float(iso_new), 3),
                 })
             print(f"[singulate] reverted push on obj{i} ({color}): "
@@ -169,6 +229,7 @@ def scripted_singulate(env, target_idx, frames, push_radius=0.35,
                     "theta_deg": round(float(np.degrees(theta)), 1),
                     "distance_m": round(float(dist), 2),
                     "status": "kept",
+                    "mode": mode,
                     "iso_after": round(float(iso_new), 3),
                 })
             print(f"[singulate] pushed obj{i} ({color}, {effort}): "

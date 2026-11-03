@@ -886,50 +886,101 @@ def _adjacent_scene(seed=7, gap=0.015):
     return env
 
 
-def test_singulate_adjacent_distractor_cap():
-    """Singulation: a push that moves the target >0.12 m is reverted
-    (non-strict cap; strict keeps 0.10 m).
+def test_singulate_adjacent_shear_succeeds():
+    """Singulation: adjacent distractor (15 mm gap) shears away cleanly.
 
-    Explicit crowded geometry (blue 15 mm east of red): the radial
-    shove drags the target with the distractor, so it must be
-    reverted by snapshot restore (target displacement 0, isolation
-    unchanged). A tangential start offset was tried and made
-    target movement worse, so it is not used — see the note in
-    scripted_singulate. Safe singulation for adjacent distractors
-    remains open.
+    Explicit crowded geometry (blue 15 mm east of red): the shear
+    push (tangential, tip at the distractor's center depth) drags
+    blue sideways without touching red — kept, isolation crosses
+    the 0.15 m gate, target displacement stays well under the
+    0.12 m cap. History: radial pushes wedged the tip in the gap
+    and shoved both boxes (reverted); branch flips added 0.28 m
+    flights before the q-seeded continuity fix.
     """
     from scripts.demo_vlm_grasp import scripted_singulate
     env = _adjacent_scene()
     assert env.target_isolation() < 0.15  # crowded premise
     t0 = env._obj_xy(0).copy()
     push_log = []
+    iso_b, iso_a = scripted_singulate(
+        env, 0, frames=[], push_targets=[{"index": 1, "effort": "shove"}],
+        push_log=push_log)
+    assert push_log, "singulate logged no push"
+    assert push_log[0]["status"] == "kept"
+    assert push_log[0]["mode"] == "shear"
+    assert iso_a >= 0.15 > iso_b
+    disp = float(np.linalg.norm(env._obj_xy(0) - t0))
+    assert disp < 0.12, f"shear moved target {disp:.3f} m"
+
+
+def test_singulate_unreachable_distractor_reverts():
+    """Revert path: a push that cannot reach its distractor reverts.
+
+    Blue parked out of reach (0.92 m): the tip flails short, the
+    distractor never moves (dmove < 0.03 m), so the push reverts —
+    snapshot restore leaves the target exactly unmoved and
+    isolation unchanged.
+    """
+    from scripts.demo_vlm_grasp import scripted_singulate
+    env = WholeArmGraspEnv(seed=7)
+    env.reset(seed=7)
+    env.target_index = 0
+    env.set_object_pose(1, (-0.65, 0.65), yaw=0.0)
+    iso_b = env.target_isolation()
+    t0 = env._obj_xy(0).copy()
+    push_log = []
     scripted_singulate(env, 0, frames=[],
                        push_targets=[{"index": 1, "effort": "shove"}],
                        push_log=push_log)
-    assert push_log, "singulate logged no push"
-    assert push_log[0]["status"] == "reverted"
-    disp = float(np.linalg.norm(env._obj_xy(0) - t0))
-    assert disp < 1e-9, f"reverted push moved target {disp:.3f} m"
+    assert push_log and push_log[0]["status"] == "reverted"
+    assert float(np.linalg.norm(env._obj_xy(0) - t0)) < 1e-9
+    assert env.target_isolation() == iso_b
 
 
 def test_singulation_crowded_no_regress():
-    """Auto singulate on a crowded scene never regresses isolation.
+    """Auto singulate on a crowded scene improves without regressing.
 
-    Explicit adjacent geometry (see _adjacent_scene): unsafe
-    pushes revert, so isolation is unchanged and the target
-    unmoved — the correct behaviour for a push primitive that
-    cannot safely separate adjacent boxes. Safe singulation for
-    adjacent distractors is still open (see docs/iteration-plan.md
-    Step 1); do not loosen the cap to claim it is solved.
+    Explicit adjacent geometry (see _adjacent_scene): safe pushes
+    are kept (isolation rises past the gate), unsafe ones still
+    revert via the cap, and the target never exceeds the 0.12 m
+    displacement budget. Verified 2026-11-03: iso 0.103 -> 0.219,
+    disp 0.063 (one kept shear, one reverted over-push).
     """
     from scripts.demo_vlm_grasp import scripted_singulate
     env = _adjacent_scene()
     assert env.target_isolation() < 0.15  # crowded premise
     t0 = env._obj_xy(0).copy()
     iso_before, iso_after = scripted_singulate(env, 0, frames=[])
-    # Revert restores the snapshot, so the target must not move.
-    assert float(np.linalg.norm(env._obj_xy(0) - t0)) < 1e-9
-    assert iso_after == iso_before
+    assert iso_after >= iso_before
+    assert iso_after >= 0.15
+    assert float(np.linalg.norm(env._obj_xy(0) - t0)) < 0.12
+
+
+def test_ik_tip_oriented_seeded_continuity():
+    """Seeded oriented IK holds its branch along a push line.
+
+    Regression: unseeded per-waypoint branch choice flipped mid-push
+    (~5 rad whip through the clutter, 0.28 m target flight on the
+    seed-7 shear). Chained from the previous q, consecutive
+    solutions stay close; unseeded, this line flips.
+    """
+    from planning.primitives import ik_tip_oriented
+    start = np.array([0.196, -0.265])
+    theta = -np.pi / 2
+    wps = [start + np.array([0.0, -0.25 * i / 12]) for i in range(13)]
+
+    def max_jump(seeded):
+        qs = []
+        q = np.zeros(3)
+        for wp in wps:
+            q = ik_tip_oriented(wp, theta, q if seeded else None)
+            assert q is not None
+            qs.append(q)
+        return max(float(np.linalg.norm(b - a))
+                   for a, b in zip(qs, qs[1:]))
+
+    assert max_jump(seeded=True) < 0.6
+    assert max_jump(seeded=False) > 2.0
 
 
 def test_singulation_never_regresses():
