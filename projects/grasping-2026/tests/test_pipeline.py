@@ -861,9 +861,9 @@ class _CannedVLMLabeller:
 def test_ablate_no_push_zeroes_vlm_pushes(monkeypatch):
     """no-push ablation: VLM side choice runs with pushes removed.
 
-    Adjacent seed 7 with the VLM's own winning plan (shove blue):
-    unablated it keeps the push and grasps (regime test); with
-    no-push the row shows no pushes and fails like the heuristic.
+    Adjacent seed 7 with the VLM's shove-blue plan: with no-push
+    the row shows no pushes and the cage ladder does all the work
+    (all 4 rungs — the far side wins where near misses twice).
     """
     import perception.grounding as grounding
     from scripts.compare_planners import run_one
@@ -876,7 +876,8 @@ def test_ablate_no_push_zeroes_vlm_pushes(monkeypatch):
                      ablate="no-push")
     assert row["planner_error"] is None, row["planner_error"]
     assert row["pushes"] == []
-    assert row["force_closure"] is False
+    assert row["cage_trace"]["attempts"] == 4
+    assert row["force_closure"] is True
 
 
 def test_ablate_no_retry_disables_second_entry(monkeypatch):
@@ -1771,7 +1772,8 @@ def test_cage_retry_tries_opposite_after_tucked_miss():
     tucks; if it misses, the retry must try the other entry — not
     skip, not tuck again — or push-then-cage episodes get one
     entry while push-free ones get two. Row seed 0, hand-fed
-    shove-blue plan (push keeps, first cage tucks).
+    shove-blue plan (push keeps, first cage tucks). Row beats all
+    four ladder rungs, so the trace shows the full ladder.
     """
     from env.scenes import apply_scene
     from scripts.demo_vlm_grasp import run_episode
@@ -1785,8 +1787,32 @@ def test_cage_retry_tries_opposite_after_tucked_miss():
     m, _, _ = run_episode(env, plan, "grasp the red box",
                           verbose=False)
     assert m["pushes"] and m["pushes"][0]["status"] == "kept"
-    assert m["cage_trace"]["attempts"] == 2
+    assert m["cage_trace"]["attempts"] == 4
+    assert m["cage_trace"]["sides_tried"] == ["near", "near",
+                                              "far", "far"]
     assert m["cage_trace"]["retried"] is True
+    assert m["force_closure"] is False
+
+
+def test_cage_ladder_tries_mirror_side():
+    """Side ladder: seed 8's left entry misses twice, mirror wins.
+
+    VLM 0-9 found the VLM-worse case: approach_side=left fails
+    both entries where near wins first try. The ladder retries the
+    mirror side from a restore, so a wrong side choice costs steps,
+    not the grasp. (Hand-fed VLM plan: push yellow + left.)
+    """
+    from scripts.demo_vlm_grasp import run_episode
+    env = WholeArmGraspEnv(seed=8)
+    env.reset(seed=8)
+    plan = {"grasp_target": 0,
+            "push_away": [{"index": 3, "effort": "clear"}],
+            "approach_side": "left", "rationale": "t"}
+    m, _, _ = run_episode(env, plan, "grasp the red box",
+                          verbose=False)
+    assert m["force_closure"] is True
+    assert m["cage_trace"]["attempts"] > 2
+    assert set(m["cage_trace"]["sides_tried"]) == {"left", "right"}
 
 
 def test_cage_no_retry_on_success():
@@ -1803,15 +1829,16 @@ def test_cage_no_retry_on_success():
     assert m["cage_trace"]["retried"] is False
 
 
-def test_adjacent_preset_is_vlm_win_regime():
-    """Adjacent preset: cage-alone fails, shear-then-cage wins (seed 7).
+def test_adjacent_preset_push_saves_three_rungs():
+    """Adjacent preset: the push turns a 4-rung grind into 1 (seed 7).
 
-    The 10 mm single-neighbor scene is the demonstrated VLM-win
-    regime (live VLM call 2026-11-03: planned shove-blue, kept,
-    iso 0.098 -> 0.294, FC first try). Hand-fed plans lock the
-    executor half without API: no-push fails both entries, the
-    shove-blue plan grasps. If the VLM ever stops planning the
-    push, the live demo (not this test) catches it.
+    The 10 mm single-neighbor scene was the demonstrated VLM-win
+    regime (live VLM call: shove-blue kept, FC first try) back
+    when the cage had two entries. The side ladder now grasps it
+    push-free on the far side — so the push's measured value here
+    is efficiency (1 attempt vs 4). The strict-win frontier (alone
+    fails all 4 rungs, pushed wins) now needs two-sided medium
+    clutter — next step: a sandwich preset there.
     """
     from env.scenes import apply_scene
     from scripts.demo_vlm_grasp import run_episode
@@ -1828,10 +1855,11 @@ def test_adjacent_preset_is_vlm_win_regime():
         return m
 
     alone = run([])
-    assert alone["force_closure"] is False
-    assert alone["cage_trace"]["attempts"] == 2
+    assert alone["force_closure"] is True
+    assert alone["cage_trace"]["attempts"] == 4
     pushed = run([{"index": 1, "effort": "shove"}])
     assert pushed["force_closure"] is True
+    assert pushed["cage_trace"]["attempts"] == 1
     assert pushed["pushes"] and pushed["pushes"][0]["status"] == "kept"
 
 

@@ -409,6 +409,12 @@ def scripted_cage(env, target_idx, frames, frame_info=None,
     return rewards, info
 
 
+def _mirror_side(side):
+    """Opposite cage entry side (the other face ±lead)."""
+    return {"left": "right", "right": "left",
+            "near": "far", "far": "near"}.get(side, "far")
+
+
 def run_episode(env, plan, instruction, frames=None, verbose=True,
                 allow_retry=True):
     """Execute one episode: plan -> singulate -> gate -> cage.
@@ -488,44 +494,56 @@ def run_episode(env, plan, instruction, frames=None, verbose=True,
                   f"{iso_after:.3f} m < {ISOLATION_THRESHOLD} m) — "
                   f"attempting grasp anyway")
 
+    # Cage ladder: up to 4 attempts from restores — both entries
+    # (auto, then opposite) on the planned side, then both on the
+    # mirror side. Entries are complementary (union 10/10 on seeds
+    # 0-9), and sides are complementary too (seed 8: VLM's "left"
+    # misses twice where "near" wins first try), so the ladder beats
+    # any single trajectory. Failed-attempt frames stay in (audit
+    # trail shows miss, snap-back, retry); info/trace below keep the
+    # first attempt unless some attempt achieves force closure.
+    sides = ((approach_side, _mirror_side(approach_side)) if allow_retry
+             else (approach_side,))
+    entries_per_side = 2 if allow_retry else 1
     cage_trace = {}
     snap = env.snapshot()
-    rewards, info = scripted_cage(env, target_idx, frames,
-                                  frame_info=frame_info,
-                                  approach_side=approach_side,
-                                  trace_log=cage_trace)
-    cage_trace["attempts"] = 1
-    cage_trace["retried"] = False
-    if not info["force_closure"] and allow_retry:
-        # Second entry: retry the missed cage with the opposite entry
-        # from a restore. The entries are complementary (union 10/10),
-        # so a retry beats either trajectory alone — and retrying the
-        # opposite (not always-tucked) keeps VLM-after-push episodes
-        # (whose first attempt tucks from post-push q) at entry parity
-        # with push-free ones. Failed-attempt frames stay in (audit
-        # trail shows miss, snap-back, retry); metrics below use the
-        # retry only if it achieves force closure.
-        first_tucked = bool(cage_trace.get("tucked_entry", False))
-        if verbose:
-            print(f"[demo] cage missed "
-                  f"{'tucked' if first_tucked else 'untucked'} — "
-                  f"retrying {'untucked' if first_tucked else 'tucked'}")
-        env.restore(snap)
-        retry_trace = {}
-        rewards2, info2 = scripted_cage(
-            env, target_idx, frames, frame_info=frame_info,
-            approach_side=approach_side, trace_log=retry_trace,
-            force_tuck=not first_tucked)
-        rewards = rewards + rewards2
-        retry_trace["attempts"] = 2
-        retry_trace["retried"] = True
-        if info2["force_closure"]:
-            info = info2
-            cage_trace = retry_trace
-        else:
-            cage_trace["attempts"] = 2
-            cage_trace["retried"] = True
-            cage_trace["retry_fc"] = False
+    rewards, info = [], None
+    attempts, sides_tried = 0, []
+    first_trace, first_info = None, None
+    for side in sides:
+        side_first_tucked = None
+        for k in range(entries_per_side):
+            if info is not None and info["force_closure"]:
+                break
+            if attempts:
+                if verbose:
+                    print(f"[demo] cage missed — retrying "
+                          f"(side={side}, "
+                          f"{'auto' if k == 0 else 'opposite'} entry)")
+                env.restore(snap)
+            force = None if k == 0 else (not side_first_tucked)
+            trace = {}
+            r_, info = scripted_cage(
+                env, target_idx, frames, frame_info=frame_info,
+                approach_side=side, trace_log=trace, force_tuck=force)
+            rewards = rewards + r_
+            attempts += 1
+            sides_tried.append(side)
+            if k == 0:
+                side_first_tucked = bool(trace.get("tucked_entry",
+                                                   False))
+            if attempts == 1:
+                first_trace, first_info = trace, info
+            if info["force_closure"]:
+                cage_trace = trace
+                break
+        if info is not None and info["force_closure"]:
+            break
+    if not info["force_closure"]:
+        cage_trace, info = first_trace, first_info
+    cage_trace["attempts"] = attempts
+    cage_trace["retried"] = attempts > 1
+    cage_trace["sides_tried"] = sides_tried
     if verbose:
         print(f"[demo] links touching: {info['links_touching']}, "
               f"enclosed: {info['enclosed']}, caged: {info['caged']}, "

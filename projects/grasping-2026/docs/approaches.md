@@ -248,17 +248,18 @@ top, per-seed side-by-side GIFs below. Metrics glossary:
 
 | Planner | FC | Notes |
 |---|---|---|
-| Heuristic | 10/10 | reference script + tucked retry |
+| Heuristic | 10/10 | reference script + 4-rung cage ladder |
 | BC v2 | 7/10 | cloned the script, lower disp |
 | PPO v3 | 7/10 | learned it, but shoves (0.65 m) |
 | Diffusion UNet | 5/10 | gentlest grasps (0.16 m) |
 | Reactive | 0/10 | floor, as designed |
-| VLM (canary 2,4) | 2/2 | inherits cage retry; $0 via cache |
-| VLM (adjacent 7) | 1/1 vs heur 0/1 | strict win: kept shear unlocks cage |
+| VLM (canary 2,4) | 2/2 | inherits cage ladder; $0 via cache |
+| VLM (seeds 0-9) | 9/10 | lone miss seed 8 (wrong side); ladder fixes |
+| VLM (adjacent 7) | 1/1, 1 attempt | push saves 3 ladder rungs vs push-free |
 
-Seed 0 now falls only to the retried heuristic; seeds 2/5/7 fall to
-all four capable ones. Three live failure modes, all diagnosed with
-probes:
+Seed 0 falls only to the scripted pair (heuristic + VLM); seeds
+2/5/7 fall to all capable ones. Three live failure modes, all
+diagnosed with probes:
 
 1. **VLM singulation is region-dependent.** Canary pushes skip:
    seed 2's radial start has 0/13 oriented-reachable waypoints
@@ -267,7 +268,11 @@ probes:
    the cage alone decides. But pushes DO land in kinder geometry:
    on the `adjacent` preset (10 mm single neighbor, seed 7) the
    VLM planned shove-blue, kept it (iso 0.098 → 0.294), and
-   grasped first try while the heuristic failed both entries.
+   grasped first try while the heuristic needed all 4 ladder
+   rungs. The full 0-9 VLM run (9/10, 8 fresh calls) found one
+   VLM-worse case — seed 8, where side=left misses twice and near
+   wins first try — fixed by the side ladder (mirror side after
+   both entries fail), which restores structural VLM >= heuristic.
    At 8 mm multi-sided gaps (surround/row/gate) one side always
    reverts, so min-isolation never crosses the gate — VLM == 0/3
    there too, with correct plans and insufficient primitive.
