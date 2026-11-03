@@ -48,9 +48,12 @@ def normalize_push_targets(push_targets):
     return out
 
 
+ISOLATION_GATE = 0.15  # meters of clearance; singulate stops past it
+
+
 def scripted_singulate(env, target_idx, frames, push_radius=0.35,
                        push_targets=None, strict=False, frame_info=None,
-                       push_log=None):
+                       push_log=None, max_passes=1):
     """Push-away phase: isolate the target before grasping.
 
     For each entry in push_targets (in order) when explicitly given, or
@@ -64,7 +67,11 @@ def scripted_singulate(env, target_idx, frames, push_radius=0.35,
     frames) if it hurts: isolation decreased, the target moved more
     than the distractor (or at all, when strict), the distractor
     barely moved, or something launched. Kept pushes are appended to
-    push_log (if given) as {index, effort, distance_m}.
+    push_log (if given) as {index, effort, distance_m, ...}.
+    max_passes repeats the sweep (each object pushable once per pass)
+    until isolation crosses ISOLATION_GATE or a pass keeps nothing —
+    later passes compound partial progress (a kept push can clear the
+    next push's approach corridor). 1 preserves single-sweep behavior.
     Returns (isolation_before, isolation_after) in meters.
     """
     def xy(i):
@@ -75,191 +82,200 @@ def scripted_singulate(env, target_idx, frames, push_radius=0.35,
         if push_targets is not None else None
     iso_start = env.target_isolation()
     iso_before = iso_start
-    done = set()
-    while True:
-        t = xy(target_idx)
-        if explicit is not None:
-            # explicit plan: push exactly these, in order, no filter
-            cands = [(0.0, i, e) for i, e in explicit
-                     if i in others and i not in done]
-        else:
-            cands = sorted(
-                (float(np.linalg.norm(xy(i) - t)), i, "clear")
-                for i in others
-                if i not in done
-                and float(np.linalg.norm(xy(i) - t)) < push_radius)
-        if not cands:
-            break
-        _, i, effort = cands[0]
-        done.add(i)
-        d = xy(i)
-        t = xy(target_idx)
-        to_d = d - t
-        if float(np.linalg.norm(to_d)) < 1e-6:
-            continue
-        direction = to_d / np.linalg.norm(to_d)
-        color = next(o["color"] for o in env.objects if o["index"] == i)
-        # Touching-distractor history: a tangential START offset with
-        # a radial push was tried 2026-10-28 and made things worse
-        # (target moved 0.389 m); radial pushes wedge the 50 mm tip
-        # in the gap and shove both boxes. 2026-11-03 fix: push
-        # tangentially (shear) when the face gap is under one tip
-        # diameter. The tip rides at the distractor's center depth,
-        # staying sx + gap clear of the target face — no contact even
-        # at zero gap — while the stiff tip drags the box sideways.
-        halves = {o["index"]: o["half"] for o in env.objects}
-        rad = {j: float(np.hypot(h[0], h[1])) for j, h in halves.items()}
-        gap = float(np.linalg.norm(to_d)) - rad[target_idx] - rad[i]
-        dist = 0.06 if strict else EFFORT_DISTANCES[effort]
-        if gap < 0.05:
-            mode = "shear"
-            s = np.array([-direction[1], direction[0]])
-            std = max(halves[i][0], halves[i][1]) + 0.025 \
-                + (0.010 if strict else 0.015)
-            # Shear toward the reachable side with more clearance at
-            # the end of the push. Reachability first: an
-            # unreachable oriented start falls back to crossing DLS
-            # and plows the cluster (surround seed 0: 0.68 m target
-            # flight). Both unreachable -> skip cleanly, no steps.
-            q_now = env._obs()["qpos"]
-            options = []
-            for sign in (1.0, -1.0):
-                s_eff = s * sign
-                th = float(np.arctan2(s_eff[1], s_eff[0]))
-                st = d - s_eff * std
-                # Validate the whole waypoint chain (start + 12),
-                # chained exactly as push() executes: any unreachable
-                # waypoint falls back to crossing DLS mid-push.
-                q = q_now
-                chain_ok = ik_tip_oriented(st, th, q) is not None
-                if chain_ok:
-                    q = ik_tip_oriented(st, th, q)
-                    for k in range(1, 13):
-                        wp = st + s_eff * (dist * k / 12)
-                        q = ik_tip_oriented(wp, th, q)
-                        if q is None:
-                            chain_ok = False
-                            break
-                if not chain_ok:
+    for pass_no in range(max(1, max_passes)):
+        done = set()
+        kept_this_pass = False
+        while True:
+            t = xy(target_idx)
+            if explicit is not None:
+                # explicit plan: push exactly these, in order, no filter
+                cands = [(0.0, i, e) for i, e in explicit
+                         if i in others and i not in done]
+            else:
+                cands = sorted(
+                    (float(np.linalg.norm(xy(i) - t)), i, "clear")
+                    for i in others
+                    if i not in done
+                    and float(np.linalg.norm(xy(i) - t)) < push_radius)
+            if not cands:
+                break
+            _, i, effort = cands[0]
+            done.add(i)
+            d = xy(i)
+            t = xy(target_idx)
+            to_d = d - t
+            if float(np.linalg.norm(to_d)) < 1e-6:
+                continue
+            direction = to_d / np.linalg.norm(to_d)
+            color = next(o["color"] for o in env.objects if o["index"] == i)
+            # Touching-distractor history: a tangential START offset with
+            # a radial push was tried 2026-10-28 and made things worse
+            # (target moved 0.389 m); radial pushes wedge the 50 mm tip
+            # in the gap and shove both boxes. 2026-11-03 fix: push
+            # tangentially (shear) when the face gap is under one tip
+            # diameter. The tip rides at the distractor's center depth,
+            # staying sx + gap clear of the target face — no contact even
+            # at zero gap — while the stiff tip drags the box sideways.
+            halves = {o["index"]: o["half"] for o in env.objects}
+            rad = {j: float(np.hypot(h[0], h[1])) for j, h in halves.items()}
+            gap = float(np.linalg.norm(to_d)) - rad[target_idx] - rad[i]
+            dist = 0.06 if strict else EFFORT_DISTANCES[effort]
+            if gap < 0.05:
+                mode = "shear"
+                s = np.array([-direction[1], direction[0]])
+                std = max(halves[i][0], halves[i][1]) + 0.025 \
+                    + (0.010 if strict else 0.015)
+                # Shear toward the reachable side with more clearance at
+                # the end of the push. Reachability first: an
+                # unreachable oriented start falls back to crossing DLS
+                # and plows the cluster (surround seed 0: 0.68 m target
+                # flight). Both unreachable -> skip cleanly, no steps.
+                q_now = env._obs()["qpos"]
+                options = []
+                for sign in (1.0, -1.0):
+                    s_eff = s * sign
+                    th = float(np.arctan2(s_eff[1], s_eff[0]))
+                    st = d - s_eff * std
+                    # Validate the whole waypoint chain (start + 12),
+                    # chained exactly as push() executes: any unreachable
+                    # waypoint falls back to crossing DLS mid-push.
+                    q = q_now
+                    chain_ok = ik_tip_oriented(st, th, q) is not None
+                    if chain_ok:
+                        q = ik_tip_oriented(st, th, q)
+                        for k in range(1, 13):
+                            wp = st + s_eff * (dist * k / 12)
+                            q = ik_tip_oriented(wp, th, q)
+                            if q is None:
+                                chain_ok = False
+                                break
+                    if not chain_ok:
+                        continue
+                    end = d + s_eff * dist
+                    clear = min(
+                        float(np.linalg.norm(xy(j) - end)) - rad[j]
+                        for j in others if j != i) if len(others) > 1 else 0.0
+                    options.append((clear, s_eff, th, st))
+                if not options:
+                    if push_log is not None:
+                        push_log.append({
+                            "primitive": "push",
+                            "mode": mode,
+                            "index": i,
+                            "color": color,
+                            "effort": effort,
+                            "distance_m": round(float(dist), 2),
+                            "status": "skipped",
+                            "pass": pass_no + 1,
+                            "iso_after": round(float(iso_before), 3),
+                        })
+                    print(f"[singulate] skipped push on obj{i} ({color}): "
+                          f"both shear sides unreachable")
                     continue
-                end = d + s_eff * dist
-                clear = min(
-                    float(np.linalg.norm(xy(j) - end)) - rad[j]
-                    for j in others if j != i) if len(others) > 1 else 0.0
-                options.append((clear, s_eff, th, st))
-            if not options:
+                _, s_eff, theta, start_xy = max(options, key=lambda o: o[0])
+            else:
+                mode = "radial"
+                theta = float(np.arctan2(direction[1], direction[0]))
+                # Cartesian push: start at the distractor's target-facing
+                # edge (box half-size + tip radius + margin), push away.
+                sx = halves[i][0]
+                clearance = sx + 0.025 + (0.010 if strict else 0.015)
+                start_xy = d - direction * clearance
+                # Oriented-start guard: push() silently falls back to DLS
+                # when the oriented start is unreachable, and a crossing
+                # link spins the box the wrong way (seed 2: iso
+                # 0.167->0.143, reverted). Skip cleanly instead of
+                # executing a doomed push.
+                if ik_tip_oriented(start_xy, theta,
+                                   env._obs()["qpos"]) is None:
+                    if push_log is not None:
+                        push_log.append({
+                            "primitive": "push",
+                            "mode": mode,
+                            "index": i,
+                            "color": color,
+                            "effort": effort,
+                            "distance_m": round(float(dist), 2),
+                            "status": "skipped",
+                            "pass": pass_no + 1,
+                            "iso_after": round(float(iso_before), 3),
+                        })
+                    print(f"[singulate] skipped push on obj{i} ({color}): "
+                          f"oriented radial start unreachable")
+                    continue
+            snap = env.snapshot()
+            nframes0 = len(frames)
+            ninfo0 = len(frame_info) if frame_info is not None else 0
+            p0 = {o["index"]: xy(o["index"]) for o in env.objects}
+            _, approach = push(env, start_xy, theta, dist, frames,
+                             frame_info=frame_info)
+            # evaluate: keep the push only if it moved the DISTRACTOR away
+            # (not the target), without launching anything
+            iso_new = env.target_isolation()
+            tmove = float(np.linalg.norm(xy(target_idx) - t))
+            dmove = float(np.linalg.norm(xy(i) - p0[i]))
+            maxmove = max(float(np.linalg.norm(xy(j) - p0[j])) for j in p0)
+            # Non-strict cap: dmove + 0.05 alone lets a push that
+            # moves target and distractor together pass (Seed 7), since
+            # a large dmove raises the limit. Cap at 0.12 m; strict
+            # keeps its tighter 0.10 m limit (an unconditional 0.12 m
+            # would loosen strict mode).
+            tmove_limit = 0.10 if strict else min(dmove + 0.05, 0.12)
+            if (iso_new < iso_before - 1e-9 or maxmove > 0.6 or dmove < 0.03
+                    or tmove > tmove_limit):
+                env.restore(snap)
+                del frames[nframes0:]
+                if frame_info is not None:
+                    del frame_info[ninfo0:]
                 if push_log is not None:
                     push_log.append({
                         "primitive": "push",
-                        "mode": mode,
                         "index": i,
                         "color": color,
                         "effort": effort,
+                        "start_xy": [round(float(start_xy[0]), 3),
+                                     round(float(start_xy[1]), 3)],
+                        "theta_rad": round(theta, 2),
+                        "theta_deg": round(float(np.degrees(theta)), 1),
                         "distance_m": round(float(dist), 2),
-                        "status": "skipped",
-                        "iso_after": round(float(iso_before), 3),
+                        "status": "reverted",
+                        "pass": pass_no + 1,
+                        "mode": mode,
+                        "approach": approach,
+                        "iso_after": round(float(iso_new), 3),
+                        "tmove_m": round(tmove, 3),
+                        "dmove_m": round(dmove, 3),
                     })
-                print(f"[singulate] skipped push on obj{i} ({color}): "
-                      f"both shear sides unreachable")
-                continue
-            _, s_eff, theta, start_xy = max(options, key=lambda o: o[0])
-        else:
-            mode = "radial"
-            theta = float(np.arctan2(direction[1], direction[0]))
-            # Cartesian push: start at the distractor's target-facing
-            # edge (box half-size + tip radius + margin), push away.
-            sx = halves[i][0]
-            clearance = sx + 0.025 + (0.010 if strict else 0.015)
-            start_xy = d - direction * clearance
-            # Oriented-start guard: push() silently falls back to DLS
-            # when the oriented start is unreachable, and a crossing
-            # link spins the box the wrong way (seed 2: iso
-            # 0.167->0.143, reverted). Skip cleanly instead of
-            # executing a doomed push.
-            if ik_tip_oriented(start_xy, theta,
-                               env._obs()["qpos"]) is None:
+                print(f"[singulate] reverted push on obj{i} ({color}): "
+                      f"iso {iso_before:.3f}->{iso_new:.3f}, "
+                      f"distractor moved {dmove:.3f} m, "
+                      f"target moved {tmove:.3f} m")
+            else:
+                iso_before = iso_new
+                kept_this_pass = True
                 if push_log is not None:
                     push_log.append({
                         "primitive": "push",
-                        "mode": mode,
                         "index": i,
                         "color": color,
                         "effort": effort,
+                        "start_xy": [round(float(start_xy[0]), 3),
+                                     round(float(start_xy[1]), 3)],
+                        "theta_rad": round(theta, 2),
+                        "theta_deg": round(float(np.degrees(theta)), 1),
                         "distance_m": round(float(dist), 2),
-                        "status": "skipped",
-                        "iso_after": round(float(iso_before), 3),
+                        "status": "kept",
+                        "pass": pass_no + 1,
+                        "mode": mode,
+                        "approach": approach,
+                        "iso_after": round(float(iso_new), 3),
+                        "tmove_m": round(tmove, 3),
+                        "dmove_m": round(dmove, 3),
                     })
-                print(f"[singulate] skipped push on obj{i} ({color}): "
-                      f"oriented radial start unreachable")
-                continue
-        snap = env.snapshot()
-        nframes0 = len(frames)
-        ninfo0 = len(frame_info) if frame_info is not None else 0
-        p0 = {o["index"]: xy(o["index"]) for o in env.objects}
-        _, approach = push(env, start_xy, theta, dist, frames,
-                         frame_info=frame_info)
-        # evaluate: keep the push only if it moved the DISTRACTOR away
-        # (not the target), without launching anything
-        iso_new = env.target_isolation()
-        tmove = float(np.linalg.norm(xy(target_idx) - t))
-        dmove = float(np.linalg.norm(xy(i) - p0[i]))
-        maxmove = max(float(np.linalg.norm(xy(j) - p0[j])) for j in p0)
-        # Non-strict cap: dmove + 0.05 alone lets a push that
-        # moves target and distractor together pass (Seed 7), since
-        # a large dmove raises the limit. Cap at 0.12 m; strict
-        # keeps its tighter 0.10 m limit (an unconditional 0.12 m
-        # would loosen strict mode).
-        tmove_limit = 0.10 if strict else min(dmove + 0.05, 0.12)
-        if (iso_new < iso_before - 1e-9 or maxmove > 0.6 or dmove < 0.03
-                or tmove > tmove_limit):
-            env.restore(snap)
-            del frames[nframes0:]
-            if frame_info is not None:
-                del frame_info[ninfo0:]
-            if push_log is not None:
-                push_log.append({
-                    "primitive": "push",
-                    "index": i,
-                    "color": color,
-                    "effort": effort,
-                    "start_xy": [round(float(start_xy[0]), 3),
-                                 round(float(start_xy[1]), 3)],
-                    "theta_rad": round(theta, 2),
-                    "theta_deg": round(float(np.degrees(theta)), 1),
-                    "distance_m": round(float(dist), 2),
-                    "status": "reverted",
-                    "mode": mode,
-                    "approach": approach,
-                    "iso_after": round(float(iso_new), 3),
-                    "tmove_m": round(tmove, 3),
-                    "dmove_m": round(dmove, 3),
-                })
-            print(f"[singulate] reverted push on obj{i} ({color}): "
-                  f"iso {iso_before:.3f}->{iso_new:.3f}, "
-                  f"distractor moved {dmove:.3f} m, "
-                  f"target moved {tmove:.3f} m")
-        else:
-            iso_before = iso_new
-            if push_log is not None:
-                push_log.append({
-                    "primitive": "push",
-                    "index": i,
-                    "color": color,
-                    "effort": effort,
-                    "start_xy": [round(float(start_xy[0]), 3),
-                                 round(float(start_xy[1]), 3)],
-                    "theta_rad": round(theta, 2),
-                    "theta_deg": round(float(np.degrees(theta)), 1),
-                    "distance_m": round(float(dist), 2),
-                    "status": "kept",
-                    "mode": mode,
-                    "approach": approach,
-                    "iso_after": round(float(iso_new), 3),
-                    "tmove_m": round(tmove, 3),
-                    "dmove_m": round(dmove, 3),
-                })
-            print(f"[singulate] pushed obj{i} ({color}, {effort}): "
-                  f"iso {iso_new:.3f} m")
+                print(f"[singulate] pushed obj{i} ({color}, {effort}): "
+                      f"iso {iso_new:.3f} m")
+        if iso_before >= ISOLATION_GATE or not kept_this_pass:
+            break
     return iso_start, env.target_isolation()
 
 
@@ -422,7 +438,7 @@ def _mirror_side(side):
 
 
 def run_episode(env, plan, instruction, frames=None, verbose=True,
-                allow_retry=True):
+                allow_retry=True, max_passes=1):
     """Execute one episode: plan -> singulate -> gate -> cage.
 
     env must already be reset; target_index is set from the plan here.
@@ -482,22 +498,21 @@ def run_episode(env, plan, instruction, frames=None, verbose=True,
     push_log = []
     iso_before, iso_after = scripted_singulate(
         env, target_idx, frames, push_targets=push_targets, strict=strict,
-        frame_info=frame_info, push_log=push_log)
+        frame_info=frame_info, push_log=push_log, max_passes=max_passes)
     if verbose:
         print(f"[demo] singulation: isolation {iso_before:.3f} -> "
               f"{iso_after:.3f} m")
 
     # Isolation gate: the task is "grasp IN ISOLATION". Only start the grasp
     # once preconditions are met (or log that they weren't).
-    ISOLATION_THRESHOLD = 0.15  # meters of clearance
-    preconditions_met = iso_after >= ISOLATION_THRESHOLD
+    preconditions_met = iso_after >= ISOLATION_GATE
     if verbose:
         if preconditions_met:
             print(f"[demo] preconditions met (isolation {iso_after:.3f} m "
-                  f">= {ISOLATION_THRESHOLD} m) — starting grasp")
+                  f">= {ISOLATION_GATE} m) — starting grasp")
         else:
             print(f"[demo] WARNING: preconditions NOT met (isolation "
-                  f"{iso_after:.3f} m < {ISOLATION_THRESHOLD} m) — "
+                  f"{iso_after:.3f} m < {ISOLATION_GATE} m) — "
                   f"attempting grasp anyway")
 
     # Cage ladder: up to 4 attempts from restores — both entries

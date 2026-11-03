@@ -185,6 +185,19 @@ breaks it). The live VLM on decoy 9 shows no restraint either
 decoy, VLM target/effort/restraint selection never beats the
 matching blind rule.
 
+Multi-pass singulation (`--max-passes`, default 1 = off)
+re-sweeps the push list until the 0.15 m gate or a fruitless
+pass. It compounds partial progress where single sweeps stall:
+decoy s0 flips fail→win (pass 2 re-nudges blue). But outcomes
+are order-chaotic — identical kept-push sets in different
+orders diverge by pass 3 (solver-history effects the snapshot
+doesn't capture), and extra passes can over-push a winnable
+scene (nearest-first order loses the same seed multi-pass
+wins by hand order). Matrix: sandwich-shove unchanged 7/10,
+decoy-shove unchanged 3/10, surround-shove 1/10. Verdict:
+experimental, non-default; the robust fix for dense scenes
+remains approach-aware sequencing, not more sweeps.
+
 ### Reactive — the deliberate floor
 
 Proportional tip servo toward the target (capped 5 cm/step, DLS IK),
@@ -376,6 +389,7 @@ top, per-seed side-by-side GIFs below. Metrics glossary:
 | autopush-shove (adjacent) | 7/10 | shove loses s3 vs clear's 8/10: effort is scene-dependent |
 | decoy scan (0-9) | no selective regime | 0-5 all-fail, 6 all-pass, 7-8 effort-gated, 9 withholding |
 | VLM (decoy 9) | 0/1 | pushed blue/green, lost where ladder wins push-free: no restraint |
+| multipass-3 (sandwich/decoy/surround) | 7/3/1 of 10 | helps one seed (decoy s0 hand-order), neutral else; order-chaotic |
 | VLM (sandwich 3,8) | 1/2 | s8 kept (autopush broke it), s3 lost (autopush kept it) |
 | SARSA(λ) thesis port | 0/10 ×6 configs | negative; relative-xy shows weak in-dist sign of life (13/60 vs 7/60, p≈0.07) |
 

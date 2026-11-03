@@ -236,7 +236,8 @@ def autopush_plan(env, radius=0.35, effort="clear"):
 
 def run_one(seed, planner, instruction, ppo_model=None, diffusion_model=None,
             bc_model=None, contact_obs=False, max_delta_q=None,
-            scene="random", ablate="none", autopush_effort="clear"):
+            scene="random", ablate="none", autopush_effort="clear",
+            max_passes=1):
     """One episode with one planner. Returns (metrics row, frames).
 
     Never raises: a planner failure is recorded as planner_error.
@@ -305,6 +306,7 @@ def run_one(seed, planner, instruction, ppo_model=None, diffusion_model=None,
             # pushes removed (no-push on heuristic is already its plan).
             plan = {**plan, "push_away": []}
         row["ablate"] = ablate
+        row["max_passes"] = max_passes
         if planner == "vlm":
             # last_cache_hit False => API call (tokens from last_response)
             row["api_call"] = labeller.last_cache_hit is False
@@ -320,7 +322,8 @@ def run_one(seed, planner, instruction, ppo_model=None, diffusion_model=None,
     metrics, frames, _ = run_episode(env, plan, instruction, frames,
                                      verbose=False,
                                      allow_retry=ablate != "no-retry"
-                                     or planner != "vlm")
+                                     or planner != "vlm",
+                                     max_passes=max_passes)
     pos1 = env._obs()["objects"][t_idx][:2].copy()
     metrics["target_start_r"] = float(np.linalg.norm(pos0))
     metrics["target_end_r"] = float(np.linalg.norm(pos1))
@@ -730,6 +733,10 @@ def main():
                     choices=["nudge", "clear", "shove"],
                     help="effort for autopush blind pushes (default "
                     "clear); shove matches the VLM's usual choice")
+    ap.add_argument("--max-passes", type=int, default=1,
+                    help="singulation sweeps per episode (default 1); "
+                    "later passes re-push and stop at the isolation "
+                    "gate or a fruitless pass")
     ap.add_argument("--contact-obs", action="store_true",
                     help="learned-planner wrapper uses contact obs "
                     "(must match training)")
@@ -787,7 +794,8 @@ def main():
                                   max_delta_q=args.max_delta_q,
                                   scene=args.scene,
                                   ablate=args.ablate,
-                                  autopush_effort=args.autopush_effort)
+                                  autopush_effort=args.autopush_effort,
+                                  max_passes=args.max_passes)
             rows.append(row)
             frames_by_seed.setdefault(seed, {})[planner] = (row, frames)
             status = (f"FC={row.get('force_closure')} "

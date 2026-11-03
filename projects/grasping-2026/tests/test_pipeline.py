@@ -2166,6 +2166,41 @@ def test_surround_pushes_revert_on_target_bulldoze():
     assert m["cage_trace"]["attempts"] == 4
 
 
+def test_multipass_compounds_kept_pushes():
+    """Multi-pass singulation compounds partial progress (decoy s0).
+
+    Pass 1 keeps blue + yellow but isolation stays under the gate;
+    pass 2 re-pushes blue (kept again) and the ladder then wins.
+    Pass 3 keeps nothing, so the sweep stops (exactly 3 passes —
+    no runaway). Single-pass on the same scene fails. Hand-fed
+    nudge plan, no API.
+    """
+    from env.scenes import apply_scene
+    from scripts.demo_vlm_grasp import run_episode
+
+    def run(max_passes):
+        env = WholeArmGraspEnv(seed=0)
+        env.reset(seed=0)
+        env.target_index = 0
+        apply_scene(env, "decoy")
+        plan = {"grasp_target": 0,
+                "push_away": [{"index": i, "effort": "nudge"}
+                              for i in (1, 2, 3)],
+                "approach_side": "near", "rationale": "t"}
+        m, _, _ = run_episode(env, plan, "grasp the red box",
+                              verbose=False, max_passes=max_passes)
+        return m
+
+    one = run(1)
+    assert one["force_closure"] is False
+    multi = run(3)
+    assert multi["force_closure"] is True
+    passes = [p["pass"] for p in multi["pushes"]]
+    assert max(passes) == 3
+    assert any(p["index"] == 1 and p["status"] == "kept"
+               and p["pass"] == 2 for p in multi["pushes"])
+
+
 def test_empty_push_away_means_no_pushes():
     """Regression (2026-10-28 rerun): run_episode with push_away=[]
     must push nothing, even on a crowded seed where the old
