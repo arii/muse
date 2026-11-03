@@ -1620,3 +1620,88 @@ def test_boxes_stay_planar_under_hard_push():
         assert xquat[2] == pytest.approx(0.0, abs=1e-9)
         assert env.data.xpos[env._obj_body_id[o["index"]]][2] == \
             pytest.approx(0.06)
+
+
+def _tiny_demos(path, bad_action=False):
+    """Write a 4-episode demo pair compatible with the exporter."""
+    rng = np.random.default_rng(0)
+    lengths = np.array([5, 4, 3, 2])
+    obs = rng.normal(size=(4, 5, 10)).astype(np.float32)
+    actions = rng.uniform(-1, 1, size=(4, 5, 3)).astype(np.float32)
+    if bad_action:
+        actions[1, 1, 0] = 1.5
+    np.savez_compressed(path.with_suffix(".npz"), obs=obs,
+                        actions=actions, lengths=lengths,
+                        fc_steps=np.array([4, 3, -1, 1]))
+    path.with_suffix(".json").write_text(json.dumps({
+        "demonstrator": "cage", "keep": "fc", "n_objects": 1,
+        "contact_obs": False, "episodes_run": 4, "episodes_kept": 4,
+        "fc_count": 3}))
+
+
+def test_export_hf_dataset_writes_splits_and_card(tmp_path):
+    """HF export: deterministic splits, episode schema, card/checksums."""
+    from scripts.export_hf_dataset import export_dataset, split_episodes
+    demos = tmp_path / "tiny_demos"
+    _tiny_demos(demos)
+    out = tmp_path / "hf"
+    info = export_dataset(demos, out, name="tiny", val_frac=0.5,
+                          split_seed=0)
+    assert info["episodes"] == 4
+    assert info["steps"] == 14
+    assert info["obs_dim"] == 10
+    assert {k: len(v) for k, v in info["splits"].items()} == \
+        {"train": 2, "validation": 2}
+    assert split_episodes(4, 0.5, 0)["train"] == \
+        info["splits"]["train"]["episode_ids"]
+    rows = {}
+    for split in ("train", "validation"):
+        text = (out / f"{split}.jsonl").read_text().strip().splitlines()
+        assert len(text) == 2
+        for line in text:
+            row = json.loads(line)
+            assert row["split"] == split
+            assert row["target_index"] == 0
+            assert row["target_color"] == "red"
+            assert len(row["obs"]) == row["length"]
+            assert len(row["actions"]) == row["length"]
+            assert len(row["obs_names"]) == 10
+            rows[row["episode_id"]] = split
+    assert sorted(rows) == [0, 1, 2, 3]
+    card = (out / "README.md").read_text()
+    assert "Simulation-only scripted demonstrations" in card
+    assert "collect_demos.py" in card
+    sums = (out / "checksums.sha256").read_text()
+    for fname in ("train.jsonl", "validation.jsonl", "dataset_info.json",
+                  "README.md"):
+        assert fname in sums
+
+
+def test_default_model_prefers_first_existing_checkpoint(tmp_path):
+    """Auto-detect resolves to the first candidate present on disk.
+
+    Candidate lists are ordered newest-first (v3 PPO, UNet
+    diffusion), so a stale fallback must never shadow a fresh
+    checkpoint when both exist.
+    """
+    from scripts.compare_planners import _resolve_default_model
+    new = tmp_path / "new.zip"
+    old = tmp_path / "old.zip"
+    new.write_text("new")
+    old.write_text("old")
+    assert _resolve_default_model([str(new), str(old)]) == str(new)
+    assert _resolve_default_model([str(old), str(new)]) == str(old)
+    assert _resolve_default_model([str(tmp_path / "missing.zip"),
+                                   str(old)]) == str(old)
+
+
+def test_export_hf_dataset_rejects_bad_data_and_missing_token(tmp_path):
+    """HF export fails closed on bad actions and missing upload token."""
+    import pytest
+    from scripts.export_hf_dataset import export_dataset, resolve_token
+    demos = tmp_path / "bad_demos"
+    _tiny_demos(demos, bad_action=True)
+    with pytest.raises(ValueError, match="outside \\[-1, 1\\]"):
+        export_dataset(demos, tmp_path / "hf")
+    with pytest.raises(SystemExit, match="HF_TOKEN"):
+        resolve_token(None, env={})

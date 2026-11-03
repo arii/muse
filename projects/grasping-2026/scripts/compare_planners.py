@@ -94,7 +94,8 @@ def _run_learned(seed, planner, instruction, model_path=None, max_steps=200,
     if planner == "ppo":
         from stable_baselines3 import PPO
         mpath = model_path or _resolve_default_model(
-            ["models/grasp_ppo_500k.zip", "models/grasp_ppo.zip"])
+            ["models/grasp_ppo_v3.zip", "models/grasp_ppo_500k.zip",
+             "models/grasp_ppo.zip"])
         if mpath not in _PPO_CACHE:
             _PPO_CACHE[mpath] = PPO.load(mpath)
         model = _PPO_CACHE[mpath]
@@ -140,7 +141,8 @@ def _run_learned(seed, planner, instruction, model_path=None, max_steps=200,
         from diffusers import DDIMScheduler
         from scripts.diffusion_policy import build_denoiser, sample_chunk
         mpath = model_path or _resolve_default_model(
-            ["models/diffusion_v2.pt", "models/diffusion.pt"])
+            ["models/diffusion_unet.pt", "models/diffusion_v2.pt",
+             "models/diffusion.pt"])
         if mpath not in _DIFF_CACHE:
             ckpt = torch.load(mpath, map_location="cpu", weights_only=False)
             dm = build_denoiser(ckpt)
@@ -699,11 +701,13 @@ def main():
     planners = []
     for p in req_planners:
         if p == "ppo" and args.ppo_model is None:
-            if not (pathlib.Path("models/grasp_ppo_500k.zip").exists()
+            if not (pathlib.Path("models/grasp_ppo_v3.zip").exists()
+                    or pathlib.Path("models/grasp_ppo_500k.zip").exists()
                     or pathlib.Path("models/grasp_ppo.zip").exists()):
                 continue
         if p == "diffusion" and args.diffusion_model is None:
-            if not (pathlib.Path("models/diffusion_v2.pt").exists()
+            if not (pathlib.Path("models/diffusion_unet.pt").exists()
+                    or pathlib.Path("models/diffusion_v2.pt").exists()
                     or pathlib.Path("models/diffusion.pt").exists()):
                 continue
         if p == "bc" and args.bc_model is None:
