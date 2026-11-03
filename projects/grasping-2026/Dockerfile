@@ -29,26 +29,30 @@
 #  - Secrets (NEBIUS_API_KEY): passed via -e / env-file, never in the image.
 #
 # Stage 1: build/install
-FROM python:3.11-slim AS builder
+# Base pinned by digest (2026-11-03); re-resolve deliberately, never float.
+FROM python:3.11-slim@sha256:db20d8506e2f15b6db39b40b6015ca46bae855dec6dd326d462cfe79ae972893 AS builder
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      build-essential \
-      libglfw3 libgl1 libosmesa6 libgomp1 \
+      build-essential=12.12 \
+      libglfw3=3.4-3 libgl1=1.7.0-1+b2 libosmesa6=25.0.7-2+deb13u1 \
+      libgomp1=14.2.0-19 \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /workspace
-COPY pyproject.toml ./
-# CPU torch FIRST (see note above), then the project extra — pip keeps
+COPY pyproject.toml requirements.lock ./
+# CPU torch FIRST (see note above), then the locked set — pip keeps
 # the already-installed CPU build when resolving SB3's torch dep.
 RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu "torch==2.14.1+cpu"
-# Non-editable install: packages land in site-packages, no fragile
-# editable path links between stages.
-RUN pip install --no-cache-dir ".[rl]"
+RUN pip install --no-cache-dir -r requirements.lock
+# Non-editable install, no deps (lockfile already resolved them):
+# packages land in site-packages, no fragile editable path links.
+RUN pip install --no-cache-dir --no-deps ".[rl]"
 
 # Stage 2: runtime
-FROM python:3.11-slim
+FROM python:3.11-slim@sha256:db20d8506e2f15b6db39b40b6015ca46bae855dec6dd326d462cfe79ae972893
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 MUJOCO_GL=osmesa
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      libglfw3 libgl1 libosmesa6 libgomp1 \
+      libglfw3=3.4-3 libgl1=1.7.0-1+b2 libosmesa6=25.0.7-2+deb13u1 \
+      libgomp1=14.2.0-19 \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /workspace
 COPY --from=builder /usr/local/lib/python3.11/site-packages \

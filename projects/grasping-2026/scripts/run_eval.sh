@@ -55,6 +55,8 @@ if [[ "${RETRAIN_DIFF}" -eq 1 ]]; then
     --min-steps-per-epoch 60 --lr 5e-4 --out models/diffusion_v2
 fi
 
+echo "[run_eval] Building demo image (never eval on a stale image)..."
+docker compose build demo
 echo "[run_eval] Comparing planners (${PLANNERS}) on seeds (${SEEDS})..."
 docker compose run --rm -v "${PROJECT_DIR}:/workspace" --entrypoint python demo \
   scripts/compare_planners.py --seeds "${SEEDS}" --planners "${PLANNERS}" \
