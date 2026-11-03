@@ -915,6 +915,20 @@ def test_autopush_targets_crowders_nearest_first():
     assert plan["grasp_target"] == 0
 
 
+def test_autopush_effort_flag_flows_to_plan():
+    """--autopush-effort reaches the blind-push plan (default clear)."""
+    from scripts.compare_planners import autopush_plan, run_one
+    from env.whole_arm_grasp import WholeArmGraspEnv
+    env = WholeArmGraspEnv(seed=7)
+    env.reset(seed=7)
+    plan = autopush_plan(env, effort="shove")
+    assert all(p["effort"] == "shove" for p in plan["push_away"])
+    row, _ = run_one(7, "autopush", "grasp the red box",
+                     scene="adjacent", autopush_effort="shove")
+    assert row["planner_error"] is None, row["planner_error"]
+    assert row["force_closure"] is True
+
+
 def test_autopush_wins_adjacent():
     """Blind pushing wins adjacent: the push action, not the planner.
 

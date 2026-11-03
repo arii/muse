@@ -236,7 +236,7 @@ def autopush_plan(env, radius=0.35, effort="clear"):
 
 def run_one(seed, planner, instruction, ppo_model=None, diffusion_model=None,
             bc_model=None, contact_obs=False, max_delta_q=None,
-            scene="random", ablate="none"):
+            scene="random", ablate="none", autopush_effort="clear"):
     """One episode with one planner. Returns (metrics row, frames).
 
     Never raises: a planner failure is recorded as planner_error.
@@ -296,7 +296,8 @@ def run_one(seed, planner, instruction, ppo_model=None, diffusion_model=None,
         if planner == "autopush":
             from perception.grounding import normalize_plan
             valid = {o["index"] for o in env.objects}
-            plan = normalize_plan(autopush_plan(env), valid)
+            plan = normalize_plan(
+                autopush_plan(env, effort=autopush_effort), valid)
         else:
             plan = labeller.plan(frames[0], env.objects, instruction)
         if ablate == "no-push" and planner == "vlm":
@@ -724,6 +725,10 @@ def main():
                     help="VLM attribution ablation: run VLM rows with "
                     "pushes removed (no-push) or the second cage entry "
                     "disabled (no-retry)")
+    ap.add_argument("--autopush-effort", default="clear",
+                    choices=["nudge", "clear", "shove"],
+                    help="effort for autopush blind pushes (default "
+                    "clear); shove matches the VLM's usual choice")
     ap.add_argument("--contact-obs", action="store_true",
                     help="learned-planner wrapper uses contact obs "
                     "(must match training)")
@@ -780,7 +785,8 @@ def main():
                                   contact_obs=args.contact_obs,
                                   max_delta_q=args.max_delta_q,
                                   scene=args.scene,
-                                  ablate=args.ablate)
+                                  ablate=args.ablate,
+                                  autopush_effort=args.autopush_effort)
             rows.append(row)
             frames_by_seed.setdefault(seed, {})[planner] = (row, frames)
             status = (f"FC={row.get('force_closure')} "

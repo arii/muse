@@ -158,11 +158,22 @@ adjacent, push *action* alone is the whole game. On the two
 decisive sandwich seeds VLM matches neither: s3 autopush-✓
 VLM-✗, s8 heuristic-✓ autopush-✗ VLM-✓. And VLM planned
 identical targets on all three probes (shove 3, shove 1) — the
-same every-crowder set autopush clears. Conclusion: VLM
-**target selection adds nothing over blind pushing** here; the
-VLM-vs-autopush differences come from push *effort* (VLM's
-shove vs autopush's clear) and downstream cage variance, not
-smarter choice of what to push.
+same every-crowder set autopush clears. Follow-up
+(`--autopush-effort shove`): autopush-shove reproduces the VLM
+pattern exactly on all three observed sandwich seeds (s3✗ s8✓
+s9✓) and scores 7/10 overall (fixes 5, 8; breaks 3) — so on
+sandwich, VLM ≡ blind-push-every-crowder-with-shove, and
+*effort* fully explains the VLM-vs-autopush gap. But effort is
+scene-dependent, not universally-better: on adjacent, shove
+*loses* seed 3 (7/10) while clear keeps 8/10 — and the VLM
+shoved there too (cached s7), so it does not adapt effort to
+the scene either — and it never withholds pushes where blind
+pushing harms (s8: VLM pushed and won, autopush-clear pushed
+and lost). Conclusion: on these clutter presets no VLM
+selection edge is observed at all; VLM ≡ autopush-shove on
+every seed both ran. The remaining case for the VLM is scenes
+where the *targets* genuinely admit a choice (asymmetric
+clutter), which neither preset provides.
 
 ### Reactive — the deliberate floor
 
@@ -351,6 +362,8 @@ top, per-seed side-by-side GIFs below. Metrics glossary:
 | VLM (sandwich 9) | 1/1 vs heur 0/1 | strict win restored: kept shear, first-try cage |
 | autopush (sandwich 0-9) | 6/10 | ties heuristic; fixes 3,9 breaks 5,8 |
 | autopush (adjacent 0-9) | 8/10 | +2 over heuristic (fixes 8,9), breaks nothing |
+| autopush-shove (sandwich) | 7/10 | matches VLM 3/3 (s3✗ s8✓ s9✓); fixes 5,8 breaks 3 |
+| autopush-shove (adjacent) | 7/10 | shove loses s3 vs clear's 8/10: effort is scene-dependent |
 | VLM (sandwich 3,8) | 1/2 | s8 kept (autopush broke it), s3 lost (autopush kept it) |
 | SARSA(λ) thesis port | 0/10 ×6 configs | negative; relative-xy shows weak in-dist sign of life (13/60 vs 7/60, p≈0.07) |
 
