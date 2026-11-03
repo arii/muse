@@ -63,6 +63,9 @@ checkpoints stay loadable under the defaults):
   mixed-scene training ('random' keeps the reset scene, the
   rest are env.scenes presets). Duplicates weight the mix.
   Default ("random",) = old behavior.
+- precontact_disp_penalty: coef * red per-step motion taxed
+  while links_touching==0 (train-only like success_bonus).
+  Default 0 = off.
 """
 import math
 
@@ -81,7 +84,7 @@ class GraspGymWrapper(gym.Env):
                  max_delta_q=None, success_bonus=0.0,
                  fail_penalty=0.0, thesis_reward=False,
                  thesis_timeout=-100.0, enclosure_bonus=0.0,
-                 scenes=("random",)):
+                 scenes=("random",), precontact_disp_penalty=0.0):
         super().__init__()
         self.env = WholeArmGraspEnv(n_objects=n_objects, seed=seed)
         self.target_index = target_index
@@ -97,11 +100,12 @@ class GraspGymWrapper(gym.Env):
         # trail and drowns the shaping gradient (see train_sarsa).
         self.thesis_timeout = float(thesis_timeout)
         if thesis_reward and (step_penalty or success_bonus
-                              or fail_penalty or enclosure_bonus):
+                              or fail_penalty or enclosure_bonus
+                              or precontact_disp_penalty):
             raise ValueError("thesis_reward replaces the reward "
                              "schedule; it cannot combine with "
                              "step_penalty/success_bonus/fail_penalty/"
-                             "enclosure_bonus")
+                             "enclosure_bonus/precontact_disp_penalty")
         # success_bonus: added on force-closure steps (train-only
         # shaping; eval/compare use 0 so reports stay comparable).
         # The base +2.0 FC bonus never compensates a forfeited 200-step
@@ -128,6 +132,14 @@ class GraspGymWrapper(gym.Env):
         self._resets = 0
         self.scene = self.scenes[0]
         self.scene_fallbacks = 0
+        # precontact_disp_penalty: coef * red motion taxed on steps
+        # with links_touching==0 (train-only like success_bonus).
+        # Whiffs already end in timeout -100, but ~197 steps after
+        # the fatal shove — too delayed for credit assignment.
+        # This taxes the ejection itself, densely; post-contact
+        # red motion (bulldoze-pinch wins) stays exempt.
+        self.precontact_disp_penalty = precontact_disp_penalty
+        self._prev_red = None
         self._steps = 0
         # Obs: q(3) + qvel(3) + target xy(2) + target half(2)
         #      + (n_objects-1) distractors x (dx, dy)
@@ -193,6 +205,8 @@ class GraspGymWrapper(gym.Env):
                 self.scene = "random"
                 self.scene_fallbacks += 1
         self._steps = 0
+        if self.precontact_disp_penalty:
+            self._prev_red = np.array(self.env._target_xy(), dtype=float)
         return self._flat_obs(), {"scene": self.scene}
 
     def step(self, action):
@@ -211,6 +225,12 @@ class GraspGymWrapper(gym.Env):
             shaped += self.success_bonus
         if info["enclosed"]:
             shaped += self.enclosure_bonus
+        if self.precontact_disp_penalty:
+            red = np.array(self.env._target_xy(), dtype=float)
+            if not info["links_touching"]:
+                shaped -= (self.precontact_disp_penalty
+                           * float(np.linalg.norm(red - self._prev_red)))
+            self._prev_red = red
         if self.fail_penalty:
             # Thesis failure states (Anders 2014, S3.2/S4.2.2): timeout
             # and object-beyond-arm's-length end the episode at -100.

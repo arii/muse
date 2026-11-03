@@ -1398,6 +1398,41 @@ def test_gym_wrapper_scene_fallback_on_infeasible_preset():
         assert env.scene_fallbacks == 1
 
 
+def test_gym_wrapper_precontact_disp_penalty():
+    """precontact_disp_penalty taxes red motion while links_touching==0.
+
+    Whiffs (first touch ejects red 1+ m) already end in timeout
+    -100, but 197 steps later — too delayed to assign credit.
+    This taxes the ejection itself, densely and immediately.
+    Post-contact red motion (bulldoze-pinch wins) is exempt.
+    """
+    from env.gym_wrapper import GraspGymWrapper
+    env = GraspGymWrapper(seed=0, max_steps=10,
+                          precontact_disp_penalty=5.0)
+    env.reset(seed=0)
+    real_step = env.env.step
+    red_xy = [(0.30, 0.0)]
+
+    def canned(links):
+        def step(action, substeps=20):
+            obs, _, done, info = real_step(action, substeps)
+            info = dict(info)
+            info["links_touching"] = links
+            return obs, 0.0, done, info
+        return step
+
+    env.env._target_xy = lambda: red_xy[0]
+    env.reset(seed=0)  # prev red = (0.30, 0)
+    env.env.step = canned(0)
+    red_xy[0] = (0.40, 0.0)
+    _, r, _, _, _ = env.step(np.zeros(3))
+    assert r == pytest.approx(-0.5)  # 5.0 * 0.1 m
+    env.env.step = canned(1)
+    red_xy[0] = (0.60, 0.0)
+    _, r, _, _, _ = env.step(np.zeros(3))
+    assert r == 0.0  # touching red: exempt
+
+
 def test_tile_coder_deterministic_bounded_sharing():
     """TileCoder: deterministic, in-range, neighbors share tiles."""
     from scripts.tile_coding import TileCoder

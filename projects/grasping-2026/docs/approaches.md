@@ -375,6 +375,17 @@ The interferer was the surround share, and mix weight was
 the fix: less bulldoze-calibration, more random grounding.
 Curve on random: 7/10 at 250k → 9/10 at 500k.
 
+All five remaining mixw failures trace to one mode:
+**whiff**. Adjacent {0,4,8,9} and decoy 9 all eject red
+1.0–1.7 m out of reach on first touch (t=2–6), then flail
+contactless for ~195 steps. The timeout −100 already
+punishes whiffs, but ~197 steps after the fatal shove —
+too delayed for credit assignment. Fix under training:
+`--precontact-disp-penalty 5.0` (train-only; taxes red
+per-step motion while links_touching==0, densely and
+immediately; post-contact bulldozing stays exempt) —
+`models/grasp_ppo_pc5`, mixw recipe otherwise.
+
 ### SARSA(λ) — the thesis learner, ported
 
 `scripts/train_sarsa.py` + `scripts/tile_coding.py`: linear
