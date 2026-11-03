@@ -490,6 +490,44 @@ def run_episode(env, plan, instruction, frames=None, verbose=True):
     return metrics, frames, info
 
 
+def run_reactive_episode(env, target_idx, frames=None):
+    """One episode of the reactive baseline (no plan, no singulation).
+
+    Same metrics schema as run_episode so compare rows stay uniform.
+    isolation_before == isolation_after (nothing pushes anything);
+    preconditions just records whether the scene started isolated.
+    """
+    from planning.primitives import frame_status, reactive_grasp
+    if frames is None:
+        frames = [env.render()]
+    env.target_index = target_idx
+    _, init_info = env._reward()
+    frame_info = [frame_status(init_info)]
+    iso = env.target_isolation()
+    txy = env._obs()["objects"][target_idx][:2].copy()
+    rewards, info = reactive_grasp(env, txy, frames,
+                                   frame_info=frame_info)
+    metrics = {
+        "target_index": target_idx,
+        "target_color": env.objects[target_idx]["color"],
+        "rationale": "reactive: proportional approach, curl on contact",
+        "push_away": [],
+        "approach_side": "reactive",
+        "pushes": [],
+        "cage_trace": {},
+        "isolation_before": iso,
+        "isolation_after": env.target_isolation(),
+        "preconditions_met": iso >= 0.15,
+        "links_touching": info["links_touching"],
+        "enclosed": info["enclosed"],
+        "caged": info["caged"],
+        "force_closure": info["force_closure"],
+        "total_reward": float(sum(rewards)),
+        "frame_info": frame_info,
+    }
+    return metrics, frames, info
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--instruction", default="grasp the red box in isolation")

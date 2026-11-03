@@ -243,6 +243,47 @@ def push(env, start_xy, theta, dist, frames, n_waypoints=12, settle=3,
     return q
 
 
+def reactive_grasp(env, target_xy, frames, frame_info=None,
+                   max_approach=100, step_size=0.05):
+    """Reactive baseline: proportional tip approach + contact curl.
+
+    No plan, no singulation, no scripted trajectory: each step moves
+    the tip a capped proportional step toward the target (DLS IK,
+    seeded for continuity); on first target contact (or within
+    3 cm / approach timeout) it curls joints 2-3 open-loop. Returns
+    (rewards, info). Dumber than the scripted cage on purpose — the
+    feedback-only floor that planning must beat.
+    """
+    target = np.asarray(target_xy, dtype=float)
+    rewards = []
+    info = {}
+    q = _qpos(env)
+    for _ in range(max_approach):
+        tip = fk(q)
+        err = target - tip
+        if float(np.linalg.norm(err)) < 0.03:
+            break
+        wp = tip + err / np.linalg.norm(err) * min(step_size,
+                                                   np.linalg.norm(err))
+        q = ik_dls(wp, q)
+        _, rew, _, info = env.step(q)
+        rewards.append(float(rew))
+        frames.append(env.render())
+        if frame_info is not None:
+            frame_info.append(frame_status(info))
+        if info["links_touching"] > 0:
+            break
+    q_curl = np.clip(q + np.array([0.0, 0.5, 0.7]),
+                     -JOINT_LIMIT, JOINT_LIMIT)
+    for a in np.linspace(0.0, 1.0, 30):
+        _, rew, _, info = env.step((1 - a) * q + a * q_curl)
+        rewards.append(float(rew))
+        frames.append(env.render())
+        if frame_info is not None:
+            frame_info.append(frame_status(info))
+    return rewards, info
+
+
 def envelop(env, target_xy, frames):
     """Whole-arm enveloping grasp skill. Parameterized by target position;
     executes the yaw -> reach -> curl trajectory. Returns the step info

@@ -20,7 +20,7 @@ from diffusers import DDPMScheduler
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-from scripts.diffusion_policy import DiffusionMLP  # noqa: E402
+from scripts.diffusion_policy import DiffusionMLP, FiLMUNet1D  # noqa: E402
 
 
 class ChunkDataset:
@@ -75,6 +75,9 @@ def main():
     ap.add_argument("--batch", type=int, default=64)
     ap.add_argument("--min-steps-per-epoch", type=int, default=50)
     ap.add_argument("--chunk", type=int, default=16)
+    ap.add_argument("--arch", choices=["mlp", "unet"], default="mlp",
+                    help="mlp: legacy concat MLP (underfits chunks); "
+                    "unet: FiLM 1D UNet (recommended)")
     ap.add_argument("--hidden", type=int, default=256)
     ap.add_argument("--lr", type=float, default=1e-4)
     ap.add_argument("--out", default="models/diffusion")
@@ -103,8 +106,9 @@ def main():
     if not ds.pairs:
         raise SystemExit("[train] no valid (episode, chunk) pairs — "
                          "episodes shorter than chunk?")
-    model = DiffusionMLP(obs.shape[2], chunk=args.chunk,
-                         hidden=args.hidden)
+    cls = FiLMUNet1D if args.arch == "unet" else DiffusionMLP
+    hidden = 64 if args.arch == "unet" and args.hidden == 256 else args.hidden
+    model = cls(obs.shape[2], chunk=args.chunk, hidden=hidden)
     sched = DDPMScheduler(num_train_timesteps=100, clip_sample=True)
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr)
     steps = steps_per_epoch(len(ds.pairs), args.batch,
@@ -133,7 +137,7 @@ def main():
     torch.save({"state": model.state_dict(),
                 "obs_mean": obs_mean, "obs_std": obs_std,
                 "obs_dim": obs.shape[2], "chunk": args.chunk,
-                "hidden": args.hidden},
+                "hidden": hidden, "arch": args.arch},
                str(out.with_suffix(".pt")))
     print(f"[train] saved to {out}.pt")
 

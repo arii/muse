@@ -813,6 +813,21 @@ def test_bc_train_and_rollout(tmp_path):
     assert row["planner"] == "bc"
 
 
+def test_reactive_episode_runs():
+    """Reactive baseline runs end to end without error (no quality lock).
+
+    It is the feedback-only floor: smoke-test the schema (same keys
+    as run_episode), not the outcome.
+    """
+    from scripts.compare_planners import run_one
+    row, frames = run_one(0, "reactive", "grasp the red box")
+    assert row["planner_error"] is None, row["planner_error"]
+    assert len(frames) > 10
+    for key in ("force_closure", "caged", "total_reward",
+                "isolation_before", "preconditions_met", "steps"):
+        assert key in row, key
+
+
 def test_compare_run_one_returns_frames():
     """run_one returns (row, frames) for the compare GIF path."""
     from scripts.compare_planners import run_one
@@ -1110,6 +1125,34 @@ def test_gym_wrapper_contact_obs_and_penalty():
         assert r1 == r0 - 0.1
 
 
+def test_gym_wrapper_success_bonus():
+    """success_bonus adds exactly the bonus on FC steps, 0 elsewhere.
+
+    Deterministic arithmetic check with a stubbed base step (real FC
+    states are physics-dependent); the training run itself proves the
+    shaping end to end.
+    """
+    from env.gym_wrapper import GraspGymWrapper
+    env = GraspGymWrapper(seed=0, max_steps=10, success_bonus=20.0)
+    env.reset(seed=0)
+    real_step = env.env.step
+
+    def canned(closed):
+        def step(action, substeps=20):
+            obs, _, done, info = real_step(action, substeps)
+            info = dict(info)
+            info["force_closure"] = closed
+            return obs, 1.5, done, info
+        return step
+
+    env.env.step = canned(False)
+    _, r, term, _, _ = env.step(np.zeros(3))
+    assert (r, term) == (1.5, False)
+    env.env.step = canned(True)
+    _, r, term, _, _ = env.step(np.zeros(3))
+    assert (r, term) == (21.5, True)
+
+
 def test_gym_wrapper_distractors_angle_sorted():
     """Distractor offsets are sorted by angle around the target.
 
@@ -1256,6 +1299,26 @@ def test_diffusion_denoiser_and_sampling_shapes():
                          num_steps=5)
     assert chunk.shape == (16, 3)
     assert chunk.min() >= -1.0 and chunk.max() <= 1.0
+
+
+def test_filmunet1d_forward_and_dispatch():
+    """UNet denoiser matches chunk shape; build_denoiser honors arch."""
+    import torch
+    from scripts.diffusion_policy import FiLMUNet1D, build_denoiser
+    torch.manual_seed(0)
+    model = FiLMUNet1D(obs_dim=16, chunk=16, hidden=32)
+    pred = model(torch.randn(4, 16, 3), torch.randn(4, 16),
+                 torch.randint(0, 100, (4,)))
+    assert pred.shape == (4, 16, 3)
+    ckpt = {"arch": "unet", "obs_dim": 16, "chunk": 16, "hidden": 32,
+            "state": model.state_dict()}
+    assert isinstance(build_denoiser(ckpt), FiLMUNet1D)
+    # Legacy ckpts (no arch key) dispatch to the MLP.
+    from scripts.diffusion_policy import DiffusionMLP
+    mlp = DiffusionMLP(obs_dim=16, chunk=16, hidden=32)
+    assert isinstance(build_denoiser(
+        {"obs_dim": 16, "chunk": 16, "hidden": 32,
+         "state": mlp.state_dict()}), DiffusionMLP)
 
 
 def test_chunk_dataset_sampling():

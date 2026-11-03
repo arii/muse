@@ -138,14 +138,12 @@ def _run_learned(seed, planner, instruction, model_path=None, max_steps=200,
     elif planner == "diffusion":
         import torch
         from diffusers import DDIMScheduler
-        from scripts.diffusion_policy import DiffusionMLP, sample_chunk
+        from scripts.diffusion_policy import build_denoiser, sample_chunk
         mpath = model_path or _resolve_default_model(
             ["models/diffusion_v2.pt", "models/diffusion.pt"])
         if mpath not in _DIFF_CACHE:
             ckpt = torch.load(mpath, map_location="cpu", weights_only=False)
-            dm = DiffusionMLP(ckpt["obs_dim"], chunk=ckpt["chunk"],
-                              hidden=ckpt["hidden"])
-            dm.load_state_dict(ckpt["state"])
+            dm = build_denoiser(ckpt)
             _DIFF_CACHE[mpath] = (
                 dm,
                 DDIMScheduler(num_train_timesteps=100, clip_sample=True),
@@ -240,6 +238,18 @@ def run_one(seed, planner, instruction, ppo_model=None, diffusion_model=None,
     row = {"seed": seed, "planner": planner, "instruction": instruction,
            "planner_error": None, "api_call": False, "tokens": 0}
     try:
+        if planner == "reactive":
+            from scripts.demo_vlm_grasp import run_reactive_episode
+            t_idx = 0
+            pos0 = env._obs()["objects"][t_idx][:2].copy()
+            metrics, frames, _ = run_reactive_episode(env, t_idx, frames)
+            pos1 = env._obs()["objects"][t_idx][:2].copy()
+            metrics["target_start_r"] = float(np.linalg.norm(pos0))
+            metrics["target_end_r"] = float(np.linalg.norm(pos1))
+            metrics["target_disp"] = float(np.linalg.norm(pos1 - pos0))
+            metrics["steps"] = len(frames) - 1
+            row.update(metrics)
+            return row, frames
         if planner == "heuristic":
             from perception.grounding import HeuristicLabeller
             labeller = HeuristicLabeller()
@@ -650,7 +660,7 @@ def main():
                     help="seed specification, e.g. '2,4' (default canary seeds: 2 isolated, 4 cluttered) or '0-9'")
     ap.add_argument("--planners", default="heuristic,vlm,ppo,diffusion",
                     help="comma-separated subset of "
-                    "heuristic,vlm,ppo,diffusion,bc")
+                    "heuristic,vlm,ppo,diffusion,bc,reactive")
     ap.add_argument("--ppo-model", default=None,
                     help="path to PPO .zip checkpoint (default auto-detect)")
     ap.add_argument("--diffusion-model", default=None,

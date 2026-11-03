@@ -22,7 +22,7 @@ from diffusers import DDIMScheduler
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
 from env.gym_wrapper import GraspGymWrapper  # noqa: E402
-from scripts.diffusion_policy import DiffusionMLP, sample_chunk  # noqa: E402
+from scripts.diffusion_policy import build_denoiser, sample_chunk  # noqa: E402
 
 
 def main():
@@ -41,9 +41,7 @@ def main():
 
     ckpt = torch.load(pathlib.Path(args.model).with_suffix(".pt"),
                       map_location="cpu", weights_only=False)
-    model = DiffusionMLP(ckpt["obs_dim"], chunk=ckpt["chunk"],
-                         hidden=ckpt["hidden"])
-    model.load_state_dict(ckpt["state"])
+    model = build_denoiser(ckpt)
     sched = DDIMScheduler(num_train_timesteps=100, clip_sample=True)
     obs_mean = torch.from_numpy(ckpt["obs_mean"]).float()
     obs_std = torch.from_numpy(ckpt["obs_std"]).float()

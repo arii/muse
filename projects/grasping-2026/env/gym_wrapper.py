@@ -60,7 +60,7 @@ class GraspGymWrapper(gym.Env):
 
     def __init__(self, seed=None, target_index=0, max_steps=200,
                  n_objects=4, contact_obs=False, step_penalty=0.0,
-                 max_delta_q=None):
+                 max_delta_q=None, success_bonus=0.0):
         super().__init__()
         self.env = WholeArmGraspEnv(n_objects=n_objects, seed=seed)
         self.target_index = target_index
@@ -68,6 +68,12 @@ class GraspGymWrapper(gym.Env):
         self.contact_obs = contact_obs
         self.step_penalty = step_penalty
         self.max_delta_q = max_delta_q
+        # success_bonus: added on force-closure steps (train-only
+        # shaping; eval/compare use 0 so reports stay comparable).
+        # The base +2.0 FC bonus never compensates a forfeited 200-step
+        # camp (~200 raw), so PPO unlearns discovered grasps; a +20
+        # bonus makes FC dominate and preserves grasping behavior.
+        self.success_bonus = success_bonus
         self._steps = 0
         # Obs: q(3) + qvel(3) + target xy(2) + target half(2)
         #      + (n_objects-1) distractors x (dx, dy)
@@ -128,8 +134,10 @@ class GraspGymWrapper(gym.Env):
         self._steps += 1
         terminated = bool(info["force_closure"])
         truncated = self._steps >= self.max_steps
-        return (self._flat_obs(info), float(reward) - self.step_penalty,
-                terminated, truncated, info)
+        shaped = float(reward) - self.step_penalty
+        if terminated:
+            shaped += self.success_bonus
+        return (self._flat_obs(info), shaped, terminated, truncated, info)
 
     def render(self):
         return self.env.render()
