@@ -355,6 +355,26 @@ shouting over a bulldoze prior. Random mix5 misses: {1}.
 Learning curve on random: 0/10 at 100k → 6/10 at 250k →
 9/10 at 500k — the 5-way mix learns slower, then arrives.
 
+Follow-up on interference: fail100's decoy misses are
+{3,4,5,8} (all low-contact non-engagement) — notably it
+wins the withholding seed 9 caged in 12 steps,
+while mix5 whiffs it. Both random-only policies win 9;
+only the surround-exposed one loses it, which sharpens
+the story: surround calibrates a hotter opening shove
+than random scenes do, and decoy punishes exactly that.
+Test confirmed: `models/grasp_ppo_mixw`, weighted mix
+(random×2 + all four presets: random 1/3, surround 1/6),
+500k steps, 0 fallbacks — **39/50**, the new best
+overall. Surround holds 9/10 (halving its share cost
+nothing), random holds 9/10 (seed 0 wins again, 6 caged),
+sandwich jumps to **8/10** (best of all, +1 over enc1),
+adjacent to **6/10** (best of all learned; scripts still
+lead via autopush 8), decoy recovers to 7/10 (ties v3;
+enc1's 8 still leads — withholding seed 9 still missed).
+The interferer was the surround share, and mix weight was
+the fix: less bulldoze-calibration, more random grounding.
+Curve on random: 7/10 at 250k → 9/10 at 500k.
+
 ### SARSA(λ) — the thesis learner, ported
 
 `scripts/train_sarsa.py` + `scripts/tile_coding.py`: linear
@@ -500,17 +520,19 @@ top, per-seed side-by-side GIFs below. Metrics glossary:
 | PPO enc1 (presets) | 7/8/7/5 surr/decoy/sand/adj | best overall 36/50; surround −2 vs fail100 (enclose-attempts stall) |
 | PPO mix5 (random 0-9) | 9/10, 4 caged | holds enc1; wins nemesis seed 0 caged; only seed 1 fails |
 | PPO mix5 (presets) | 9/6/6/5 surr/decoy/sand/adj | 35/50: surround fixed, decoy/sandwich regress (bulldoze interference) |
+| PPO mixw (random 0-9) | 9/10, 6 caged | holds enc1/mix5; only seed 4 fails |
+| PPO mixw (presets) | 9/7/8/6 surr/decoy/sand/adj | 39/50 best overall; sandwich/adjacent best of all |
 
 Scene × planner matrix (FC /10, seeds 0–9, default configs;
 VLM preset grids unmeasured — API cost; probes only):
 
-| Scene | Heur | Reac | Auto | BC | Diff | v3 | f100 | enc1 | mix5 | VLM |
-|---|---|---|---|---|---|---|---|---|---|---|
-| random | 10 | 0 | 10 | 7 | 5 | 7 | 7 | 9 | 9 | 9 |
-| surround | 0 | 0 | 0 | 2 | 0 | 4 | 9 | 7 | 9 | — |
-| decoy | 2 | 0 | 2 | 1 | 0 | 7 | 6 | 8 | 6 | — |
-| sandwich | 6 | 0 | 6 | 4 | 5 | 6 | 6 | 7 | 6 | — |
-| adjacent | 6 | 0 | 8 | 4 | 3 | 4 | 5 | 5 | 5 | — |
+| Scene | Heur | Reac | Auto | BC | Diff | v3 | f100 | enc1 | mix5 | mixw | VLM |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| random | 10 | 0 | 10 | 7 | 5 | 7 | 7 | 9 | 9 | 9 | 9 |
+| surround | 0 | 0 | 0 | 2 | 0 | 4 | 9 | 7 | 9 | 9 | — |
+| decoy | 2 | 0 | 2 | 1 | 0 | 7 | 6 | 8 | 6 | 7 | — |
+| sandwich | 6 | 0 | 6 | 4 | 5 | 6 | 6 | 7 | 6 | 8 | — |
+| adjacent | 6 | 0 | 8 | 4 | 3 | 4 | 5 | 5 | 5 | 6 | — |
 
 Per-seed wins (FC): surround v3 {0,2,6,8}, BC {2,7};
 decoy heur {6,9}, auto {3,6}, BC {6}; sandwich heur
@@ -520,7 +542,9 @@ decoy heur {6,9}, auto {3,6}, BC {6}; sandwich heur
 {2,4–9}, decoy {1–7,9}, sandwich {1,2,4–8}, adjacent
 {1–4,6}; mix5 random {0,2–9}, surround {0–6,8,9},
 decoy {0,2,3,5,7,8}, sandwich {2–5,7,9}, adjacent
-{2–5,7}. The fresh scripted grid
+{2–5,7}; mixw random {0–3,5–9}, surround {0–6,8,9},
+decoy {0–4,6,8}, sandwich {0–6,8}, adjacent
+{1–3,5–7}. The fresh scripted grid
 reproduced the earlier gap runs seed-for-seed
 (determinism check passes). Three readings: (1) scripts
 collapse only on surround/decoy, where restraint +
