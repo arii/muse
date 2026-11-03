@@ -37,6 +37,7 @@ def main():
     ap.add_argument("--success-bonus", type=float, default=0.0)
     ap.add_argument("--fail-penalty", type=float, default=0.0)
     ap.add_argument("--enclosure-bonus", type=float, default=0.0)
+    ap.add_argument("--train-scenes", default="random")
     ap.add_argument("--max-delta-q", type=float, default=None)
     # Checkpoint every N steps so a VM restart doesn't lose a long run;
     # resume with --resume <checkpoint.zip>.
@@ -58,7 +59,8 @@ def main():
                           max_delta_q=args.max_delta_q,
                           success_bonus=args.success_bonus,
                           fail_penalty=args.fail_penalty,
-                          enclosure_bonus=args.enclosure_bonus)
+                          enclosure_bonus=args.enclosure_bonus,
+                          scenes=args.train_scenes.split(","))
     if args.resume:
         model = cls.load(args.resume, env=env)
         print(f"[train] resumed from {args.resume}")
@@ -72,6 +74,7 @@ def main():
                               save_path=str(out.parent / (out.name + "_ckpt")),
                               name_prefix=out.name)
     model.learn(total_timesteps=args.timesteps, callback=ckpt)
+    print(f"[train] scene fallbacks: {env.scene_fallbacks}")
     out.parent.mkdir(parents=True, exist_ok=True)
     model.save(str(out))
     print(f"[train] saved to {out}.zip")

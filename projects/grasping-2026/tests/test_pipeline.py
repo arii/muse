@@ -1330,6 +1330,74 @@ def test_gym_wrapper_enclosure_bonus():
     assert (r, term) == (2.5, True)
 
 
+def test_gym_wrapper_train_scenes_round_robin():
+    """scenes=[...] cycles layouts across resets; 'random' is a no-op.
+
+    Mixed-scene training (coverage for OOD pins): the wrapper
+    round-robins the list, so duplicates weight the mix.
+    """
+    from env.gym_wrapper import GraspGymWrapper
+    from env.scenes import apply_scene
+
+    def poses(env):
+        return np.array([env.env._obj_xy(i) for i in range(4)])
+
+    # All-surround: every reset matches a manual reference.
+    mix = GraspGymWrapper(seed=0, max_steps=10, scenes=["surround"])
+    ref = GraspGymWrapper(seed=0, max_steps=10)
+    for s in (5, 6):
+        _, info = mix.reset(seed=s)
+        ref.reset(seed=s)
+        apply_scene(ref.env, "surround")
+        assert np.allclose(poses(mix), poses(ref))
+        assert info["scene"] == "surround" == mix.scene
+    # Round-robin: random, surround, random.
+    cyc = GraspGymWrapper(seed=0, max_steps=10,
+                          scenes=["random", "surround"])
+    plain = GraspGymWrapper(seed=0, max_steps=10)
+    cyc.reset(seed=5)
+    plain.reset(seed=5)
+    assert np.allclose(poses(cyc), poses(plain))
+    assert cyc.scene == "random"
+    cyc.reset(seed=6)
+    ref.reset(seed=6)
+    apply_scene(ref.env, "surround")
+    assert np.allclose(poses(cyc), poses(ref))
+    assert cyc.scene == "surround"
+    cyc.reset(seed=7)
+    plain.reset(seed=7)
+    assert np.allclose(poses(cyc), poses(plain))
+    assert cyc.scene == "random"
+    with pytest.raises(ValueError, match="unknown scene"):
+        GraspGymWrapper(seed=0, scenes=["nope"])
+
+
+def test_gym_wrapper_scene_fallback_on_infeasible_preset():
+    """Infeasible preset re-draws, then falls back to random (counted)."""
+    from unittest import mock
+    from env.gym_wrapper import GraspGymWrapper
+    env = GraspGymWrapper(seed=0, max_steps=10, scenes=["surround"])
+    real_reset = env.env.reset
+    calls = []
+
+    def counting_reset(seed=None):
+        calls.append(1)
+        return real_reset(seed=seed)
+
+    with mock.patch("env.gym_wrapper.apply_scene") as ap:
+        ap.side_effect = [ValueError("no spot"), None]
+        with mock.patch.object(env.env, "reset", counting_reset):
+            _, info = env.reset(seed=5)
+        assert info["scene"] == "surround" == env.scene
+        assert len(calls) == 2  # initial + one re-draw
+        assert env.scene_fallbacks == 0
+    with mock.patch("env.gym_wrapper.apply_scene",
+                    side_effect=ValueError("no spot")):
+        _, info = env.reset(seed=6)
+        assert info["scene"] == "random" == env.scene
+        assert env.scene_fallbacks == 1
+
+
 def test_tile_coder_deterministic_bounded_sharing():
     """TileCoder: deterministic, in-range, neighbors share tiles."""
     from scripts.tile_coding import TileCoder

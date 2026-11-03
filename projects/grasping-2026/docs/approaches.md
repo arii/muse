@@ -322,6 +322,22 @@ scripts win it: PPO's first approach is too violent for
 that geometry, and training's −100 terminates whiffs, so
 no recovery is ever learned.
 
+Action-level traces sharpened the surround story: enc1's
+surround-0 "rest" is **push-into-pin** — saturated actions
+(|a|≈1.7) with 0.2 rad/step joint motion against a frozen
+scene (red pinned at 0.52 m displacement for 180 steps),
+while fail100 on the identical scene keeps red moving and
+pinches at t=16. enc1 learned hold-contact as the route to
+enclosure on loose random scenes; on surround the wrap
+never comes and it shoves into the pin forever. The reward
+already punishes this (−1/step + timeout −100) — the
+policy simply never meets pins in training. Fix under
+test: mixed-scene training (`--train-scenes`, round-robin
+layouts across resets, duplicates weight the mix;
+infeasible presets re-draw 3× then fall back to random,
+counted) — `models/grasp_ppo_mix5`, equal 5-way mix,
+training.
+
 ### SARSA(λ) — the thesis learner, ported
 
 `scripts/train_sarsa.py` + `scripts/tile_coding.py`: linear

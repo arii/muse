@@ -59,12 +59,17 @@ checkpoints stay loadable under the defaults):
   (raises). Default off.
 - enclosure_bonus: added on enclosed steps, FC or not (train-only
   like success_bonus). Default 0 = off.
+- scenes: layout names cycled round-robin across resets for
+  mixed-scene training ('random' keeps the reset scene, the
+  rest are env.scenes presets). Duplicates weight the mix.
+  Default ("random",) = old behavior.
 """
 import math
 
 import gymnasium as gym
 import numpy as np
 
+from env.scenes import PRESETS, apply_scene
 from env.whole_arm_grasp import WholeArmGraspEnv
 
 
@@ -75,7 +80,8 @@ class GraspGymWrapper(gym.Env):
                  n_objects=4, contact_obs=False, step_penalty=0.0,
                  max_delta_q=None, success_bonus=0.0,
                  fail_penalty=0.0, thesis_reward=False,
-                 thesis_timeout=-100.0, enclosure_bonus=0.0):
+                 thesis_timeout=-100.0, enclosure_bonus=0.0,
+                 scenes=("random",)):
         super().__init__()
         self.env = WholeArmGraspEnv(n_objects=n_objects, seed=seed)
         self.target_index = target_index
@@ -109,6 +115,19 @@ class GraspGymWrapper(gym.Env):
         # nets a 2-link enclosed hold exactly 0 (no farm),
         # strictly above a camp's -1/step.
         self.enclosure_bonus = enclosure_bonus
+        # scenes: round-robin layout mix across resets (mixed-scene
+        # training); duplicates weight the mix. Default ("random",)
+        # preserves the old behavior exactly.
+        self.scenes = tuple(scenes)
+        for s in self.scenes:
+            if s != "random" and s not in PRESETS:
+                raise ValueError(f"unknown scene {s!r} (expected 'random' "
+                                 f"or one of {PRESETS})")
+        if any(s != "random" for s in self.scenes) and n_objects != 4:
+            raise ValueError("scene presets need n_objects=4")
+        self._resets = 0
+        self.scene = self.scenes[0]
+        self.scene_fallbacks = 0
         self._steps = 0
         # Obs: q(3) + qvel(3) + target xy(2) + target half(2)
         #      + (n_objects-1) distractors x (dx, dy)
@@ -155,8 +174,26 @@ class GraspGymWrapper(gym.Env):
         self.env.reset(seed=seed)
         # Base reset() clears target_index; set it after.
         self.env.target_index = self.target_index
+        self.scene = self.scenes[self._resets % len(self.scenes)]
+        self._resets += 1
+        if self.scene != "random":
+            # Presets are feasibility-checked (adjacent has no
+            # neighbor spot on some resets): re-draw up to 3
+            # times, else keep a random scene and count it.
+            # _layout raises before placing anything, so a
+            # failed attempt leaves the scene untouched.
+            for _ in range(3):
+                try:
+                    apply_scene(self.env, self.scene)
+                    break
+                except ValueError:
+                    self.env.reset()
+                    self.env.target_index = self.target_index
+            else:
+                self.scene = "random"
+                self.scene_fallbacks += 1
         self._steps = 0
-        return self._flat_obs(), {}
+        return self._flat_obs(), {"scene": self.scene}
 
     def step(self, action):
         # Policy outputs [-1, 1]; scale to the joint limits.
