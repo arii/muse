@@ -202,6 +202,15 @@ unlearned them. Price of RL here: high displacement (0.65 m) —
 it shoves boxes around and still gets paid, since the reward
 doesn't punish displacement.
 
+Follow-up: the same recipe + `--fail-penalty 100` (thesis −100
+on timeout/out-of-reach, `models/grasp_ppo_fail100.zip`, local
+only) also scores 7/10 — the cliff that killed linear SARSA
+does not hurt deep PPO (dense contact payments + GAE bridge
+it). Different misses though: {0, 4, 8} vs v3's {0, 1, 4}.
+Wins are near-instant (2–7 steps); seed 8 is a 200-step camp
+(contact payments, no FC), so the −100 did not cure camping
+either — it just moved the failure.
+
 ### SARSA(λ) — the thesis learner, ported
 
 `scripts/train_sarsa.py` + `scripts/tile_coding.py`: linear
@@ -313,6 +322,7 @@ top, per-seed side-by-side GIFs below. Metrics glossary:
 | Heuristic | 10/10 | reference script + 4-rung cage ladder |
 | BC v2 | 7/10 | cloned the script, lower disp |
 | PPO v3 | 7/10 | learned it, but shoves (0.65 m) |
+| PPO + fail 100 | 7/10 | ties v3; misses 0,4,8 (v3: 0,1,4); wins in 2–7 steps |
 | Diffusion UNet | 5/10 | gentlest grasps (0.16 m) |
 | Reactive | 0/10 | floor, as designed |
 | VLM (canary 2,4) | 2/2 | inherits cage ladder; $0 via cache |
