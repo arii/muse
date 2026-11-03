@@ -11,11 +11,11 @@
 <header class="hero">
   <p class="kicker">grasping-2026 &middot; revisiting a master's thesis &middot; 6 approaches, 10 seeds</p>
   <h1>Revisiting my master's-thesis work on whole-arm grasping</h1>
-  <p class="lede">The same planar cross-section whole-arm grasping problem from my 2014 thesis
-  (Anders, <em>Learning a Strategy for Whole-Arm Grasping</em>, MIT): a 3-DOF arm with no gripper
-  must wrap its links around a target in an enveloping grasp &mdash; rebuilt in 2026 with a MuJoCo
-  simulator, modern learned policies (PPO, behavior cloning, diffusion), and VLM planning standing in
-  for the hand-written state machine. Language plays a small role: only the heuristic/VLM planners
+  <p class="lede">A problem in the family of my 2014 thesis
+  (Anders, <em>Learning a Strategy for Whole-Arm Grasping</em>, MIT) &mdash; same spirit (3-DOF arm,
+  no gripper, enveloping grasps, learned policies), deliberately <em>not</em> the same setup &mdash;
+  rebuilt in 2026 with a MuJoCo simulator, modern learned policies (PPO, behavior cloning,
+  diffusion), and VLM planning. Language plays a small role: only the heuristic/VLM planners
   take an instruction (<code>"grasp the red box in isolation"</code>); the learned policies see flat
   simulator state with a designated target slot and no words at all.</p>
   <nav class="toc">
@@ -32,20 +32,38 @@
 
 <section id="overview">
   <h2>Overview</h2>
-  <p>The thesis problem: a 3-DOF arm with no gripper grasps a target object
-  <em>whole-arm</em>, wrapping its links around it in an enveloping grasp (caging / force closure) &mdash;
-  modeled, as in the thesis, as a planar cross-section through the arms, with the object free to
-  slide and yaw on the table. Here the arm is a single 3-link planar arm viewed top-down, the target
-  is the red box, and distractor boxes add clutter: some scenes need a distractor pushed aside
-  (singulation) before the grasp.</p>
+  <p>The problem here: a single 3-link planar arm viewed top-down, with no gripper, grasps
+  a target (the red box) <em>whole-arm</em>, wrapping its links around it in an enveloping grasp
+  (caging / force closure). Boxes slide and yaw on the table, never tip or lift. Distractor boxes
+  add clutter: some scenes need a distractor pushed aside (singulation) before the grasp.</p>
   <p class="lineage"><strong>Thesis lineage.</strong> Anders (2014) learned enveloping-grasp policies
   for a PR2 (single arm, plus a mirrored dual-arm mode) in a 2D Box2D cross-section simulator:
   continuous states (joint angles + object x, y, &theta;), a 3-DOF incremental-joint action, and
-  linear gradient-descent SARSA. This project keeps the problem shape &mdash; planar cross-section,
-  3-DOF arm, continuous states, force-closure goal &mdash; but swaps the 2D sim for a MuJoCo planar
-  scene and the SARSA learner for modern counterparts (PPO, behavior cloning, diffusion policy),
-  plus scripted and VLM-planned references. A similar setup, not a 1-1 replication: single arm only,
-  no torso contacts, no sim-to-real. Full mapping in the
+  linear gradient-descent SARSA. This project revisits that problem family with modern tools, with
+  deliberate differences &mdash; similar setup, not a 1-1 replication:</p>
+  <ul class="diffs">
+    <li><strong>Single arm only.</strong> No mirrored dual-arm mode, no torso contacts (thesis &sect;4.2 headline).</li>
+    <li><strong>MuJoCo planar scene with clutter, sim-only.</strong> Both sims are planar 2D in the
+    table plane (thesis: Box2D cross-section model; here: MuJoCo top-down). Without PR2 hardware
+    access there is no real-robot arm, so this revisit is simulation-only &mdash; and takes on a
+    <em>harder</em> problem to compensate: the thesis task is grasp-only on a single target, while
+    here distractor boxes crowd the target and singulation (pushing them away) is part of the task.</li>
+    <li><strong>Absolute joint targets</strong> (&plusmn;2.6 rad), not the thesis's incremental &plusmn;0.1 steps.</li>
+    <li><strong>Modern learners</strong> (PPO, behavior cloning, diffusion policy) plus scripted and VLM-planned
+    references &mdash; no SARSA-family baseline (a linear-gradient SARSA port would be the faithful one).</li>
+    <li><strong>No failure-state shaping, noise studies, or sim-to-real</strong> (all explicitly out of scope).</li>
+  </ul>
+  <div class="cols">
+    <figure>
+      <img src="assets/thesis-start.png" alt="Thesis Figure 3-4: dual-arm start state with arms spread">
+      <figcaption>Thesis Fig. 3-4: dual-arm start state (mirrored arms spread, top-down).</figcaption>
+    </figure>
+    <figure>
+      <img src="assets/thesis-grasp.png" alt="Thesis Figure 3-5: dual-arm enveloping grasp around the box">
+      <figcaption>Thesis Fig. 3-5: the learned enveloping grasp &mdash; both arms wrapped around the box.</figcaption>
+    </figure>
+  </div>
+  <p>Full mapping in the
   <a href="https://github.com/arii/muse/blob/main/projects/grasping-2026/docs/thesis-alignment.md">thesis-alignment note</a>.</p>
   <figure>
     <img src="assets/scene-labeled.png" alt="Labeled top-down scene: arm and four boxes">
