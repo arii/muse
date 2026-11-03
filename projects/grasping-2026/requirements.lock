@@ -36,9 +36,11 @@ PyYAML==6.0.3
 regex==2026.9.29
 requests==2.34.2
 safetensors==0.8.0
+segment-anything==1.0
 stable_baselines3==2.9.2
 sympy==1.14.0
 torch==2.14.1+cpu
+torchvision==0.29.2
 tqdm==4.70.1
 truststore==0.10.5
 typing_extensions==4.16.0

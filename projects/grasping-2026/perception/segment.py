@@ -9,10 +9,10 @@ The `prompt` comes from the grounding stage (perception/grounding.py):
 a bounding box or point derived from the VLM's answer.
 
 Setup:
-    pip install segment-anything
-    # download a checkpoint from the SAM repo (ViT-H recommended)
-
-Status: STUB — interface is fixed; local SAM wiring is TODO.
+    pip install segment-anything  # in requirements.lock
+    # checkpoint (ViT-B, CPU-friendly) lives in models/, never committed:
+    # https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth
+    export SAM_CHECKPOINT=models/sam_vit_b_01ec64.pth
 """
 import base64
 import io
@@ -24,24 +24,54 @@ from PIL import Image
 
 
 class SAMSegmenter:
-    def __init__(self, checkpoint=None, device="cpu"):
-        self.checkpoint = checkpoint
+    def __init__(self, checkpoint=None, device="cpu", model_type="vit_b"):
+        self.checkpoint = (checkpoint or os.environ.get("SAM_CHECKPOINT"))
         self.device = device
+        self.model_type = model_type
         self._predictor = None
 
     def _load(self):
-        # TODO: lazy-load SamPredictor here once a checkpoint is available.
-        # from segment_anything import SamPredictor, sam_model_registry
-        # sam = sam_model_registry["vit_h"](checkpoint=self.checkpoint)
-        # sam.to(self.device); self._predictor = SamPredictor(sam)
-        raise NotImplementedError(
-            "SAM checkpoint not configured — set one up per the docstring.")
+        if not self.checkpoint:
+            raise RuntimeError(
+                "SAM checkpoint not configured — pass checkpoint= or set "
+                "SAM_CHECKPOINT (see module docstring).")
+        try:
+            from segment_anything import SamPredictor, sam_model_registry
+        except ImportError as e:
+            raise RuntimeError(
+                "segment-anything is not installed (pip install "
+                "segment-anything).") from e
+        sam = sam_model_registry[self.model_type](checkpoint=self.checkpoint)
+        sam.to(self.device)
+        self._predictor = SamPredictor(sam)
 
     def segment(self, rgb, prompt):
-        """Return a boolean mask for the prompted object."""
+        """Return a boolean mask for the prompted object.
+
+        prompt: {"boxes": [[x1, y1, x2, y2], ...]} (pixel coords) and/or
+        {"points": [[x, y], ...], "point_labels": [1/0, ...]}.
+        Returns the top-scoring mask as bool (H, W).
+        """
+        boxes = prompt.get("boxes") if isinstance(prompt, dict) else None
+        points = prompt.get("points") if isinstance(prompt, dict) else None
+        if boxes is None and points is None:
+            raise ValueError(
+                "SAMSegmenter needs prompt={'boxes': ...} and/or "
+                "prompt={'points': ..., 'point_labels': ...}.")
         if self._predictor is None:
             self._load()
-        raise NotImplementedError("SAM inference not yet wired.")
+        rgb = np.asarray(rgb, dtype=np.uint8)
+        self._predictor.set_image(rgb)
+        kwargs = {}
+        if boxes is not None:
+            kwargs["box"] = np.asarray(boxes[0], dtype=float)
+        if points is not None:
+            kwargs["point_coords"] = np.asarray(points, dtype=float)
+            kwargs["point_labels"] = np.asarray(
+                prompt.get("point_labels", [1] * len(points)),
+                dtype=int)
+        masks, scores, _ = self._predictor.predict(**kwargs)
+        return np.asarray(masks[int(np.argmax(scores))]).astype(bool)
 
 
 _TEXT_PROMPT_VERBS = re.compile(

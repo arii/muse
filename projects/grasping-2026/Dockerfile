@@ -39,9 +39,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /workspace
 COPY pyproject.toml requirements.lock ./
-# CPU torch FIRST (see note above), then the locked set — pip keeps
-# the already-installed CPU build when resolving SB3's torch dep.
-RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu "torch==2.14.1+cpu"
+# CPU torch AND torchvision FIRST (see note above), then the locked
+# set — pip keeps the already-installed CPU builds when resolving
+# SB3/torchvision deps. (PyPI torchvision's C++ ops are ABI-broken
+# against CPU torch; the CPU-index build is required.)
+RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu "torch==2.14.1+cpu" "torchvision==0.29.2"
 RUN pip install --no-cache-dir -r requirements.lock
 # Non-editable install, no deps (lockfile already resolved them):
 # packages land in site-packages, no fragile editable path links.

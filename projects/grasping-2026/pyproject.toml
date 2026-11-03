@@ -12,6 +12,8 @@ dependencies = [
     "gymnasium>=0.29.0",
     "stable-baselines3>=2.3.0",
     "torch>=2.2.0",
+    "torchvision>=0.29.0",
+    "segment-anything>=1.0",
     "diffusers>=0.27.0",
 ]
 

@@ -5,7 +5,8 @@ Usage:
 
 Checks:
   1. Grounding  — labeller picks the right object for 3 color instructions.
-  2. Segmentation — STUB (M2), reported as not-yet-verifiable.
+  2. Segmentation — live SAM on a canary frame when SAM_CHECKPOINT is
+     set, else SKIP (M2 wired; 358MB checkpoint not in CI).
   3. Grasp synthesis — STUB (M3), reported as not-yet-verifiable.
   4. Motion planning — plan() trajectory shape/continuity + executes in env.
   5. Execution — full demo loop (grounding -> singulation -> cage);
@@ -46,6 +47,32 @@ def check_grounding(seed=0):
             ok = False
         print(f"  [{mark}] 'grasp the {color} box' -> object {idx} ({got})"
               f" — {rationale}")
+    return ok
+
+
+def check_segmentation(seed=2):
+    import os
+    print("== [2/5] segmentation ==")
+    if not os.environ.get("SAM_CHECKPOINT"):
+        print("  [SKIP] SAM_CHECKPOINT unset — M2 wired, checkpoint absent.")
+        return None
+    from perception.segment import SAMSegmenter
+    env = WholeArmGraspEnv(seed=seed)
+    env.reset(seed=seed)
+    rgb = env.render()
+    h, w = rgb.shape[:2]
+    red = ((rgb[:, :, 0].astype(int) - rgb[:, :, 1].astype(int) > 60)
+           & (rgb[:, :, 0].astype(int) - rgb[:, :, 2].astype(int) > 60))
+    ys, xs = np.nonzero(red)
+    assert len(xs) > 50, "canary frame has no red box?"
+    box = [max(0, xs.min() - 5), max(0, ys.min() - 5),
+           min(w, xs.max() + 5), min(h, ys.max() + 5)]
+    mask = SAMSegmenter().segment(rgb, {"boxes": [box]})
+    assert mask.dtype == bool and mask.shape == (h, w)
+    iou = (mask & red).sum() / (mask | red).sum()
+    ok = iou > 0.5
+    print(f"  [{'OK ' if ok else 'FAIL'}] mask/red IoU {iou:.2f} "
+          f"(box prompt {box})")
     return ok
 
 
@@ -111,8 +138,7 @@ def main():
     outdir.mkdir(parents=True, exist_ok=True)
 
     g = check_grounding(seed=args.seed)
-    print("== [2/5] segmentation ==\n  [STUB] M2 — SAM wiring not yet "
-          "implemented; nothing to verify.")
+    s = check_segmentation()
     print("== [3/5] grasp synthesis ==\n  [STUB] M3 — antipodal sampler not "
           "yet implemented; nothing to verify.")
     m = check_motion(seed=args.seed)
@@ -120,6 +146,7 @@ def main():
 
     print("\n== summary ==")
     print(f"  grounding: {'PASS' if g else 'FAIL'}")
+    print(f"  segmentation: {'PASS' if s else ('SKIP' if s is None else 'FAIL')}")
     print(f"  motion planning: {'PASS' if m else 'FAIL'}")
     print(f"  execution: {'CAGED' if info['caged'] else 'no cage'} "
           f"(seed {args.seed})")
