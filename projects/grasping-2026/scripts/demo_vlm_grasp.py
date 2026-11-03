@@ -26,7 +26,8 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 from env.whole_arm_grasp import WholeArmGraspEnv
 from perception.grounding import make_labeller
 from planning.primitives import (EFFORT_DISTANCES, approach_face,
-                                 frame_status, ik_tip_oriented, push)
+                                 approach_transit_clear, frame_status,
+                                 ik_tip_oriented, push)
 
 
 def normalize_push_targets(push_targets):
@@ -53,7 +54,7 @@ ISOLATION_GATE = 0.15  # meters of clearance; singulate stops past it
 
 def scripted_singulate(env, target_idx, frames, push_radius=0.35,
                        push_targets=None, strict=False, frame_info=None,
-                       push_log=None, max_passes=1):
+                       push_log=None, max_passes=1, defer_blocked=False):
     """Push-away phase: isolate the target before grasping.
 
     For each entry in push_targets (in order) when explicitly given, or
@@ -72,6 +73,9 @@ def scripted_singulate(env, target_idx, frames, push_radius=0.35,
     until isolation crosses ISOLATION_GATE or a pass keeps nothing —
     later passes compound partial progress (a kept push can clear the
     next push's approach corridor). 1 preserves single-sweep behavior.
+    defer_blocked defers corridor-blocked pushes (approach sweep
+    crosses another box) until later in the pass, so clear pushes
+    go first; all-blocked rounds attempt anyway (revert guards).
     Returns (isolation_before, isolation_after) in meters.
     """
     def xy(i):
@@ -84,20 +88,29 @@ def scripted_singulate(env, target_idx, frames, push_radius=0.35,
     iso_before = iso_start
     for pass_no in range(max(1, max_passes)):
         done = set()
+        deferred = set()
+        forced = False
         kept_this_pass = False
         while True:
             t = xy(target_idx)
             if explicit is not None:
                 # explicit plan: push exactly these, in order, no filter
                 cands = [(0.0, i, e) for i, e in explicit
-                         if i in others and i not in done]
+                         if i in others and i not in done
+                         and i not in deferred]
             else:
                 cands = sorted(
                     (float(np.linalg.norm(xy(i) - t)), i, "clear")
                     for i in others
-                    if i not in done
+                    if i not in done and i not in deferred
                     and float(np.linalg.norm(xy(i) - t)) < push_radius)
             if not cands:
+                if deferred and not forced:
+                    # Everything left is corridor-blocked: attempt
+                    # anyway (revert guards) rather than stall.
+                    deferred.clear()
+                    forced = True
+                    continue
                 break
             _, i, effort = cands[0]
             done.add(i)
@@ -203,7 +216,20 @@ def scripted_singulate(env, target_idx, frames, push_radius=0.35,
                     print(f"[singulate] skipped push on obj{i} ({color}): "
                           f"oriented radial start unreachable")
                     continue
+            if defer_blocked and not forced:
+                # Corridor guard: a push whose approach sweep crosses
+                # another box waits for later in the pass (or a later
+                # pass) instead of bulldozing; kept pushes clear the
+                # deferred set. Unreachable starts (None) attempt
+                # anyway — the existing guards handle them.
+                transit = approach_transit_clear(env, start_xy, theta,
+                                                 i)
+                if transit is not None and transit < 0.0:
+                    deferred.add(i)
+                    done.discard(i)
+                    continue
             snap = env.snapshot()
+            forced = False
             nframes0 = len(frames)
             ninfo0 = len(frame_info) if frame_info is not None else 0
             p0 = {o["index"]: xy(o["index"]) for o in env.objects}
@@ -253,6 +279,7 @@ def scripted_singulate(env, target_idx, frames, push_radius=0.35,
             else:
                 iso_before = iso_new
                 kept_this_pass = True
+                deferred.clear()  # new scene: retry deferred pushes
                 if push_log is not None:
                     push_log.append({
                         "primitive": "push",
@@ -438,7 +465,7 @@ def _mirror_side(side):
 
 
 def run_episode(env, plan, instruction, frames=None, verbose=True,
-                allow_retry=True, max_passes=1):
+                allow_retry=True, max_passes=1, defer_blocked=False):
     """Execute one episode: plan -> singulate -> gate -> cage.
 
     env must already be reset; target_index is set from the plan here.
@@ -498,7 +525,8 @@ def run_episode(env, plan, instruction, frames=None, verbose=True,
     push_log = []
     iso_before, iso_after = scripted_singulate(
         env, target_idx, frames, push_targets=push_targets, strict=strict,
-        frame_info=frame_info, push_log=push_log, max_passes=max_passes)
+        frame_info=frame_info, push_log=push_log, max_passes=max_passes,
+        defer_blocked=defer_blocked)
     if verbose:
         print(f"[demo] singulation: isolation {iso_before:.3f} -> "
               f"{iso_after:.3f} m")

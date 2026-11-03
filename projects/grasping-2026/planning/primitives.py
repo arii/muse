@@ -180,6 +180,49 @@ def ik_tip_oriented(target_xy, link_angle, q_seed=None):
     return min(cands, key=lambda q: float(np.linalg.norm(q - q_seed)))
 
 
+def approach_transit_clear(env, start_xy, theta, skip_index,
+                           margin=0.0, n_samples=25):
+    """Min link-to-box clearance along the interp approach.
+
+    Samples the joint-interpolated approach (current q to the
+    oriented start pose, as push() executes it) and returns the
+    minimum over samples, links, and boxes (box circumradius
+    discs, pushed box exempt) of segment-disc clearance. >= 0
+    means the sweep avoids every disc; surround s0 scores -0.07
+    for the north/south neighbors (link1 through the east box)
+    and +0.05 for the east box itself. None when the oriented
+    start is unreachable.
+    """
+    start = np.asarray(start_xy, dtype=float)
+    q_cur = _qpos(env).copy()
+    q_oriented = ik_tip_oriented(start, theta, q_cur)
+    if q_oriented is None:
+        return None
+    obs = env._obs()["objects"]
+    discs = [(np.asarray(obs[o["index"]][:2], dtype=float),
+              float(np.hypot(*o["half"][:2])) + margin)
+             for o in env.objects if o["index"] != skip_index]
+    l0, l1, l2 = LINK_LENGTHS
+    worst = float("inf")
+    for a in np.linspace(0.0, 1.0, n_samples):
+        q = (1 - a) * q_cur + a * q_oriented
+        a0 = q[0]
+        a1 = q[0] + q[1]
+        a2 = q[0] + q[1] + q[2]
+        j0 = np.zeros(2)
+        j1 = j0 + l0 * np.array([np.cos(a0), np.sin(a0)])
+        j2 = j1 + l1 * np.array([np.cos(a1), np.sin(a1)])
+        tip = j2 + l2 * np.array([np.cos(a2), np.sin(a2)])
+        for p, r in zip((j0, j1, j2), (j1, j2, tip)):
+            pr = r - p
+            denom = float(pr @ pr) or 1e-12
+            for c, rad in discs:
+                t = float(np.clip((c - p) @ pr / denom, 0.0, 1.0))
+                worst = min(worst, float(np.linalg.norm(
+                    p + t * pr - c)) - rad)
+    return worst
+
+
 def move_tip(env, target_xy, frames, n_interp=25, settle=8,
              frame_info=None):
     """Move the tip to target_xy via IK + joint interpolation, then

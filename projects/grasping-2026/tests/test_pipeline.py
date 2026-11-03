@@ -2166,6 +2166,45 @@ def test_surround_pushes_revert_on_target_bulldoze():
     assert m["cage_trace"]["attempts"] == 4
 
 
+def test_approach_transit_clear_flags_blocked_push():
+    """Corridor check: surround s0 east push clear, N/S blocked.
+
+    Pure geometry (no physics): the east box's shear approach
+    avoids every disc (+0.05) while north/south approaches drive
+    link1 through the east box (-0.07). Shear-start formula mirrors
+    scripted_singulate (center depth + half+0.04 tangential).
+    """
+    import math
+    from planning.primitives import approach_transit_clear
+    from env.scenes import apply_scene
+    env = WholeArmGraspEnv(seed=0)
+    env.reset(seed=0)
+    env.target_index = 0
+    apply_scene(env, "surround")
+    obs = env._obs()["objects"]
+    t = obs[0][:2]
+    out = {}
+    for i in (1, 2, 3):
+        d = obs[i][:2]
+        to_d = d - t
+        direction = to_d / np.linalg.norm(to_d)
+        s = np.array([-direction[1], direction[0]])
+        std = max(env.objects[i]["half"][0],
+                  env.objects[i]["half"][1]) + 0.025 + 0.015
+        best = -9.0
+        for side in (+1.0, -1.0):
+            sv = side * s
+            start = d + sv * std
+            theta = float(math.atan2(sv[1], sv[0]))
+            c = approach_transit_clear(env, start, theta, i)
+            assert c is not None
+            best = max(best, c)
+        out[i] = best
+    assert out[2] > 0.02, out
+    assert out[1] < -0.02, out
+    assert out[3] < -0.02, out
+
+
 def test_multipass_compounds_kept_pushes():
     """Multi-pass singulation compounds partial progress (decoy s0).
 

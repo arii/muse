@@ -392,6 +392,7 @@ top, per-seed side-by-side GIFs below. Metrics glossary:
 | decoy scan (0-9) | no selective regime | 0-5 all-fail, 6 all-pass, 7-8 effort-gated, 9 withholding |
 | VLM (decoy 9) | 0/1 | pushed blue/green, lost where ladder wins push-free: no restraint |
 | multipass-3 (sandwich/decoy/surround) | 7/3/1 of 10 | helps one seed (decoy s0 hand-order), neutral else; order-chaotic |
+| defer-blocked (+multipass-3) | 7/3/1 of 10 | identical miss sets: reorders correctly, arrival graze binds |
 | VLM (sandwich 3,8) | 1/2 | s8 kept (autopush broke it), s3 lost (autopush kept it) |
 | SARSA(λ) thesis port | 0/10 ×6 configs | negative; relative-xy shows weak in-dist sign of life (13/60 vs 7/60, p≈0.07) |
 
@@ -443,11 +444,17 @@ diagnosed with probes:
    micro-stepping (worse: sustained drag). Geometry, not
    dynamics: link segments provably cross box discs (link1
    7 cm through the east neighbor; push start pose grazes red),
-   so no single-push path shape can fix it — the fix is
-   approach-aware push sequencing (clear the corridor first).
-   Push-log entries carry `approach` + `tmove_m`/`dmove_m`
-   telemetry; `test_surround_pushes_revert_on_target_bulldoze`
-   is the red-to-green target.
+   so no single-push path shape can fix it. Corridor-first
+   sequencing was tried next (`--defer-blocked`: link-sweep
+   clearance check defers blocked pushes until clear ones go
+   first): mechanically correct (surround s0 reorders 2-first),
+   outcome-neutral on all 30 seeds (surround 1, decoy 3,
+   sandwich 7 of 10, identical miss sets) — because arrival
+   graze, not transit, binds once corridors clear. The remaining
+   fix is start-pose clearance filtering (reject push starts
+   whose final pose overlaps red). Push-log entries carry
+   `approach` + `tmove_m`/`dmove_m` telemetry;
+   `test_surround_pushes_revert_on_target_bulldoze` stays red.
 
 ## 9. Code map
 
