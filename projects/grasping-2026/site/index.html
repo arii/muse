@@ -48,10 +48,13 @@
     access there is no real-robot arm, so this revisit is simulation-only &mdash; and takes on a
     <em>harder</em> problem to compensate: the thesis task is grasp-only on a single target, while
     here distractor boxes crowd the target and singulation (pushing them away) is part of the task.</li>
-    <li><strong>Absolute joint targets</strong> (&plusmn;2.6 rad), not the thesis's incremental &plusmn;0.1 steps.</li>
+    <li><strong>Absolute joint targets</strong> (&plusmn;2.6 rad) for the main benchmark &mdash; though the
+    SARSA port below keeps the thesis's incremental &plusmn;0.1 steps.</li>
     <li><strong>Modern learners</strong> (PPO, behavior cloning, diffusion policy) plus scripted and VLM-planned
-    references &mdash; no SARSA-family baseline (a linear-gradient SARSA port would be the faithful one).</li>
-    <li><strong>No failure-state shaping, noise studies, or sim-to-real</strong> (all explicitly out of scope).</li>
+    references &mdash; and a linear-gradient SARSA(&lambda;) port as the faithful thesis baseline. It scores
+    0/10 in all five training configs (see approaches): the cluttered problem defeats linear tiles.</li>
+    <li><strong>Opt-in failure-state shaping</strong> (<code>fail_penalty</code> / exact-schedule
+    <code>thesis_reward</code>) exists for RL runs, but no noise studies or sim-to-real (explicitly out of scope).</li>
   </ul>
   <div class="cols">
     <figure>
@@ -144,30 +147,32 @@
 </section>
 
 <section id="approaches">
-  <h2>Six approaches, two families</h2>
+  <h2>Seven approaches, two families</h2>
   <p><strong>Plan-based</strong> (heuristic/VLM) run open-loop scripts: plan once, push,
-  execute a fixed cage trajectory. <strong>Closed-loop</strong> (reactive/BC/diffusion/PPO)
+  execute a fixed cage trajectory. <strong>Closed-loop</strong> (reactive/BC/diffusion/PPO/SARSA)
   observe every step and react. Compared head to head on identical seeds.</p>
   <table class="approaches">
     <tr><th>Approach</th><th>Family</th><th>How it works</th><th>FC (seeds 0&ndash;9)</th></tr>
     <tr><td><strong>Heuristic</strong></td><td>plan</td><td>Regex-parsed plan (target red, no pushes, approach near), then scripted cage: park link 1 beside the target, curl links 2&ndash;3 over ~120 interpolated steps, early stop on FC + caged &mdash; plus a tucked snapshot-and-retry second entry when the first misses. Deterministic reference bar.</td><td class="good">10/10</td></tr>
-    <tr><td><strong>VLM</strong></td><td>plan</td><td>Same executor, smarter plan: top-down render + object list + instruction &rarr; Nemotron-3.5-Super-VL on Nebius (strict JSON schema) &rarr; semantic plan, no coordinates. Calls logged + cached in <code>episodes/vlm_ledger.jsonl</code>. Only earns its keep through singulation. Grounding boxes optionally feed a SAM (ViT-B, CPU) segmentation stage whose masks drive an antipodal grasp sampler (<code>verify_pipeline.py</code>).</td><td>2/2 canary</td></tr>
+    <tr><td><strong>VLM</strong></td><td>plan</td><td>Same executor, smarter plan: top-down render + object list + instruction &rarr; Nemotron-3.5-Super-VL on Nebius (strict JSON schema) &rarr; semantic plan, no coordinates. Calls logged + cached in <code>episodes/vlm_ledger.jsonl</code>. Only earns its keep through singulation. Grounding boxes optionally feed a SAM (ViT-B, CPU) segmentation stage whose masks drive an antipodal grasp sampler (<code>verify_pipeline.py</code>).</td><td>9/10 full run</td></tr>
     <tr><td><strong>Reactive</strong></td><td>closed-loop</td><td>Proportional tip servo toward the target (5&nbsp;cm/step cap, DLS IK), open-loop curl on contact. Deliberate floor: anything that can't beat it is broken.</td><td class="bad">0/10</td></tr>
     <tr><td><strong>BC</strong></td><td>closed-loop</td><td>3-layer MLP, obs &rarr; action, plain MSE on 130 scripted-cage FC demos. One forward pass per step, no memory, no chunking. Cloned the script and trails it (7/10 vs 10/10).</td><td class="good">7/10</td></tr>
     <tr><td><strong>Diffusion</strong></td><td>closed-loop</td><td>State-based Diffusion Policy: FiLM UNet-1D denoiser predicts 16-action chunks conditioned on obs; DDIM sampling (20 steps), execute 8, replan. Gentlest of the grasping policies.</td><td class="mid">5/10</td></tr>
     <tr><td><strong>PPO</strong></td><td>closed-loop</td><td>SB3 PPO from scratch, 500k steps, zero demos &mdash; shaped reward only (contact payments &minus; time penalty + FC bonus). Trails the bar (7/10 vs 10/10) and shoves boxes (reward doesn't punish displacement).</td><td class="good">7/10</td></tr>
+    <tr><td><strong>SARSA(&lambda;)</strong></td><td>closed-loop</td><td>The thesis learner, ported: linear SARSA(&lambda;) with hashed tile coding, 27 incremental-joint actions, exact thesis reward schedule (goal 0, failures &minus;100, contacts &minus;0.25/&minus;0.5). Faithful port, negative result &mdash; greedy never beats chance (see docs): FC value lives in sub-tile geometry that uniform tiles alias away.</td><td class="bad">0/10 &times;5</td></tr>
   </table>
   <h3>Data flow</h3>
   <pre>scripted_cage ──demonstrates──▶ demos_cage_fc (130 FC episodes)
         │                                │
         │ mined by                       ├──▶ BC (MSE, 1 step)
         ▼                                └──▶ Diffusion (chunks)
- heuristic/VLM                         PPO ◀── reward only, no demos
+ heuristic/VLM                   PPO/SARSA ◀── reward only, no demos
  executor                              reactive ◀── no learning at all</pre>
   <p>The honesty constraint on cloning: <strong>BC/diffusion cannot exceed their demonstrator.</strong>
   They train on scripted-cage trajectories, so their ceiling is "the cage, generalized to new scenes."
-  PPO is the only approach that can discover anything the scripts can't do
-  (and the only one that needed 500k steps to trail them, 7/10 to 10/10).</p>
+  PPO is the only approach that discovered anything the scripts can't do; SARSA(&lambda;) tried from
+  reward alone too and learned nothing (0/10 &times; 5 configs) &mdash; the cluttered problem defeats
+  linear tiles, which is exactly why the learned-features half of this project exists.</p>
 </section>
 
 <section id="results">
@@ -189,7 +194,8 @@
     <li>Preconditions rate 1.00 for all (property of the seeds, not the planners); singulation rate 0.00 everywhere &mdash; no push has produced a kept isolation gain on these seeds yet.</li>
     <li>Reward is <em>not</em> comparable across planners (learned ones accumulate contact payments differently); steps roughly is.</li>
     <li>Seed 0 now falls only to the retried heuristic; seeds 2/5/7 fall to all four capable ones.</li>
-    <li>VLM canary (seeds 2, 4): 2/2 at $0 via ledger cache. VLM singulation never executes yet on these seeds &mdash; planned pushes prove kinematically unreachable and get reverted/skipped, so VLM &asymp; heuristic wherever the cage alone decides. Strict VLM win on the adjacent preset: 1/1 vs heuristic 0/1 (kept shear unlocks the cage).</li>
+    <li>VLM full run (seeds 0&ndash;9): 9/10, lone miss seed 8 (wrong side) &mdash; fixed by the side ladder (mirror side after both entries fail), which restores structural VLM &ge; heuristic. VLM singulation rarely executes on these seeds (planned pushes often prove unreachable and get reverted/skipped), so VLM &asymp; heuristic wherever the cage alone decides. Strict-win frontier is the sandwich preset (two-sided 15&nbsp;mm, seed 9): VLM shoves both neighbors and grasps first try while the push-free ladder fails all 4 rungs (1/1 vs heuristic 0/1).</li>
+    <li>SARSA(&lambda;) thesis port: 0/10 in all five configs (home/random-init/near starts &times; 6/8 features &times; &minus;100/0 timeout). Diagnosed, all measured: contact desert, optimism surfing, sub-tile geometry, timeout poison &mdash; full chain in the approaches doc &sect;5.</li>
     <li>Seed-4 cage used to bulldoze from every side (target knocked 0.59&nbsp;m, zero contacts) while BC grasped the same scene &mdash; diagnosed as the opening yaw dominoing blue into red; the tucked snapshot-and-retry second entry now grasps it (retry success story in the demos below).</li>
   </ul>
 </section>
