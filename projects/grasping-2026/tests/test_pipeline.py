@@ -1638,6 +1638,38 @@ def test_cage_no_retry_on_success():
     assert m["cage_trace"]["retried"] is False
 
 
+def test_adjacent_preset_is_vlm_win_regime():
+    """Adjacent preset: cage-alone fails, shear-then-cage wins (seed 7).
+
+    The 10 mm single-neighbor scene is the demonstrated VLM-win
+    regime (live VLM call 2026-11-03: planned shove-blue, kept,
+    iso 0.098 -> 0.294, FC first try). Hand-fed plans lock the
+    executor half without API: no-push fails both entries, the
+    shove-blue plan grasps. If the VLM ever stops planning the
+    push, the live demo (not this test) catches it.
+    """
+    from env.scenes import apply_scene
+    from scripts.demo_vlm_grasp import run_episode
+
+    def run(pushes):
+        env = WholeArmGraspEnv(seed=7)
+        env.reset(seed=7)
+        env.target_index = 0
+        apply_scene(env, "adjacent")
+        plan = {"grasp_target": 0, "push_away": pushes,
+                "approach_side": "near", "rationale": "t"}
+        m, _, _ = run_episode(env, plan, "grasp the red box",
+                              verbose=False)
+        return m
+
+    alone = run([])
+    assert alone["force_closure"] is False
+    assert alone["cage_trace"]["attempts"] == 2
+    pushed = run([{"index": 1, "effort": "shove"}])
+    assert pushed["force_closure"] is True
+    assert pushed["pushes"] and pushed["pushes"][0]["status"] == "kept"
+
+
 def test_empty_push_away_means_no_pushes():
     """Regression (2026-10-28 rerun): run_episode with push_away=[]
     must push nothing, even on a crowded seed where the old

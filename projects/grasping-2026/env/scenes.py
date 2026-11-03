@@ -2,16 +2,19 @@
 
 Random-seed scenes exercise the average case; these presets pack
 distractors at fingertip-scale gaps (< 25 mm) around the target so
-singulation is NECESSARY. The current push primitive cannot separate
-them (revert cap) — the heuristic is expected to fail them honestly
-today; they measure future singulation work.
+singulation is NECESSARY. The 8 mm presets (surround/row/gate) beat
+the current push primitive (revert cap) — the heuristic is expected
+to fail them honestly today; they measure future singulation work.
+The 10 mm single-neighbor `adjacent` preset is the VLM-win regime:
+cage-alone fails both entries, shear-then-cage wins.
 
 Poses derive from the reset box sizes, so each (seed, preset) scene
 is deterministic. Yaws are 0 (axis-aligned). All spots clear the
 reset-pose arm (straight along +x).
 """
+import math
 
-PRESETS = ("surround", "row", "gate")
+PRESETS = ("surround", "row", "gate", "adjacent")
 
 _GAP = 0.008  # 8 mm corner gaps: singulation-necessary clutter
 
@@ -50,6 +53,26 @@ def _layout(env, preset):
         x1 = x0 + sx0 + sx1 + g
         x2 = x1 + sx1 + sx2 + g
         return {3: (x3, y), 0: (x0, y), 1: (x1, y), 2: (x2, y)}
+    if preset == "adjacent":
+        # Medium clutter: blue 10 mm east of red's reset spot (others
+        # untouched), unless another box is in the way (seed 2: green
+        # sits east) — then 10 mm west. Raises if neither side fits.
+        t = env._obj_xy(0)
+        sx0, _ = _half(env, 0)
+        sx1, _ = _half(env, 1)
+        rad1 = math.hypot(*_half(env, 1))
+        cands = [(t[0] + sx0 + sx1 + 0.010, t[1]),
+                 (t[0] - sx0 - sx1 - 0.010, t[1])]
+        for bx, by in cands:
+            clear = True
+            for j in (2, 3):
+                q = env._obj_xy(j)
+                if math.hypot(bx - q[0], by - q[1]) < \
+                        rad1 + math.hypot(*_half(env, j)) + 0.005:
+                    clear = False
+            if clear:
+                return {1: (bx, by)}
+        raise ValueError("adjacent preset: no overlap-free neighbor spot")
     if preset == "gate":
         # W neighbor plus a two-deep clutter chain east of the target.
         tx, ty = 0.30, 0.14

@@ -254,17 +254,22 @@ top, per-seed side-by-side GIFs below. Metrics glossary:
 | Diffusion UNet | 5/10 | gentlest grasps (0.16 m) |
 | Reactive | 0/10 | floor, as designed |
 | VLM (canary 2,4) | 2/2 | inherits cage retry; $0 via cache |
+| VLM (adjacent 7) | 1/1 vs heur 0/1 | strict win: kept shear unlocks cage |
 
 Seed 0 beats every planner; seeds 2/5/7 fall to all four capable
 ones. Three live failure modes, all diagnosed with probes:
 
-1. **VLM singulation never executes.** Seed 2's radial push had
-   0/13 waypoints reachable under oriented IK, silently fell back
-   to DLS, spun the distractor *toward* the target, and was
-   reverted. Seed 4's shear had both sides kinematically
-   unreachable and was skipped. The VLM plans reasonable pushes;
-   the arm can't realize them, so VLM == heuristic wherever the
-   cage alone decides the outcome.
+1. **VLM singulation is region-dependent.** Canary pushes skip:
+   seed 2's radial start has 0/13 oriented-reachable waypoints
+   (now skipped cleanly instead of DLS-fallback harm), seed 4's
+   shear is unreachable both sides — so VLM == heuristic wherever
+   the cage alone decides. But pushes DO land in kinder geometry:
+   on the `adjacent` preset (10 mm single neighbor, seed 7) the
+   VLM planned shove-blue, kept it (iso 0.098 → 0.294), and
+   grasped first try while the heuristic failed both entries.
+   At 8 mm multi-sided gaps (surround/row/gate) one side always
+   reverts, so min-isolation never crosses the gate — VLM == 0/3
+   there too, with correct plans and insufficient primitive.
 2. **Seed-4 cage bulldozes from every side.** The scripted cage
    knocks the target 0.59 m with zero final contacts, identically
    for near/left/right/far entries — while BC grasps the same
