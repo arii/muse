@@ -1,0 +1,75 @@
+"""Hand-designed adversarial clutter scenes (DexSinGrasp SNC style).
+
+Random-seed scenes exercise the average case; these presets pack
+distractors at fingertip-scale gaps (< 25 mm) around the target so
+singulation is NECESSARY. The current push primitive cannot separate
+them (revert cap) — the heuristic is expected to fail them honestly
+today; they measure future singulation work.
+
+Poses derive from the reset box sizes, so each (seed, preset) scene
+is deterministic. Yaws are 0 (axis-aligned). All spots clear the
+reset-pose arm (straight along +x).
+"""
+
+PRESETS = ("surround", "row", "gate")
+
+_GAP = 0.008  # 8 mm corner gaps: singulation-necessary clutter
+
+
+def _half(env, i):
+    sx, sy, _ = env.objects[i]["half"]
+    return sx, sy
+
+
+def _layout(env, preset):
+    """Return {index: (x, y)} placements for a preset."""
+    if env.n_objects != 4:
+        raise ValueError(f"scene presets need 4 objects, "
+                         f"env has {env.n_objects}")
+    g = _GAP
+    if preset == "surround":
+        # Target with N/E/W neighbors at gap (south left open).
+        tx, ty = 0.32, 0.14
+        sx0, sy0 = _half(env, 0)
+        _, sy1 = _half(env, 1)
+        sx2, _ = _half(env, 2)
+        sx3, _ = _half(env, 3)
+        return {0: (tx, ty),
+                1: (tx, ty + sy0 + sy1 + g),
+                2: (tx + sx0 + sx2 + g, ty),
+                3: (tx - sx0 - sx3 - g, ty)}
+    if preset == "row":
+        # West-to-east row, target second (boxed in along the row).
+        y = 0.16
+        x3 = 0.20
+        sx3, _ = _half(env, 3)
+        sx0, _ = _half(env, 0)
+        sx1, _ = _half(env, 1)
+        sx2, _ = _half(env, 2)
+        x0 = x3 + sx3 + sx0 + g
+        x1 = x0 + sx0 + sx1 + g
+        x2 = x1 + sx1 + sx2 + g
+        return {3: (x3, y), 0: (x0, y), 1: (x1, y), 2: (x2, y)}
+    if preset == "gate":
+        # W neighbor plus a two-deep clutter chain east of the target.
+        tx, ty = 0.30, 0.14
+        sx0, _ = _half(env, 0)
+        sx1, _ = _half(env, 1)
+        sx2, _ = _half(env, 2)
+        sx3, _ = _half(env, 3)
+        x1 = tx + sx0 + sx1 + g
+        x3 = x1 + sx1 + sx3 + g
+        return {0: (tx, ty),
+                1: (x1, ty),
+                2: (tx - sx0 - sx2 - g, ty),
+                3: (x3, ty)}
+    raise ValueError(f"unknown scene preset {preset!r} "
+                     f"(expected one of {PRESETS})")
+
+
+def apply_scene(env, preset):
+    """Place boxes per a preset; 'random' keeps the reset scene."""
+    if preset == "random":
+        return
+    for i, (x, y) in _layout(env, preset).items():
+        env.set_object_pose(i, (x, y), yaw=0.0)

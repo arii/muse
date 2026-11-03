@@ -389,6 +389,75 @@ def test_spawn_separated_no_overlap():
                 (seed, names, c.dist)
 
 
+def test_env_deterministic_same_seed():
+    """Two fresh envs, same seed, same actions: bit-identical physics.
+
+    MuJoCo CPU stepping is deterministic; same-seed runs must produce
+    identical states, contacts-driven rewards, and object poses, or
+    evaluation numbers are meaningless across runs/machines.
+    """
+
+    def rollout():
+        env = WholeArmGraspEnv(seed=3)
+        env.reset(seed=3)
+        env.target_index = 0
+        traj = []
+        for a in np.linspace(0, 1, 10):
+            q = np.array([0.5 * a, 0.8 * a, -0.3 * a])
+            _, rew, _, info = env.step(q)
+            traj.append((env.data.qpos.copy(), env.data.qvel.copy(),
+                         env.data.xpos.copy(), rew,
+                         info["links_touching"]))
+        return traj
+
+    t1, t2 = rollout(), rollout()
+    assert len(t1) == len(t2) == 10
+    for (q1, v1, x1, r1, n1), (q2, v2, x2, r2, n2) in zip(t1, t2):
+        np.testing.assert_array_equal(q1, q2)
+        np.testing.assert_array_equal(v1, v2)
+        np.testing.assert_array_equal(x1, x2)
+        assert r1 == r2 and n1 == n2
+
+
+def test_scene_presets_crowded_valid_and_arm_clear():
+    """Adversarial presets: fingertip-scale gaps, no overlap, arm-clear.
+
+    Each (seed, preset) scene must be crowded (target isolation < 0.15
+    so singulation is necessary), non-penetrating (min corner gap >= 0
+    and SNC-scale < 25 mm), and clear of the reset-pose arm.
+    """
+    import math
+    from env.scenes import PRESETS, apply_scene
+    for seed in range(3):
+        for preset in PRESETS:
+            env = WholeArmGraspEnv(seed=seed)
+            env.reset(seed=seed)
+            env.target_index = 0
+            apply_scene(env, preset)
+            assert env.target_isolation() < 0.15, (seed, preset)
+            pts = [env._obj_xy(i) for i in range(4)]
+            halves = [env.objects[i]["half"][:2] for i in range(4)]
+            rad = [math.hypot(*h) for h in halves]
+
+            def box_gap(a, b):
+                gx = abs(float(pts[a][0] - pts[b][0])) \
+                    - halves[a][0] - halves[b][0]
+                gy = abs(float(pts[a][1] - pts[b][1])) \
+                    - halves[a][1] - halves[b][1]
+                if gx > 0 or gy > 0:
+                    return math.hypot(max(gx, 0.0), max(gy, 0.0))
+                return max(gx, gy)
+
+            gaps = [box_gap(a, b)
+                    for a in range(4) for b in range(a + 1, 4)]
+            assert min(gaps) >= -1e-9, (seed, preset, gaps)
+            assert min(gaps) < 0.025, (seed, preset, gaps)
+            for k, p in enumerate(pts):
+                cx = float(np.clip(p[0], 0.0, 0.75))
+                d = float(np.linalg.norm(p - np.array([cx, 0.0])))
+                assert d - rad[k] - 0.035 >= 0.0, (seed, preset, k, d)
+
+
 def test_cage_lead_and_sign():
     """Lead offset parks link1 beside the box; curl swings back.
 
@@ -665,10 +734,13 @@ def test_compare_aggregate():
     assert agg["episodes"] == 3
     assert agg["planner_errors"] == 1
     assert agg["force_closure_rate"] == 0.5
+    assert agg["grasp_success_rate"] == 0.5
     assert agg["caged_rate"] == 0.5
     assert agg["mean_reward"] == 2.0
     assert agg["api_calls"] == 0
     assert agg["total_tokens"] == 0
+    # Both clean rows start crowded (0.1) and reach >= 0.15.
+    assert agg["singulation_rate"] == 1.0
 
 
 def test_make_side_by_side_gif(tmp_path):

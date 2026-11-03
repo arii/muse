@@ -64,7 +64,7 @@ def _resolve_default_model(candidates):
 
 
 def _run_learned(seed, planner, instruction, model_path=None, max_steps=200,
-                 contact_obs=False, max_delta_q=None):
+                 contact_obs=False, max_delta_q=None, scene="random"):
     """Roll out a trained PPO or Diffusion policy on `seed` and return
     (row, frames) matching the compare_planners row schema.
 
@@ -72,11 +72,14 @@ def _run_learned(seed, planner, instruction, model_path=None, max_steps=200,
     dim won't fit and the dynamics won't match.
     """
     from env.gym_wrapper import GraspGymWrapper
+    from env.scenes import apply_scene
 
     w = GraspGymWrapper(seed=seed, max_steps=max_steps, n_objects=4,
                         contact_obs=contact_obs, max_delta_q=max_delta_q)
     obs, _ = w.reset(seed=seed)
     env = w.env
+    apply_scene(env, scene)
+    obs = w._flat_obs()
     target_idx = w.target_index
     pos0 = env._obs()["objects"][target_idx][:2].copy()
     iso_before = env.target_isolation()
@@ -207,7 +210,8 @@ def _run_learned(seed, planner, instruction, model_path=None, max_steps=200,
 
 
 def run_one(seed, planner, instruction, ppo_model=None, diffusion_model=None,
-            bc_model=None, contact_obs=False, max_delta_q=None):
+            bc_model=None, contact_obs=False, max_delta_q=None,
+            scene="random"):
     """One episode with one planner. Returns (metrics row, frames).
 
     Never raises: a planner failure is recorded as planner_error.
@@ -218,7 +222,7 @@ def run_one(seed, planner, instruction, ppo_model=None, diffusion_model=None,
                      "bc": bc_model}[planner]
             return _run_learned(seed, planner, instruction, model_path=mpath,
                                 contact_obs=contact_obs,
-                                max_delta_q=max_delta_q)
+                                max_delta_q=max_delta_q, scene=scene)
         except Exception as e:
             env = WholeArmGraspEnv(seed=seed)
             env.reset(seed=seed)
@@ -227,8 +231,10 @@ def run_one(seed, planner, instruction, ppo_model=None, diffusion_model=None,
                 "planner_error": str(e)[:300], "api_call": False, "tokens": 0
             }, [env.render()]
 
+    from env.scenes import apply_scene
     env = WholeArmGraspEnv(seed=seed)
     env.reset(seed=seed)
+    apply_scene(env, scene)
     pos0 = env._obs()["objects"][0][:2].copy()
     frames = [env.render()]
     row = {"seed": seed, "planner": planner, "instruction": instruction,
@@ -420,7 +426,8 @@ def write_html_report(rows, gif_map, out_path, instruction, planners):
         + "</div>",
         "<h2>Aggregate Summary</h2><table><tr><th>planner</th>"
         "<th>episodes</th><th>errors</th><th>force_closure</th><th>caged</th>"
-        "<th>preconditions</th><th>mean reward</th>"
+        "<th>preconditions</th><th>singulation</th><th>mean steps</th>"
+        "<th>mean reward</th>"
         "<th>mean isolation Δ</th><th>mean target Δxy</th>"
         "<th>API calls</th><th>tokens</th></tr>",
     ]
@@ -437,6 +444,8 @@ def write_html_report(rows, gif_map, out_path, instruction, planners):
             f"<td class='{fc_cls}'>{agg['force_closure_rate']:.2f}</td>"
             f"<td>{agg['caged_rate']:.2f}</td>"
             f"<td>{agg['preconditions_rate']:.2f}</td>"
+            f"<td>{agg['singulation_rate']:.2f}</td>"
+            f"<td>{agg['mean_steps']:.0f}</td>"
             f"<td>{agg['mean_reward']:.1f}</td>"
             f"<td>{agg['mean_isolation_delta']:+.3f} m</td>"
             f"<td>{agg['mean_target_disp']:.3f} m</td>"
@@ -556,6 +565,8 @@ def write_markdown_summary(rows, out_path, instruction, planners):
             f"FC {agg['force_closure_rate']:.2f}, "
             f"caged {agg['caged_rate']:.2f}, "
             f"preconditions {agg['preconditions_rate']:.2f}, "
+            f"singulation {agg['singulation_rate']:.2f}, "
+            f"mean steps {agg['mean_steps']:.0f}, "
             f"mean reward {agg['mean_reward']:.1f}, "
             f"mean isolation Δ {agg['mean_isolation_delta']:+.3f} m, "
             f"mean target disp {agg['mean_target_disp']:.3f} m, "
@@ -603,13 +614,24 @@ def aggregate(rows, planner):
         vals = [r[key] for r in ok if key in r and r[key] is not None]
         return sum(vals) / len(vals) if vals else 0.0
 
+    # VPG-adapted set (single target: completion == FC by definition).
+    crowded = [r for r in ok
+               if r.get("isolation_before") is not None
+               and r["isolation_before"] < 0.15]
+    sing = [r for r in crowded
+            if r.get("isolation_after") is not None
+            and r["isolation_after"] >= 0.15]
+
     return {
         "planner": planner,
         "episodes": n,
         "planner_errors": n - len(ok),
         "force_closure_rate": rate("force_closure"),
+        "grasp_success_rate": rate("force_closure"),
         "caged_rate": rate("caged"),
         "preconditions_rate": rate("preconditions_met"),
+        "singulation_rate": (len(sing) / len(crowded) if crowded else 0.0),
+        "mean_steps": mean("steps"),
         "mean_reward": mean("total_reward"),
         "mean_isolation_delta": mean("isolation_after") - mean(
             "isolation_before") if ok else 0.0,
@@ -635,6 +657,9 @@ def main():
                     help="path to Diffusion .pt checkpoint (default auto-detect)")
     ap.add_argument("--bc-model", default=None,
                     help="path to BC .pt checkpoint (default auto-detect)")
+    ap.add_argument("--scene", default="random",
+                    help="scene preset: random (default) or adversarial "
+                    "surround, row, gate (see env/scenes.py)")
     ap.add_argument("--contact-obs", action="store_true",
                     help="learned-planner wrapper uses contact obs "
                     "(must match training)")
@@ -685,7 +710,8 @@ def main():
                                   diffusion_model=args.diffusion_model,
                                   bc_model=args.bc_model,
                                   contact_obs=args.contact_obs,
-                                  max_delta_q=args.max_delta_q)
+                                  max_delta_q=args.max_delta_q,
+                                  scene=args.scene)
             rows.append(row)
             frames_by_seed.setdefault(seed, {})[planner] = (row, frames)
             status = (f"FC={row.get('force_closure')} "
@@ -764,6 +790,8 @@ def main():
         print(f"  force_closure rate: {agg['force_closure_rate']:.2f}")
         print(f"  caged rate:         {agg['caged_rate']:.2f}")
         print(f"  preconditions rate: {agg['preconditions_rate']:.2f}")
+        print(f"  singulation rate:   {agg['singulation_rate']:.2f}")
+        print(f"  mean steps:         {agg['mean_steps']:.0f}")
         print(f"  mean reward:        {agg['mean_reward']:.1f}")
         print(f"  mean isolation Δ:   {agg['mean_isolation_delta']:+.3f} m")
         print(f"  mean target disp:   {agg['mean_target_disp']:.3f} m")
