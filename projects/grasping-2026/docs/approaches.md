@@ -472,21 +472,32 @@ BC-boosted, seeds 0–9): pc5 wins {3,4,5,6,7} — all in
 ≤7 steps except seed 4 (caged, 62) — and times out the
 rest; autopush wins {2–9}; BC-boosted wins
 {1,3,5,6,7,8}. Three crisp facts. (1) Seed 0 fails 0/5
-planners (heuristic and reactive fail it too) — an
-infeasible-layout candidate, matching the adjacent
-feasibility skips in collection/training; the effective
-ceiling may be 9, not 10. (2) The learned union is
-7/10; autopush-only seeds 2 and 9 are the true
-push-then-grasp gap. (3) A cross-model failure
-signature: **enclosure-bonus farming** — pc5 seed 1
-(rew 105.5), BC-boosted seed 4 (rew 70.0), BC-boosted
-decoy seed 3 (rew 106.0) all time out at len 200 with
-no FC: the arm hovers in a near-enclosure configuration
-collecting +1/step without closing. The enclosure bonus
-teaches caging but is farmable; future shaping should
-pay closure, not proximity-to-closure. Decoy seed 9
-re-confirmed won (pc5 caged in 12 steps, BC-boosted FC)
-— the withholding story stays closed.
+tested planners — but the layout is benign (red
+mid-reach, single 10 mm neighbor like winnable seed 1),
+and the mechanism is now traced: autopush's push drags
+red 0.10 m (contact at 10 mm is near-unavoidable), the
+revert restores it, then the grasp approach bulldozes
+red 0.53 m — the exact heuristic trace (identical
+rew/disp; seed 1 likewise degrades when its push is
+skipped as unreachable). Neither push-first nor
+grasp-first works with these primitives; a slower
+careful grasp might still win it. Hardest seed, not an
+infeasible layout. (2) The learned union is 7/10;
+autopush-only seeds 2 and 9 are the true push-then-grasp
+gap. (3) Full learned-failure census (100 runs): 7
+high-reward timeouts — pc5 adjacent-1 (105.5),
+surround-3 (99), sandwich-1 (102.5); BC random-4
+(87.5), adjacent-4 (70), decoy-3 (106), sandwich-3
+(114) — the farm/chase signature (hover-or-follow
+collecting ~+1/step, never closing; chase vs farming
+unresolved per-seed). The contrast is the finding:
+pc5's 10 fails are 7 quiet timeouts + 3 high-reward
+with **zero** bulldozes (the precontact penalty held),
+while BC's 12 fails are 7 bulldozes (up to 1.37 m) + 4
+high-reward + 1 quiet — cloning inherited both the
+teacher's restraint violations and its farming. Decoy
+seed 9 re-confirmed won (pc5 caged in 12 steps,
+BC-boosted FC) — the withholding story stays closed.
 
 Hotter coef tried and killed: `models/grasp_ppo_pc20`
 (same recipe, `--precontact-disp-penalty 20.0`) sat at
