@@ -232,6 +232,18 @@ Cloning distills PPO nearly whole; the 3-point gap is
 the price of single-step MSE. Rarely cages, though —
 pinches like its teacher's modal win.
 
+More demos are NOT monotone: doubling adjacent demos
+(+18 pc5 wins, seeds 40–69, seed 61 infeasible-skipped)
+*drops* BC to 33/50 (8/9/7/4/5) — sandwich collapses
+8→4 and adjacent itself falls 6→5. Smoking gun: the
+boosted model chase-fails adjacent-41 (91 rew), a seed
+whose demo it trained on, while the original wins 41
+zero-shot (and beats it 4/5 to 3/5 on 40–44 overall).
+Contradictory per-seed strategies MSE-average into
+mush: cloning has its own cross-scene interference,
+mirroring PPO's bulldoze mix effect. Coverage amount
+≠ coverage composition.
+
 ### Diffusion — chunked cloning with a denoiser
 
 State-based Diffusion Policy (Chi et al.) without images: instead
@@ -276,6 +288,16 @@ and total data is 6.4× smaller (2.8k vs 17.8k steps).
 Chunking semantics need long demos; single-step MSE
 doesn't care. Diffusion's data appetite, not its
 denoiser, is the binding constraint here.
+
+Half-confirmed by chunk-4: retraining the UNet with
+chunk 4 (eval auto-adapts: ckpt chunk + min(8, len)
+exec) doubles to 16/50 (6/1/2/4/3), including the
+first-ever diffusion surround win (seed 2, caged).
+Chunk≫horizon was load-bearing — but 16 still trails
+BC's 37 badly, so data volume (2.8k steps) binds
+independently. Both factors real; horizon fixed by
+matching chunk to data, volume unfixable without more
+demos.
 
 ### PPO — reinforcement learning from scratch
 
@@ -633,18 +655,20 @@ top, per-seed side-by-side GIFs below. Metrics glossary:
 | PPO ap2 (presets) | 8/7/8/6 surr/decoy/sand/adj | 38/50: swap fails both bars, tax stands |
 | BC on pc5 demos (112 eps) | 9/8/6/8/6 rand/surr/decoy/sand/adj | 37/50: coverage, not capacity, bound cloning |
 | Diffusion on pc5 demos | 3/0/1/3/1 | 8/50: short PPO eps (25 steps) starve chunk-16 |
+| BC adjacent-boost (+18 eps) | 8/9/7/4/5 | 33/50: more demos HURT (fails trained-on seed 41) |
+| Diffusion chunk-4 on pc5 demos | 6/1/2/4/3 | 16/50: horizon-matched, volume still starves |
 | VLM canary (2,4 × 4 presets) | 1/2, 0/2, 2/2, 2/2 surr/decoy/sand/adj | 5/8, 8 calls 41k tok; ≥heur every seed |
 
 Scene × planner matrix (FC /10, seeds 0–9, default configs;
 VLM presets: canary †):
 
-| Scene | Heur | Reac | Auto | BC | Diff | v3 | f100 | enc1 | mix5 | mixw | pc5 | ap2 | BCmx | DFmx | VLM† |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| random | 10 | 0 | 10 | 7 | 5 | 7 | 7 | 9 | 9 | 9 | 9 | 9 | 9 | 3 | 9 |
-| surround | 0 | 0 | 0 | 2 | 0 | 4 | 9 | 7 | 9 | 9 | 9 | 8 | 8 | 0 | 1/2 |
-| decoy | 2 | 0 | 2 | 1 | 0 | 7 | 6 | 8 | 6 | 7 | 8 | 7 | 6 | 1 | 0/2 |
-| sandwich | 6 | 0 | 6 | 4 | 5 | 6 | 6 | 7 | 6 | 8 | 9 | 8 | 8 | 3 | 2/2 |
-| adjacent | 6 | 0 | 8 | 4 | 3 | 4 | 5 | 5 | 5 | 6 | 5 | 6 | 6 | 1 | 2/2 |
+| Scene | Heur | Reac | Auto | BC | Diff | v3 | f100 | enc1 | mix5 | mixw | pc5 | ap2 | BCmx | DFmx | BCad | DFc4 | VLM† |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| random | 10 | 0 | 10 | 7 | 5 | 7 | 7 | 9 | 9 | 9 | 9 | 9 | 9 | 3 | 8 | 6 | 9 |
+| surround | 0 | 0 | 0 | 2 | 0 | 4 | 9 | 7 | 9 | 9 | 9 | 8 | 8 | 0 | 9 | 1 | 1/2 |
+| decoy | 2 | 0 | 2 | 1 | 0 | 7 | 6 | 8 | 6 | 7 | 8 | 7 | 6 | 1 | 7 | 2 | 0/2 |
+| sandwich | 6 | 0 | 6 | 4 | 5 | 6 | 6 | 7 | 6 | 8 | 9 | 8 | 8 | 3 | 4 | 4 | 2/2 |
+| adjacent | 6 | 0 | 8 | 4 | 3 | 4 | 5 | 5 | 5 | 6 | 5 | 6 | 6 | 1 | 5 | 3 | 2/2 |
 
 † VLM presets: seeds 2,4 canary only (8 fresh calls, 41k
 tokens; full 0–9 grids unmeasured — API cost). 5/8
@@ -673,7 +697,11 @@ decoy {0,1,3,4,5,6,7,9}, sandwich {0,2–9}, adjacent
 BCmix random {1–9}, surround {0–3,5,6,8,9}, decoy
 {1,2,4–6,9}, sandwich {1–7,9}, adjacent {1–3,6–8};
 DFmix random {3,5,7}, surround {}, decoy {6},
-sandwich {5–7}, adjacent {5}.
+sandwich {5–7}, adjacent {5}; BCad random
+{1–3,5–9}, surround {0,2–9}, decoy {0–5,7}, sandwich
+{0,4,5,7}, adjacent {1–3,6,8}; DFc4 random
+{1,5–9}, surround {2}, decoy {5,6}, sandwich
+{0,5–7}, adjacent {5–7}.
 The fresh scripted grid
 reproduced the earlier gap runs seed-for-seed
 (determinism check passes). Three readings: (1) scripts

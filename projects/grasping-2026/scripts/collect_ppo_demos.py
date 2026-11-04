@@ -70,6 +70,7 @@ def main():
     kept_obs, kept_act, kept_len = [], [], []
     kept_fc_step = []
     kept_per_scene = {s: 0 for s in scenes}
+    skipped = []
     n_fc = n_caged = 0
     n_run = 0
     for scene in scenes:
@@ -81,7 +82,16 @@ def main():
                                   max_delta_q=args.max_delta_q)
             obs, _ = env.reset(seed=seed)
             if scene != "random":
-                apply_scene(env.env, scene)
+                try:
+                    apply_scene(env.env, scene)
+                except ValueError as e:
+                    # Infeasible preset on this seed (adjacent
+                    # fit-check): same seed would fail identically
+                    # on retry, so skip it and record it.
+                    skipped.append({"scene": scene, "seed": seed,
+                                    "why": str(e)})
+                    print(f"{scene} seed {seed}: skipped ({e})")
+                    continue
                 obs = env._flat_obs()
             obs_list, act_list = [], []
             info = {}
@@ -132,7 +142,8 @@ def main():
             "n_objects": args.n_objects, "contact_obs": args.contact_obs,
             "seeds": seeds, "scenes": scenes, "episodes_run": n_run,
             "episodes_kept": len(kept_obs), "fc_count": n_fc,
-            "caged_count": n_caged, "kept_per_scene": kept_per_scene}
+            "caged_count": n_caged, "kept_per_scene": kept_per_scene,
+            "skipped": skipped}
     out.with_suffix(".json").write_text(json.dumps(meta, indent=2))
     print(f"[collect] kept {len(kept_obs)}/{n_run} episodes "
           f"(FC {n_fc}, caged {n_caged}) -> {out}.npz")

@@ -1995,6 +1995,22 @@ def test_collect_ppo_demos_multi_scene_smoke(tmp_path):
     assert meta["episodes_run"] == 2
     assert meta["episodes_kept"] == 2
     assert sorted(meta["kept_per_scene"]) == ["adjacent", "sandwich"]
+    # Infeasible preset (adjacent seed 61) skips, recorded in meta.
+    out2 = tmp_path / "ppo_demo_skip"
+    proc = subprocess.run(
+        [sys.executable, "scripts/collect_ppo_demos.py",
+         "--model", str(tmp_path / "ppo_fixture"), "--seeds", "61",
+         "--scene", "adjacent", "--keep", "all",
+         "--out", str(out2)],
+        cwd=REPO, capture_output=True, text=True, timeout=300,
+        env={**os.environ, "MUJOCO_GL": "osmesa",
+             "PYTHONDONTWRITEBYTECODE": "1"})
+    assert proc.returncode == 0, proc.stderr[-2000:]
+    assert "skipped (adjacent preset" in proc.stdout
+    meta2 = json.loads((tmp_path / (out2.name + ".json")).read_text())
+    assert [(s["scene"], s["seed"]) for s in meta2["skipped"]] == [
+        ("adjacent", 61)]
+    assert "no overlap-free neighbor spot" in meta2["skipped"][0]["why"]
 
 
 def test_chunk_dataset_fc_anchored_pairs():
