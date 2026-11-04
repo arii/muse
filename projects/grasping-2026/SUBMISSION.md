@@ -27,7 +27,7 @@ scenes × seeds 0–9.
 The VLM planner itself runs on Nebius (Nemotron); the Meta-model
 component of the system is SAM 3.1 perception.
 
-## Built during the hackathon (Oct 27 – Nov 4, 115 commits)
+## Built during the hackathon (Oct 27 – Nov 4, 116 commits)
 
 Pre-existing base (Oct 22–26): repo scaffold, MuJoCo env + scripted
 heuristic demo, perception stub files. Everything below is new:
