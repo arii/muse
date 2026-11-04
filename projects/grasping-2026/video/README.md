@@ -49,12 +49,13 @@ Or run the interactive preview: `npm run dev`.
 ## Assets (`public/`)
 
 - `*.gif` — planner episode clips (checked in).
-- `sam_frame.png` — MuJoCo top-camera render (seed 2) fed to SAM 3.1.
-- `sam_mask.png` — binary mask returned by the live SAM 3.1 call.
-- `sam_overlay.png` — mask composited over the frame (vivid green).
-  Mask/overlay came from the verified 2026-11-03 API response
-  (IoU 0.77 vs sim ground truth); regenerate by re-running the SAM
-  smoke test and compositing the returned mask.
+- `sam_frame.png` — MuJoCo top-camera render (seed 2) fed to SAM 3.1,
+  center-cropped 320×240 at 2× for legibility (same pixels).
+- `sam_mask.png` — binary mask returned by the live SAM 3.1 call (same crop).
+- `sam_overlay.png` — mask composited over the frame (vivid green + box).
+  Mask/overlay came from the verified 2026-11-04 API response
+  (IoU 0.73 vs sim ground truth, full-frame); regenerate with the
+  trio script (needs META_API_KEY) and compositing as above.
 - `vo/*.mp3` — narration, one track per chapter, wired via `<Audio>`
   inside each `<Sequence>` (audio starts at the sequence start).
   Generated with `/opt/hatch/bin/tts`:

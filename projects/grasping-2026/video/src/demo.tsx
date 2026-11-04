@@ -365,7 +365,7 @@ const SamHero: React.FC = () => {
           }),
         }}
       >
-        Checked against simulator ground truth (IoU 0.77) — ground truth never
+        Checked against simulator ground truth (IoU 0.73) — ground truth never
         produced it. The model saw only the image.
         <br />
         <span style={{ color: GOLD }}>
