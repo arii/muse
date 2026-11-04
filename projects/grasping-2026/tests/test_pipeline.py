@@ -2013,6 +2013,46 @@ def test_collect_ppo_demos_multi_scene_smoke(tmp_path):
     assert "no overlap-free neighbor spot" in meta2["skipped"][0]["why"]
 
 
+def test_bc_train_val_split_by_episode():
+    """BC split: deterministic, disjoint, sized, scene-mixed."""
+    from scripts.train_bc import train_val_split
+    tr, va = train_val_split(130, 0.15)
+    assert abs(len(va) / 130 - 0.15) < 0.01  # ~19.5, float-safe
+    assert set(tr) | set(va) == set(range(130))
+    assert set(tr) & set(va) == set()
+    assert train_val_split(130, 0.15) == (tr, va)  # deterministic
+    # Shuffled, not a contiguous tail cut (scene-blocked files mix).
+    assert set(va) != set(range(130 - len(va), 130))
+    assert len(train_val_split(10, 0.2)[1]) == 2  # exact off-boundary
+    tr0, va0 = train_val_split(10, 0.0)
+    assert (sorted(tr0), va0) == (list(range(10)), [])
+
+
+def test_bc_best_checkpoint_smoke(tmp_path):
+    """BC trains 2 epochs on synthetic demos, saves best-val meta."""
+    import subprocess
+    import torch
+    n, T, d = 8, 12, 18
+    obs = np.random.randn(n, T, d).astype(np.float32)
+    act = (np.random.randn(n, T, 3) * 0.5).astype(np.float32)
+    np.savez_compressed(tmp_path / "tiny.npz", obs=obs, actions=act,
+                        lengths=np.full(n, T))
+    out = tmp_path / "bc_tiny"
+    proc = subprocess.run(
+        [sys.executable, "scripts/train_bc.py",
+         "--demos", str(tmp_path / "tiny"), "--epochs", "2",
+         "--batch", "16", "--hidden", "32", "--val-frac", "0.25",
+         "--out", str(out)],
+        cwd=REPO, capture_output=True, text=True, timeout=300,
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
+    assert proc.returncode == 0, proc.stderr[-2000:]
+    assert "train / 2 val episodes" in proc.stdout
+    ckpt = torch.load(str(out) + ".pt", weights_only=False)
+    assert ckpt["best_epoch"] in (0, 1)
+    assert ckpt["val_frac"] == 0.25
+    assert np.isfinite(ckpt["best_val"])
+
+
 def test_chunk_dataset_fc_anchored_pairs():
     """FC-anchored windows end at the FC step and repeat."""
     import numpy as np

@@ -40,34 +40,59 @@ class BCMLP(nn.Module):
         return self.net(obs)
 
 
-def main():
+def train_val_split(n_episodes, val_frac, seed=0):
+    """Deterministic episode indices split (seeded shuffle, then cut).
+
+    Split is by EPISODE, not pair: pairs within an episode are
+    temporally correlated, so a pair split would leak. Seeded
+    shuffle (not contiguous cut) so scene-blocked files still
+    mix across the split.
+    """
+    rng = np.random.RandomState(seed)
+    order = rng.permutation(n_episodes)
+    n_val = int(round(n_episodes * val_frac))
+    return order[n_val:].tolist(), order[:n_val].tolist()
+
+
+def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--demos", required=True)
     ap.add_argument("--epochs", type=int, default=150)
     ap.add_argument("--batch", type=int, default=512)
     ap.add_argument("--hidden", type=int, default=256)
     ap.add_argument("--lr", type=float, default=3e-4)
+    ap.add_argument("--val-frac", type=float, default=0.15)
     ap.add_argument("--out", default="models/bc_v1")
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
     torch.manual_seed(0)
 
     data = np.load(pathlib.Path(args.demos).with_suffix(".npz"))
     obs, actions, lengths = data["obs"], data["actions"], data["lengths"]
+    train_idx, val_idx = train_val_split(len(lengths), args.val_frac)
+    if not val_idx:  # --val-frac 0: select on train (degenerate, no crash)
+        val_idx = train_idx
     O = np.concatenate([obs[i, : int(lengths[i])]
-                        for i in range(len(lengths))]).astype(np.float32)
+                        for i in train_idx]).astype(np.float32)
     A = np.concatenate([actions[i, : int(lengths[i])]
-                        for i in range(len(lengths))]).astype(np.float32)
-    print(f"[train] {len(lengths)} episodes, {len(O)} pairs, "
-          f"obs_dim={O.shape[1]}")
+                        for i in train_idx]).astype(np.float32)
+    Ov = np.concatenate([obs[i, : int(lengths[i])]
+                         for i in val_idx]).astype(np.float32)
+    Av = np.concatenate([actions[i, : int(lengths[i])]
+                         for i in val_idx]).astype(np.float32)
+    print(f"[train] {len(train_idx)} train / {len(val_idx)} val episodes, "
+          f"{len(O)} train pairs, obs_dim={O.shape[1]}")
     obs_mean = O.mean(axis=0)
     obs_std = np.maximum(O.std(axis=0), 0.30)
     obs_std[3:6] = np.maximum(obs_std[3:6], 2.0)
     On = torch.from_numpy((O - obs_mean) / obs_std)
     A = torch.from_numpy(A)
+    Ovn = torch.from_numpy((Ov - obs_mean) / obs_std)
+    Av = torch.from_numpy(Av)
 
     model = BCMLP(O.shape[1], hidden=args.hidden)
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr)
     steps = max(50, len(O) // args.batch)
+    best_val, best_epoch, best_state = float("inf"), -1, None
     for ep in range(args.epochs):
         tot = 0.0
         for _ in range(steps):
@@ -77,16 +102,25 @@ def main():
             loss.backward()
             opt.step()
             tot += loss.item()
+        with torch.no_grad():
+            val = ((model(Ovn) - Av) ** 2).mean().item()
+        if val < best_val:
+            best_val, best_epoch = val, ep
+            best_state = {k: v.cpu().clone()
+                          for k, v in model.state_dict().items()}
         if ep % 25 == 0 or ep == args.epochs - 1:
-            print(f"[train] epoch {ep}: loss {tot / steps:.5f}")
+            print(f"[train] epoch {ep}: train {tot / steps:.5f} "
+                  f"val {val:.5f} (best {best_val:.5f} @ {best_epoch})")
 
     out = pathlib.Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
-    torch.save({"state": model.state_dict(), "obs_mean": obs_mean,
+    torch.save({"state": best_state, "obs_mean": obs_mean,
                 "obs_std": obs_std, "obs_dim": O.shape[1],
-                "hidden": args.hidden},
+                "hidden": args.hidden, "best_val": best_val,
+                "best_epoch": best_epoch, "val_frac": args.val_frac},
                out.with_suffix(".pt"))
-    print(f"[train] saved to {out.with_suffix('.pt')}")
+    print(f"[train] saved best (val {best_val:.5f} @ epoch {best_epoch}) "
+          f"to {out.with_suffix('.pt')}")
 
 
 if __name__ == "__main__":

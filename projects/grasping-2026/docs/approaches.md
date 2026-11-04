@@ -234,15 +234,28 @@ pinches like its teacher's modal win.
 
 More demos are NOT monotone: doubling adjacent demos
 (+18 pc5 wins, seeds 40–69, seed 61 infeasible-skipped)
-*drops* BC to 33/50 (8/9/7/4/5) — sandwich collapses
-8→4 and adjacent itself falls 6→5. Smoking gun: the
-boosted model chase-fails adjacent-41 (91 rew), a seed
-whose demo it trained on, while the original wins 41
-zero-shot (and beats it 4/5 to 3/5 on 40–44 overall).
-Contradictory per-seed strategies MSE-average into
-mush: cloning has its own cross-scene interference,
-mirroring PPO's bulldoze mix effect. Coverage amount
-≠ coverage composition.
+*dropped* BC to 33/50 (8/9/7/4/5) — sandwich collapsed
+8→4 and adjacent itself fell 6→5, including a chase-fail
+on trained-on seed 41. That reading was WRONG, and the
+user's pushback was right: the trainer saved the
+last of 150 fixed epochs with no validation (train
+loss 0.0003 = memorization), so 37 and 33 were two
+lucky tickets, not two data regimes. Fixed pipeline:
+15% episode-held-out val (seeded-shuffled, never a
+contiguous scene block) + best-val selection
+(`--val-frac`, `train_val_split`, both tested). Fair
+rematch: base+val 34/50 (9/7/7/5/6), boosted+val
+**38/50** (9/9/8/6/6) — more demos win everywhere
+they tie-or-lead (+2 surround, +1 decoy, +1 sandwich),
+and boosted+val wins seed 41 cleanly. The "cloning
+interference" reading is retracted; what looked like
+destructive averaging was last-epoch lottery.
+Honest caveat: best-val (0.0038 boosted vs 0.0090
+base) picked the winner here, but val MSE is
+open-loop — it need not track closed-loop FC in
+general. Matrix BC columns now show val-selected
+models (BCmxV 34, BCadV 38); the lucky 37/33 stay in
+prose as a cautionary tale.
 
 ### Diffusion — chunked cloning with a denoiser
 
@@ -653,22 +666,23 @@ top, per-seed side-by-side GIFs below. Metrics glossary:
 | PPO pc5 (presets) | 9/8/9/5 surr/decoy/sand/adj | 40/50 best overall; whiffs dead, adjacent −1 |
 | PPO ap2 (random 0-9) | 9/10, 3 caged | holds; only seed 0 fails |
 | PPO ap2 (presets) | 8/7/8/6 surr/decoy/sand/adj | 38/50: swap fails both bars, tax stands |
-| BC on pc5 demos (112 eps) | 9/8/6/8/6 rand/surr/decoy/sand/adj | 37/50: coverage, not capacity, bound cloning |
+| BC on pc5 demos (112 eps) | 9/8/6/8/6 rand/surr/decoy/sand/adj | 37/50 lucky last-epoch; superseded by val run |
 | Diffusion on pc5 demos | 3/0/1/3/1 | 8/50: short PPO eps (25 steps) starve chunk-16 |
-| BC adjacent-boost (+18 eps) | 8/9/7/4/5 | 33/50: more demos HURT (fails trained-on seed 41) |
+| BC adjacent-boost (+18 eps) | 8/9/7/4/5 | 33/50 lucky; "interference" retracted (pipeline luck) |
 | Diffusion chunk-4 on pc5 demos | 6/1/2/4/3 | 16/50: horizon-matched, volume still starves |
+| BC val-selected base/boosted | 34/38 of 50 | fair rematch: more demos win (+2/1/1, ties else) |
 | VLM canary (2,4 × 4 presets) | 1/2, 0/2, 2/2, 2/2 surr/decoy/sand/adj | 5/8, 8 calls 41k tok; ≥heur every seed |
 
 Scene × planner matrix (FC /10, seeds 0–9, default configs;
 VLM presets: canary †):
 
-| Scene | Heur | Reac | Auto | BC | Diff | v3 | f100 | enc1 | mix5 | mixw | pc5 | ap2 | BCmx | DFmx | BCad | DFc4 | VLM† |
+| Scene | Heur | Reac | Auto | BC | Diff | v3 | f100 | enc1 | mix5 | mixw | pc5 | ap2 | BCmxV | DFmx | BCadV | DFc4 | VLM† |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| random | 10 | 0 | 10 | 7 | 5 | 7 | 7 | 9 | 9 | 9 | 9 | 9 | 9 | 3 | 8 | 6 | 9 |
-| surround | 0 | 0 | 0 | 2 | 0 | 4 | 9 | 7 | 9 | 9 | 9 | 8 | 8 | 0 | 9 | 1 | 1/2 |
-| decoy | 2 | 0 | 2 | 1 | 0 | 7 | 6 | 8 | 6 | 7 | 8 | 7 | 6 | 1 | 7 | 2 | 0/2 |
-| sandwich | 6 | 0 | 6 | 4 | 5 | 6 | 6 | 7 | 6 | 8 | 9 | 8 | 8 | 3 | 4 | 4 | 2/2 |
-| adjacent | 6 | 0 | 8 | 4 | 3 | 4 | 5 | 5 | 5 | 6 | 5 | 6 | 6 | 1 | 5 | 3 | 2/2 |
+| random | 10 | 0 | 10 | 7 | 5 | 7 | 7 | 9 | 9 | 9 | 9 | 9 | 9 | 3 | 9 | 6 | 9 |
+| surround | 0 | 0 | 0 | 2 | 0 | 4 | 9 | 7 | 9 | 9 | 9 | 8 | 7 | 0 | 9 | 1 | 1/2 |
+| decoy | 2 | 0 | 2 | 1 | 0 | 7 | 6 | 8 | 6 | 7 | 8 | 7 | 7 | 1 | 8 | 2 | 0/2 |
+| sandwich | 6 | 0 | 6 | 4 | 5 | 6 | 6 | 7 | 6 | 8 | 9 | 8 | 5 | 3 | 6 | 4 | 2/2 |
+| adjacent | 6 | 0 | 8 | 4 | 3 | 4 | 5 | 5 | 5 | 6 | 5 | 6 | 6 | 1 | 6 | 3 | 2/2 |
 
 † VLM presets: seeds 2,4 canary only (8 fresh calls, 41k
 tokens; full 0–9 grids unmeasured — API cost). 5/8
@@ -695,13 +709,19 @@ decoy {0,1,3,4,5,6,7,9}, sandwich {0,2–9}, adjacent
 {3–7}; ap2 random {1–9}, surround {1–8}, decoy
 {0,1,3–7}, sandwich {0,2–7,9}, adjacent {2,3,5–8};
 BCmix random {1–9}, surround {0–3,5,6,8,9}, decoy
-{1,2,4–6,9}, sandwich {1–7,9}, adjacent {1–3,6–8};
+{1,2,4–6,9}, sandwich {1–7,9}, adjacent {1–3,6–8}
+(lucky last-epoch; superseded by BCmxV below);
 DFmix random {3,5,7}, surround {}, decoy {6},
 sandwich {5–7}, adjacent {5}; BCad random
 {1–3,5–9}, surround {0,2–9}, decoy {0–5,7}, sandwich
-{0,4,5,7}, adjacent {1–3,6,8}; DFc4 random
-{1,5–9}, surround {2}, decoy {5,6}, sandwich
-{0,5–7}, adjacent {5–7}.
+{0,4,5,7}, adjacent {1–3,6,8} (lucky; superseded);
+DFc4 random {1,5–9}, surround {2}, decoy {5,6},
+sandwich {0,5–7}, adjacent {5–7}; BCmxV random
+{0,1,3–9}, surround {0–2,4,6,8,9}, decoy
+{1,2,4,6–9}, sandwich {3,5–8}, adjacent {2–7};
+BCadV random {0–3,5–9}, surround {0,1,3–9}, decoy
+{0,1,4–9}, sandwich {1,2,4–6,8}, adjacent
+{1,3,5–8}.
 The fresh scripted grid
 reproduced the earlier gap runs seed-for-seed
 (determinism check passes). Three readings: (1) scripts
