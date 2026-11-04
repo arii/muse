@@ -467,6 +467,27 @@ obvious next run. Chase resurfaces on 2 seeds (surround 3,
 sandwich 1, ~100 rew fails) — the residual mode when red
 neither ejects nor grasps.
 
+Adjacent decomposed per-seed (pc5 / autopush /
+BC-boosted, seeds 0–9): pc5 wins {3,4,5,6,7} — all in
+≤7 steps except seed 4 (caged, 62) — and times out the
+rest; autopush wins {2–9}; BC-boosted wins
+{1,3,5,6,7,8}. Three crisp facts. (1) Seed 0 fails 0/5
+planners (heuristic and reactive fail it too) — an
+infeasible-layout candidate, matching the adjacent
+feasibility skips in collection/training; the effective
+ceiling may be 9, not 10. (2) The learned union is
+7/10; autopush-only seeds 2 and 9 are the true
+push-then-grasp gap. (3) A cross-model failure
+signature: **enclosure-bonus farming** — pc5 seed 1
+(rew 105.5), BC-boosted seed 4 (rew 70.0), BC-boosted
+decoy seed 3 (rew 106.0) all time out at len 200 with
+no FC: the arm hovers in a near-enclosure configuration
+collecting +1/step without closing. The enclosure bonus
+teaches caging but is farmable; future shaping should
+pay closure, not proximity-to-closure. Decoy seed 9
+re-confirmed won (pc5 caged in 12 steps, BC-boosted FC)
+— the withholding story stays closed.
+
 Hotter coef tried and killed: `models/grasp_ppo_pc20`
 (same recipe, `--precontact-disp-penalty 20.0`) sat at
 0/10 on random at 250k with ep_rew_mean flat at ≈−130
