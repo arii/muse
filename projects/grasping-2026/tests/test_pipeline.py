@@ -1973,6 +1973,30 @@ def test_collect_ppo_demo_fc_seed9(tmp_path):
         assert "kept 0/1" in proc.stdout
 
 
+def test_collect_ppo_demos_multi_scene_smoke(tmp_path):
+    """--scene collects each layout; meta lists scenes and yields."""
+    import subprocess
+    from stable_baselines3 import PPO
+    from env.gym_wrapper import GraspGymWrapper
+    fix = GraspGymWrapper(seed=9, n_objects=4)
+    PPO("MlpPolicy", fix, seed=9).save(str(tmp_path / "ppo_fixture"))
+    out = tmp_path / "ppo_demo_scenes"
+    proc = subprocess.run(
+        [sys.executable, "scripts/collect_ppo_demos.py",
+         "--model", str(tmp_path / "ppo_fixture"), "--seeds", "9",
+         "--scene", "sandwich,adjacent", "--keep", "all",
+         "--out", str(out)],
+        cwd=REPO, capture_output=True, text=True, timeout=300,
+        env={**os.environ, "MUJOCO_GL": "osmesa",
+             "PYTHONDONTWRITEBYTECODE": "1"})
+    assert proc.returncode == 0, proc.stderr[-2000:]
+    meta = json.loads((tmp_path / (out.name + ".json")).read_text())
+    assert meta["scenes"] == ["sandwich", "adjacent"]
+    assert meta["episodes_run"] == 2
+    assert meta["episodes_kept"] == 2
+    assert sorted(meta["kept_per_scene"]) == ["adjacent", "sandwich"]
+
+
 def test_chunk_dataset_fc_anchored_pairs():
     """FC-anchored windows end at the FC step and repeat."""
     import numpy as np

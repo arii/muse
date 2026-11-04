@@ -220,6 +220,18 @@ never in demos): sandwich 4/10, adjacent 4/10, surround 2/10
 1/10 ({6}). Cloning degrades everywhere out of distribution,
 worst where the demonstrator is weakest.
 
+Coverage, not capacity, was the binding constraint:
+`collect_ppo_demos.py --scene` (new) gathered 112 pc5
+episodes on seeds 10–39 across all five scenes (27/25/
+19/22/19 — disjoint from eval seeds 0–9), and BC
+retrained on them (`models/bc_pc5mix.pt`) jumps to
+**37/50**: random 9, surround 8, decoy 6, sandwich 8,
+adjacent 6 — doubling v2's 18/50 and beating four of
+six PPO checkpoints (only pc5's 40 and mixw's 39 lead).
+Cloning distills PPO nearly whole; the 3-point gap is
+the price of single-step MSE. Rarely cages, though —
+pinches like its teacher's modal win.
+
 ### Diffusion — chunked cloning with a denoiser
 
 State-based Diffusion Policy (Chi et al.) without images: instead
@@ -253,6 +265,17 @@ scratches 2 and 1. Chunking doesn't transfer what the demos
 never show. Surround ordering, complete: fail100 9/10 > v3
 4/10 > BC 2/10 > diffusion = scripts 0/10 — reward-learning >
 cloning > scripting on hard out-of-distribution clutter.
+
+Diffusion does NOT follow BC up the coverage ladder:
+retrained on the same 112 pc5 episodes, it falls to
+8/50 (3/0/1/3/1 — worse than script-demo diffusion's
+13/50 on 4 of 5 scenes). Mechanism, measured: pc5
+episodes average 25 steps (min 2) vs scripted demos'
+137, so chunk-16 windows are mostly hold-last padding
+and total data is 6.4× smaller (2.8k vs 17.8k steps).
+Chunking semantics need long demos; single-step MSE
+doesn't care. Diffusion's data appetite, not its
+denoiser, is the binding constraint here.
 
 ### PPO — reinforcement learning from scratch
 
@@ -608,17 +631,19 @@ top, per-seed side-by-side GIFs below. Metrics glossary:
 | PPO pc5 (presets) | 9/8/9/5 surr/decoy/sand/adj | 40/50 best overall; whiffs dead, adjacent −1 |
 | PPO ap2 (random 0-9) | 9/10, 3 caged | holds; only seed 0 fails |
 | PPO ap2 (presets) | 8/7/8/6 surr/decoy/sand/adj | 38/50: swap fails both bars, tax stands |
+| BC on pc5 demos (112 eps) | 9/8/6/8/6 rand/surr/decoy/sand/adj | 37/50: coverage, not capacity, bound cloning |
+| Diffusion on pc5 demos | 3/0/1/3/1 | 8/50: short PPO eps (25 steps) starve chunk-16 |
 
 Scene × planner matrix (FC /10, seeds 0–9, default configs;
 VLM preset grids unmeasured — API cost; probes only):
 
-| Scene | Heur | Reac | Auto | BC | Diff | v3 | f100 | enc1 | mix5 | mixw | pc5 | ap2 | VLM |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| random | 10 | 0 | 10 | 7 | 5 | 7 | 7 | 9 | 9 | 9 | 9 | 9 | 9 |
-| surround | 0 | 0 | 0 | 2 | 0 | 4 | 9 | 7 | 9 | 9 | 9 | 8 | — |
-| decoy | 2 | 0 | 2 | 1 | 0 | 7 | 6 | 8 | 6 | 7 | 8 | 7 | — |
-| sandwich | 6 | 0 | 6 | 4 | 5 | 6 | 6 | 7 | 6 | 8 | 9 | 8 | — |
-| adjacent | 6 | 0 | 8 | 4 | 3 | 4 | 5 | 5 | 5 | 6 | 5 | 6 | — |
+| Scene | Heur | Reac | Auto | BC | Diff | v3 | f100 | enc1 | mix5 | mixw | pc5 | ap2 | BCmx | DFmx | VLM |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| random | 10 | 0 | 10 | 7 | 5 | 7 | 7 | 9 | 9 | 9 | 9 | 9 | 9 | 3 | 9 |
+| surround | 0 | 0 | 0 | 2 | 0 | 4 | 9 | 7 | 9 | 9 | 9 | 8 | 8 | 0 | — |
+| decoy | 2 | 0 | 2 | 1 | 0 | 7 | 6 | 8 | 6 | 7 | 8 | 7 | 6 | 1 | — |
+| sandwich | 6 | 0 | 6 | 4 | 5 | 6 | 6 | 7 | 6 | 8 | 9 | 8 | 8 | 3 | — |
+| adjacent | 6 | 0 | 8 | 4 | 3 | 4 | 5 | 5 | 5 | 6 | 5 | 6 | 6 | 1 | — |
 
 Per-seed wins (FC): surround v3 {0,2,6,8}, BC {2,7};
 decoy heur {6,9}, auto {3,6}, BC {6}; sandwich heur
@@ -633,7 +658,11 @@ decoy {0–4,6,8}, sandwich {0–6,8}, adjacent
 {1–3,5–7}; pc5 random {0,1,3–9}, surround {0–2,4–9},
 decoy {0,1,3,4,5,6,7,9}, sandwich {0,2–9}, adjacent
 {3–7}; ap2 random {1–9}, surround {1–8}, decoy
-{0,1,3–7}, sandwich {0,2–7,9}, adjacent {2,3,5–8}.
+{0,1,3–7}, sandwich {0,2–7,9}, adjacent {2,3,5–8};
+BCmix random {1–9}, surround {0–3,5,6,8,9}, decoy
+{1,2,4–6,9}, sandwich {1–7,9}, adjacent {1–3,6–8};
+DFmix random {3,5,7}, surround {}, decoy {6},
+sandwich {5–7}, adjacent {5}.
 The fresh scripted grid
 reproduced the earlier gap runs seed-for-seed
 (determinism check passes). Three readings: (1) scripts

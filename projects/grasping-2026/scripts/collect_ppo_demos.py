@@ -29,6 +29,7 @@ import numpy as np
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
 from env.gym_wrapper import GraspGymWrapper  # noqa: E402
+from env.scenes import PRESETS, apply_scene  # noqa: E402
 
 
 def main():
@@ -36,6 +37,8 @@ def main():
     ap.add_argument("--model", required=True)
     ap.add_argument("--algo", choices=["ppo", "sac"], default="ppo")
     ap.add_argument("--seeds", default="0-2")
+    ap.add_argument("--scene", default="random",
+                    help="comma-separated layouts (random + presets)")
     ap.add_argument("--max-steps", type=int, default=200)
     ap.add_argument("--n-objects", type=int, default=4)
     ap.add_argument("--contact-obs", action="store_true")
@@ -58,40 +61,53 @@ def main():
         seeds = list(range(int(lo), int(hi) + 1))
     else:
         seeds = [int(s) for s in args.seeds.split(",")]
+    scenes = args.scene.split(",")
+    for s in scenes:
+        if s != "random" and s not in PRESETS:
+            raise SystemExit(f"[collect] unknown scene {s!r} "
+                             f"(expected 'random' or one of {PRESETS})")
 
     kept_obs, kept_act, kept_len = [], [], []
     kept_fc_step = []
+    kept_per_scene = {s: 0 for s in scenes}
     n_fc = n_caged = 0
-    for seed in seeds:
-        env = GraspGymWrapper(seed=seed, max_steps=args.max_steps,
-                              n_objects=args.n_objects,
-                              contact_obs=args.contact_obs,
-                              max_delta_q=args.max_delta_q)
-        obs, _ = env.reset(seed=seed)
-        obs_list, act_list = [], []
-        info = {}
-        fc_step = -1
-        while True:
-            action, _ = model.predict(obs, deterministic=True)
-            obs_list.append(obs)
-            act_list.append(action)
-            obs, _, terminated, truncated, info = env.step(action)
-            if fc_step < 0 and info["force_closure"]:
-                fc_step = len(obs_list) - 1
-            if terminated or truncated:
-                break
-        n_fc += int(info["force_closure"])
-        n_caged += int(info["caged"])
-        keep = (args.keep == "all" or
-                (args.keep == "fc" and info["force_closure"]) or
-                (args.keep == "caged" and info["caged"]))
-        if keep:
-            kept_obs.append(np.stack(obs_list))
-            kept_act.append(np.stack(act_list))
-            kept_len.append(len(obs_list))
-            kept_fc_step.append(fc_step)
-        print(f"seed {seed}: FC={info['force_closure']} "
-              f"caged={info['caged']} len={len(obs_list)} kept={keep}")
+    n_run = 0
+    for scene in scenes:
+        for seed in seeds:
+            n_run += 1
+            env = GraspGymWrapper(seed=seed, max_steps=args.max_steps,
+                                  n_objects=args.n_objects,
+                                  contact_obs=args.contact_obs,
+                                  max_delta_q=args.max_delta_q)
+            obs, _ = env.reset(seed=seed)
+            if scene != "random":
+                apply_scene(env.env, scene)
+                obs = env._flat_obs()
+            obs_list, act_list = [], []
+            info = {}
+            fc_step = -1
+            while True:
+                action, _ = model.predict(obs, deterministic=True)
+                obs_list.append(obs)
+                act_list.append(action)
+                obs, _, terminated, truncated, info = env.step(action)
+                if fc_step < 0 and info["force_closure"]:
+                    fc_step = len(obs_list) - 1
+                if terminated or truncated:
+                    break
+            n_fc += int(info["force_closure"])
+            n_caged += int(info["caged"])
+            keep = (args.keep == "all" or
+                    (args.keep == "fc" and info["force_closure"]) or
+                    (args.keep == "caged" and info["caged"]))
+            if keep:
+                kept_obs.append(np.stack(obs_list))
+                kept_act.append(np.stack(act_list))
+                kept_len.append(len(obs_list))
+                kept_fc_step.append(fc_step)
+                kept_per_scene[scene] += 1
+            print(f"{scene} seed {seed}: FC={info['force_closure']} "
+                  f"caged={info['caged']} len={len(obs_list)} kept={keep}")
 
     out = pathlib.Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -114,11 +130,11 @@ def main():
                             fc_steps=np.array(kept_fc_step))
     meta = {"demonstrator": f"{args.algo}:{args.model}", "keep": args.keep,
             "n_objects": args.n_objects, "contact_obs": args.contact_obs,
-            "seeds": seeds, "episodes_run": len(seeds),
+            "seeds": seeds, "scenes": scenes, "episodes_run": n_run,
             "episodes_kept": len(kept_obs), "fc_count": n_fc,
-            "caged_count": n_caged}
+            "caged_count": n_caged, "kept_per_scene": kept_per_scene}
     out.with_suffix(".json").write_text(json.dumps(meta, indent=2))
-    print(f"[collect] kept {len(kept_obs)}/{len(seeds)} episodes "
+    print(f"[collect] kept {len(kept_obs)}/{n_run} episodes "
           f"(FC {n_fc}, caged {n_caged}) -> {out}.npz")
 
 
