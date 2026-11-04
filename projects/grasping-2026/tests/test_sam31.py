@@ -1,52 +1,48 @@
-"""Tests for the SAM 3.1 hosted-API path (mocked HTTP — no key needed)."""
-import base64
-import io
+"""Tests for the SAM 3.1 hosted-API path (mocked HTTP — no key needed).
+
+The streaming fixture is a recorded real response: tests/fixtures/
+sam31_red_square.sse captured 2026-11-03 from POST /v1/responses with
+concept "red square" on a 160x120 image (red square at rows 40:80,
+cols 60:100). Parsing is deterministic; no network, no key.
+"""
 import os
+from pathlib import Path
 
 import numpy as np
 import pytest
-from PIL import Image
 
 from perception.segment import (
     MetaAPISAMSegmenter, SAMSegmenter, text_from_instruction,
 )
 
-
-def _png_mask(h=8, w=10):
-    arr = np.zeros((h, w), dtype=np.uint8)
-    arr[2:5, 3:7] = 255
-    buf = io.BytesIO()
-    Image.fromarray(arr).save(buf, "PNG")
-    return base64.b64encode(buf.getvalue()).decode("ascii")
+_FIXTURE = (Path(__file__).parent / "fixtures" / "sam31_red_square.sse"
+            ).read_bytes().splitlines(keepends=True)
 
 
-class _Resp:
-    def __init__(self, payload, status=200):
-        self._payload = payload
+class _FakeStreamResp:
+    def __init__(self, lines, status=200):
+        self._lines = lines
         self.status_code = status
-        self.text = str(payload)[:500]
+        self.text = "" if status == 200 else f"error {status}"
 
-    def json(self):
-        return self._payload
+    def iter_lines(self):
+        return iter(self._lines)
 
 
-class _Req:
-    def __init__(self, payload):
-        self.payload = payload
+class _FakeRequests:
+    def __init__(self, resp):
+        self._resp = resp
         self.calls = []
 
-    def post(self, url, headers=None, json=None, timeout=None):
-        self.calls.append((url, json))
-        return _Resp(self.payload)
+    def post(self, url, headers=None, json=None, timeout=None, stream=None):
+        self.calls.append({"url": url, "headers": headers, "json": json,
+                           "timeout": timeout, "stream": stream})
+        return self._resp
 
 
-@pytest.fixture
-def seg():
+def _seg(lines=_FIXTURE):
     s = MetaAPISAMSegmenter(model="sam-3.1", api_key="test-key")
-    s._requests = _Req({"data": [
-        {"mask": np.zeros((4, 5)).tolist(), "score": 0.2},
-        {"mask": _png_mask(4, 5), "score": 0.9},
-    ]})
+    s._requests = _FakeRequests(_FakeStreamResp(lines))
     return s
 
 
@@ -56,44 +52,81 @@ def test_text_from_instruction():
     assert text_from_instruction("grab a green cube without moving") == "green cube"
 
 
-def test_segment_returns_top_scoring_bool_mask(seg):
-    rgb = np.zeros((4, 5, 3), dtype=np.uint8)
-    mask = seg.segment(rgb, {"text": "red box"})
+def test_segment_returns_full_frame_bool_mask():
+    rgb = np.zeros((120, 160, 3), dtype=np.uint8)
+    mask = _seg().segment(rgb, {"text": "red square"})
     assert mask.dtype == bool
-    assert mask.shape == (4, 5)
-    assert mask[2:4, 3:5].all() and mask.sum() == 4
+    assert mask.shape == (120, 160)
+    # Recorded truth: the 40x40 red square at rows 40:80, cols 60:100.
+    assert mask.sum() == 1600
+    assert mask[40:80, 60:100].all()
 
 
-def test_segment_accepts_raw_string(seg):
-    mask = seg.segment(np.zeros((4, 5, 3), dtype=np.uint8), "red box")
-    assert mask.shape == (4, 5)
+def test_segment_accepts_raw_string():
+    mask = _seg().segment(np.zeros((120, 160, 3), dtype=np.uint8),
+                          "red square")
+    assert mask.shape == (120, 160)
 
 
-def test_segment_sends_text_and_model(seg):
-    rgb = np.zeros((4, 5, 3), dtype=np.uint8)
-    seg.segment(rgb, {"text": "red box"})
-    url, body = seg._requests.calls[0]
-    assert url == "https://api.meta.ai/v1/segmentations"
-    assert body["model"] == "sam-3.1" and body["text"] == "red box"
-    assert body["image"].startswith("data:image/png;base64,")
+def test_segment_posts_to_responses_api():
+    seg = _seg()
+    seg.segment(np.zeros((120, 160, 3), dtype=np.uint8), {"text": "red square"})
+    call = seg._requests.calls[0]
+    assert call["url"] == "https://api.meta.ai/v1/responses"
+    assert call["stream"] is True
+    assert call["headers"]["Authorization"] == "Bearer test-key"
+    body = call["json"]
+    assert body["model"] == "sam-3.1" and body["stream"] is True
+    (msg,) = body["input"]
+    assert msg["type"] == "message" and msg["role"] == "user"
+    text_part, img_part = msg["content"]
+    assert text_part == {"type": "input_text", "text": "red square"}
+    assert img_part["type"] == "input_image"
+    assert img_part["image_url"].startswith("data:image/png;base64,")
 
 
-def test_segment_boxes_prompt_rejected(seg):
+def test_segment_boxes_prompt_rejected():
     with pytest.raises(ValueError, match="text-prompt only"):
-        seg.segment(np.zeros((4, 5, 3), dtype=np.uint8),
-                    {"boxes": [[0, 0, 1, 1]]})
+        _seg().segment(np.zeros((4, 5, 3), dtype=np.uint8),
+                       {"boxes": [[0, 0, 1, 1]]})
 
 
 def test_missing_key_raises():
     os.environ.pop("META_API_KEY", None)
     with pytest.raises(RuntimeError, match="META_API_KEY"):
-        MetaAPISAMSegmenter(model="x")
+        MetaAPISAMSegmenter(model="sam-3.1")
 
 
-def test_unrecognized_response_shape_raises(seg):
-    seg._requests = _Req({"surprise": []})
-    with pytest.raises(ValueError, match="Unrecognized"):
-        seg.segment(np.zeros((4, 5, 3), dtype=np.uint8), {"text": "red box"})
+def test_missing_model_raises():
+    os.environ.pop("META_MODEL_ID", None)
+    with pytest.raises(RuntimeError, match="META_MODEL_ID"):
+        MetaAPISAMSegmenter(api_key="test-key")
+
+
+_ZERO_SSE = (b'data: {"type": "response.output_text.delta", "item_id": "i",'
+             b' "output_index": 0, "content_index": 0, "delta": ""}\n'
+             b'\n'
+             b'data: {"type": "response.content_part.done", "item_id": "i",'
+             b' "output_index": 0, "content_index": 0,'
+             b' "part": {"type": "output_text", "text": ""}}\n'
+             b'\n'
+             b'data: {"type": "response.completed",'
+             b' "response": {"id": "r", "status": "completed"}}\n'
+             ).splitlines(keepends=True)
+
+
+def test_zero_matches_raises_loudly():
+    # Zero matches is a valid API outcome; segment() refuses to guess.
+    with pytest.raises(ValueError, match="zero matches"):
+        _seg(_ZERO_SSE).segment(np.zeros((120, 160, 3), dtype=np.uint8),
+                                {"text": "purple elephant"})
+
+
+def test_http_error_raises_with_status():
+    seg = MetaAPISAMSegmenter(model="sam-3.1", api_key="test-key")
+    seg._requests = _FakeRequests(_FakeStreamResp([], status=500))
+    with pytest.raises(RuntimeError, match="500"):
+        seg.segment(np.zeros((4, 5, 3), dtype=np.uint8), {"text": "red square"})
 
 
 def test_local_bad_prompt_rejected():

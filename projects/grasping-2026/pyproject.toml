@@ -9,19 +9,12 @@ dependencies = [
     "numpy>=1.26.0",
     "pillow>=10.0.0",
     "requests>=2.31.0",
+    "meta-sam-parser>=0.0.6",
     "gymnasium>=0.29.0",
     "stable-baselines3>=2.3.0",
     "torch>=2.2.0",
-    "torchvision>=0.29.0",
-    "segment-anything>=1.0",
     "diffusers>=0.27.0",
 ]
-
-[project.optional-dependencies]
-# CI + README install ".[test]"; without this key pytest is missing.
-test = ["pytest"]
-# Dockerfile installs ".[rl]"; RL deps already ship in base deps.
-rl = []
 
 [tool.grasping.scripts]
 eval = "./scripts/run_eval.sh --seeds 2,4"

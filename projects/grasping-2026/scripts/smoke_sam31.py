@@ -7,7 +7,7 @@ synthetic red square on white and saves the mask.
 
 The first call tells you exactly what's wrong: a missing env var fails
 here, and an unrecognized response shape raises from
-MetaAPISAMSegmenter._parse_response showing the raw keys.
+the parser raising a descriptive error on unexpected output.
 """
 import os
 import sys
