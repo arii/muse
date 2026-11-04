@@ -415,12 +415,21 @@ charge whiffs the full bleed (non-terminating
 out-of-reach, or equivalent economics), so slow-gentle
 failure outranks ejection and FC still outranks both.
 
-Structural fix under training: `--no-terminate-out-of-
-reach` (out-of-reach latches −100 once, no early exit;
-default behavior unchanged) — `models/grasp_ppo_pc5nt`,
-pc5 recipe otherwise. Whiffs now cost full bleed +100
-on top (≈−620 vs −500 for slow failure); if the policy
-stops whiffing without freezing, the basin is fixed.
+Structural fix tried and killed: `--no-terminate-out-
+of-reach` (out-of-reach latches −100 once, no early
+exit) — `models/grasp_ppo_pc5nt`, pc5 recipe otherwise,
+killed at 300k. It converged to the exact mirror trap:
+ep_rew_mean pinned at −501 (the slow-failure number),
+0/10 with 0.0 reward on every seed — the arm waves in
+free space and never approaches red. Inverting the
+basin (freeze −500 now beats whiff −620) just moved
+the least-bad failure; neither ordering gives a
+*gradient toward* FC, because approaching red pays
+nothing while any jostle along the way is punished.
+Next: potential-based approach shaping (pay tip→red
+progress pre-contact, Ng-style, bounded so hovering
+can't exploit it) — guidance toward contact, not just
+punishment for disturbing it.
 
 ### SARSA(λ) — the thesis learner, ported
 
