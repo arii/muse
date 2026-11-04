@@ -633,17 +633,28 @@ top, per-seed side-by-side GIFs below. Metrics glossary:
 | PPO ap2 (presets) | 8/7/8/6 surr/decoy/sand/adj | 38/50: swap fails both bars, tax stands |
 | BC on pc5 demos (112 eps) | 9/8/6/8/6 rand/surr/decoy/sand/adj | 37/50: coverage, not capacity, bound cloning |
 | Diffusion on pc5 demos | 3/0/1/3/1 | 8/50: short PPO eps (25 steps) starve chunk-16 |
+| VLM canary (2,4 × 4 presets) | 1/2, 0/2, 2/2, 2/2 surr/decoy/sand/adj | 5/8, 8 calls 41k tok; ≥heur every seed |
 
 Scene × planner matrix (FC /10, seeds 0–9, default configs;
-VLM preset grids unmeasured — API cost; probes only):
+VLM presets: canary †):
 
-| Scene | Heur | Reac | Auto | BC | Diff | v3 | f100 | enc1 | mix5 | mixw | pc5 | ap2 | BCmx | DFmx | VLM |
+| Scene | Heur | Reac | Auto | BC | Diff | v3 | f100 | enc1 | mix5 | mixw | pc5 | ap2 | BCmx | DFmx | VLM† |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | random | 10 | 0 | 10 | 7 | 5 | 7 | 7 | 9 | 9 | 9 | 9 | 9 | 9 | 3 | 9 |
-| surround | 0 | 0 | 0 | 2 | 0 | 4 | 9 | 7 | 9 | 9 | 9 | 8 | 8 | 0 | — |
-| decoy | 2 | 0 | 2 | 1 | 0 | 7 | 6 | 8 | 6 | 7 | 8 | 7 | 6 | 1 | — |
-| sandwich | 6 | 0 | 6 | 4 | 5 | 6 | 6 | 7 | 6 | 8 | 9 | 8 | 8 | 3 | — |
-| adjacent | 6 | 0 | 8 | 4 | 3 | 4 | 5 | 5 | 5 | 6 | 5 | 6 | 6 | 1 | — |
+| surround | 0 | 0 | 0 | 2 | 0 | 4 | 9 | 7 | 9 | 9 | 9 | 8 | 8 | 0 | 1/2 |
+| decoy | 2 | 0 | 2 | 1 | 0 | 7 | 6 | 8 | 6 | 7 | 8 | 7 | 6 | 1 | 0/2 |
+| sandwich | 6 | 0 | 6 | 4 | 5 | 6 | 6 | 7 | 6 | 8 | 9 | 8 | 8 | 3 | 2/2 |
+| adjacent | 6 | 0 | 8 | 4 | 3 | 4 | 5 | 5 | 5 | 6 | 5 | 6 | 6 | 1 | 2/2 |
+
+† VLM presets: seeds 2,4 canary only (8 fresh calls, 41k
+tokens; full 0–9 grids unmeasured — API cost). 5/8
+overall, ≥ heuristic on every canary seed (heuristic
+takes sandwich/adjacent 2,4; neither takes decoy 2,4
+or surround 2,4 — VLM's surround-2 win is the only
+scripted-family win on surround, and it came *after*
+all 3 planned pushes reverted for bulldozing red:
+attribution split between approach-side selection
+(near) and revert-residue solver luck).
 
 Per-seed wins (FC): surround v3 {0,2,6,8}, BC {2,7};
 decoy heur {6,9}, auto {3,6}, BC {6}; sandwich heur
