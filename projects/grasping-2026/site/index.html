@@ -236,6 +236,25 @@
     <figcaption><strong>Seed 5 &mdash; diffusion's best.</strong> Every planner grasps; diffusion's only caged run
     (0.12&nbsp;m displacement) &mdash; the gentlest grasp in the benchmark.</figcaption>
   </figure>
+  <h3>Video clips (Remotion, local render)</h3>
+  <p>Short clips cut from the same verified runs. MP4s are rendered locally and not
+  committed; re-render with <code>npx remotion render &lt;lineup|ppo-win|matrix&gt;</code>
+  from <code>video/</code>.</p>
+  <figure>
+    <video src="assets/lineup.mp4" controls preload="metadata" width="640"></video>
+    <figcaption><strong>Lineup (15&nbsp;s).</strong> All seven planners on seed 1 with
+    verified force-closure badges.</figcaption>
+  </figure>
+  <figure>
+    <video src="assets/ppo-win.mp4" controls preload="metadata" width="640"></video>
+    <figcaption><strong>PPO vs heuristic (12&nbsp;s).</strong> Honest seed-1 outcome plus
+    verified totals: PPO pc5 40/50 FC, heuristic 24/50.</figcaption>
+  </figure>
+  <figure>
+    <video src="assets/matrix.mp4" controls preload="metadata" width="640"></video>
+    <figcaption><strong>Results matrix (15&nbsp;s).</strong> Animated scene &times; planner
+    grid: PPO 40, BC boosted 38, autopush 26, heuristic 24 (seeds 0&ndash;9).</figcaption>
+  </figure>
 </section>
 
 <section id="docs">
