@@ -431,6 +431,16 @@ progress pre-contact, Ng-style, bounded so hovering
 can't exploit it) — guidance toward contact, not just
 punishment for disturbing it.
 
+Under training: `--approach-potential 2.0`
+(Phi = −k·dist(tip, red) while untouched, else 0;
+F = Phi'−Phi at gamma=1, so excursions telescope to
+~0 and hovering pays exactly 0) — `models/grasp_ppo_ap2`,
+pc5 recipe with the precontact tax *swapped out* for
+the potential (clean attribution: must beat mixw's 39
+to show guidance adds anything, pc5's 40 to retire
+the tax). Pays approach AND re-approach after losing
+red; whiff flight reads negative automatically.
+
 ### SARSA(λ) — the thesis learner, ported
 
 `scripts/train_sarsa.py` + `scripts/tile_coding.py`: linear

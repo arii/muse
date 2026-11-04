@@ -1433,6 +1433,48 @@ def test_gym_wrapper_precontact_disp_penalty():
     assert r == 0.0  # touching red: exempt
 
 
+def test_gym_wrapper_approach_potential():
+    """approach_potential pays tip->red progress pre-contact (Ng-style).
+
+    F = Phi' - Phi with Phi = -k*dist(tip, red) while
+    links==0, else 0 (gamma=1: exact telescoping, idling
+    pays exactly 0). Excursions net ~0; total bounded by
+    k*initial distance, so hovering cannot exploit it.
+    """
+    from env.gym_wrapper import GraspGymWrapper
+    env = GraspGymWrapper(seed=0, max_steps=10, approach_potential=2.0)
+    env.reset(seed=0)
+    real_step = env.env.step
+    tip = [(0.0, 0.0)]
+    red = [(0.50, 0.0)]
+
+    def canned(links):
+        def step(action, substeps=20):
+            obs, _, done, info = real_step(action, substeps)
+            info = dict(info)
+            info["links_touching"] = links
+            return obs, 0.0, done, info
+        return step
+
+    env.env._arm_joint_xy = (
+        lambda: [np.zeros(2)] * 3 + [np.array(tip[0])])
+    env.env._target_xy = lambda: red[0]
+    env.reset(seed=0)  # Phi = -2*0.5 = -1.0
+    env.env.step = canned(0)
+    tip[0] = (0.30, 0.0)  # approach: d 0.5 -> 0.2
+    _, r, _, _, _ = env.step(np.zeros(3))
+    assert r == pytest.approx(0.6)
+    tip[0] = (0.10, 0.0)  # retreat: d 0.2 -> 0.4
+    _, r, _, _, _ = env.step(np.zeros(3))
+    assert r == pytest.approx(-0.4)
+    env.env.step = canned(1)  # touch: Phi jumps to 0
+    _, r, _, _, _ = env.step(np.zeros(3))
+    assert r == pytest.approx(0.8)
+    tip[0] = (0.45, 0.0)  # post-contact motion: silence
+    _, r, _, _, _ = env.step(np.zeros(3))
+    assert r == 0.0
+
+
 def test_tile_coder_deterministic_bounded_sharing():
     """TileCoder: deterministic, in-range, neighbors share tiles."""
     from scripts.tile_coding import TileCoder

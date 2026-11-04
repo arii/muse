@@ -41,6 +41,7 @@ def main():
     ap.add_argument("--precontact-disp-penalty", type=float, default=0.0)
     ap.add_argument("--no-terminate-out-of-reach",
                     dest="terminate_out_of_reach", action="store_false")
+    ap.add_argument("--approach-potential", type=float, default=0.0)
     ap.add_argument("--max-delta-q", type=float, default=None)
     # Checkpoint every N steps so a VM restart doesn't lose a long run;
     # resume with --resume <checkpoint.zip>.
@@ -67,7 +68,8 @@ def main():
                           precontact_disp_penalty=(
                               args.precontact_disp_penalty),
                           terminate_out_of_reach=(
-                              args.terminate_out_of_reach))
+                              args.terminate_out_of_reach),
+                          approach_potential=args.approach_potential)
     if args.resume:
         model = cls.load(args.resume, env=env)
         print(f"[train] resumed from {args.resume}")

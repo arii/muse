@@ -70,6 +70,10 @@ checkpoints stay loadable under the defaults):
   episode (thesis behavior, default True). False latches
   -penalty once and lets the episode bleed to timeout, so
   whiffs rank below slow failures instead of escaping them.
+- approach_potential: Ng-style potential k toward contact
+  (train-only like success_bonus). Phi = -k * tip-red
+  distance while untouched, else 0; F = Phi' - Phi.
+  Default 0 = off.
 """
 import math
 
@@ -89,7 +93,7 @@ class GraspGymWrapper(gym.Env):
                  fail_penalty=0.0, thesis_reward=False,
                  thesis_timeout=-100.0, enclosure_bonus=0.0,
                  scenes=("random",), precontact_disp_penalty=0.0,
-                 terminate_out_of_reach=True):
+                 terminate_out_of_reach=True, approach_potential=0.0):
         super().__init__()
         self.env = WholeArmGraspEnv(n_objects=n_objects, seed=seed)
         self.target_index = target_index
@@ -106,11 +110,13 @@ class GraspGymWrapper(gym.Env):
         self.thesis_timeout = float(thesis_timeout)
         if thesis_reward and (step_penalty or success_bonus
                               or fail_penalty or enclosure_bonus
-                              or precontact_disp_penalty):
+                              or precontact_disp_penalty
+                              or approach_potential):
             raise ValueError("thesis_reward replaces the reward "
                              "schedule; it cannot combine with "
                              "step_penalty/success_bonus/fail_penalty/"
-                             "enclosure_bonus/precontact_disp_penalty")
+                             "enclosure_bonus/precontact_disp_penalty/"
+                             "approach_potential")
         # success_bonus: added on force-closure steps (train-only
         # shaping; eval/compare use 0 so reports stay comparable).
         # The base +2.0 FC bonus never compensates a forfeited 200-step
@@ -152,6 +158,15 @@ class GraspGymWrapper(gym.Env):
         # while full-bleed whiffs rank below slow failures.
         self.terminate_out_of_reach = terminate_out_of_reach
         self._failed_oor = False
+        # approach_potential: Ng-style potential shaping toward
+        # contact (train-only like success_bonus). Phi = -k *
+        # dist(tip, red) while links==0, else 0; F = Phi' - Phi
+        # (gamma=1: telescoping, idling pays exactly 0). Pays
+        # approach progress AND re-approach after losing red;
+        # whiff flight (red fleeing the tip) reads negative.
+        # Bounded by k * initial distance: hovering cannot farm.
+        self.approach_potential = approach_potential
+        self._prev_phi = 0.0
         self._steps = 0
         # Obs: q(3) + qvel(3) + target xy(2) + target half(2)
         #      + (n_objects-1) distractors x (dx, dy)
@@ -220,7 +235,17 @@ class GraspGymWrapper(gym.Env):
         self._failed_oor = False
         if self.precontact_disp_penalty:
             self._prev_red = np.array(self.env._target_xy(), dtype=float)
+        if self.approach_potential:
+            self._prev_phi = self._approach_phi(links_touching=0)
         return self._flat_obs(), {"scene": self.scene}
+
+    def _approach_phi(self, links_touching):
+        """Potential Phi(s): -k * tip-red distance pre-contact."""
+        if links_touching:
+            return 0.0
+        tip = np.asarray(self.env._arm_joint_xy()[-1], dtype=float)
+        red = np.array(self.env._target_xy(), dtype=float)
+        return float(-self.approach_potential * np.linalg.norm(tip - red))
 
     def step(self, action):
         # Policy outputs [-1, 1]; scale to the joint limits.
@@ -244,6 +269,10 @@ class GraspGymWrapper(gym.Env):
                 shaped -= (self.precontact_disp_penalty
                            * float(np.linalg.norm(red - self._prev_red)))
             self._prev_red = red
+        if self.approach_potential:
+            phi = self._approach_phi(info["links_touching"])
+            shaped += phi - self._prev_phi
+            self._prev_phi = phi
         if self.fail_penalty:
             # Thesis failure states (Anders 2014, S3.2/S4.2.2): timeout
             # and object-beyond-arm's-length end the episode at -100.
