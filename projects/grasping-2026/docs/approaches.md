@@ -441,6 +441,22 @@ to show guidance adds anything, pc5's 40 to retire
 the tax). Pays approach AND re-approach after losing
 red; whiff flight reads negative automatically.
 
+Verdict: the swap fails both bars — `models/grasp_ppo_ap2`
+lands at **38/50** (mixw 39, pc5 40). Random holds 9/10
+and adjacent recovers to 6/10 (mixw's level), but
+surround slips 9→8, decoy 8→7 (withholding 9 lost),
+sandwich 9→8. Traces: whiffs return without the tax
+(surround 0 ejects red 1.3 m on first touch; decoy 9
+bleeds out through flickering chase). Guidance at k=2
+(±0.1–0.3/step against −2 time and sparse +20) is too
+weak to matter, while the removed −5 ejection bite was
+load-bearing; tip-approach payments may also distort
+toward tip-first poking over enveloping (all ap2
+surround wins are pinches, caged 0/10). The tax stands.
+Untested: potential + tax combined — but the potential
+showed no positive signal anywhere, so this thread
+closes here; pc5's 40/50 stands as best.
+
 ### SARSA(λ) — the thesis learner, ported
 
 `scripts/train_sarsa.py` + `scripts/tile_coding.py`: linear
@@ -590,17 +606,19 @@ top, per-seed side-by-side GIFs below. Metrics glossary:
 | PPO mixw (presets) | 9/7/8/6 surr/decoy/sand/adj | 39/50 best overall; sandwich/adjacent best of all |
 | PPO pc5 (random 0-9) | 9/10, 4 caged | holds; only seed 2 fails (low contact) |
 | PPO pc5 (presets) | 9/8/9/5 surr/decoy/sand/adj | 40/50 best overall; whiffs dead, adjacent −1 |
+| PPO ap2 (random 0-9) | 9/10, 3 caged | holds; only seed 0 fails |
+| PPO ap2 (presets) | 8/7/8/6 surr/decoy/sand/adj | 38/50: swap fails both bars, tax stands |
 
 Scene × planner matrix (FC /10, seeds 0–9, default configs;
 VLM preset grids unmeasured — API cost; probes only):
 
-| Scene | Heur | Reac | Auto | BC | Diff | v3 | f100 | enc1 | mix5 | mixw | pc5 | VLM |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| random | 10 | 0 | 10 | 7 | 5 | 7 | 7 | 9 | 9 | 9 | 9 | 9 |
-| surround | 0 | 0 | 0 | 2 | 0 | 4 | 9 | 7 | 9 | 9 | 9 | — |
-| decoy | 2 | 0 | 2 | 1 | 0 | 7 | 6 | 8 | 6 | 7 | 8 | — |
-| sandwich | 6 | 0 | 6 | 4 | 5 | 6 | 6 | 7 | 6 | 8 | 9 | — |
-| adjacent | 6 | 0 | 8 | 4 | 3 | 4 | 5 | 5 | 5 | 6 | 5 | — |
+| Scene | Heur | Reac | Auto | BC | Diff | v3 | f100 | enc1 | mix5 | mixw | pc5 | ap2 | VLM |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| random | 10 | 0 | 10 | 7 | 5 | 7 | 7 | 9 | 9 | 9 | 9 | 9 | 9 |
+| surround | 0 | 0 | 0 | 2 | 0 | 4 | 9 | 7 | 9 | 9 | 9 | 8 | — |
+| decoy | 2 | 0 | 2 | 1 | 0 | 7 | 6 | 8 | 6 | 7 | 8 | 7 | — |
+| sandwich | 6 | 0 | 6 | 4 | 5 | 6 | 6 | 7 | 6 | 8 | 9 | 8 | — |
+| adjacent | 6 | 0 | 8 | 4 | 3 | 4 | 5 | 5 | 5 | 6 | 5 | 6 | — |
 
 Per-seed wins (FC): surround v3 {0,2,6,8}, BC {2,7};
 decoy heur {6,9}, auto {3,6}, BC {6}; sandwich heur
@@ -614,7 +632,9 @@ decoy {0,2,3,5,7,8}, sandwich {2–5,7,9}, adjacent
 decoy {0–4,6,8}, sandwich {0–6,8}, adjacent
 {1–3,5–7}; pc5 random {0,1,3–9}, surround {0–2,4–9},
 decoy {0,1,3,4,5,6,7,9}, sandwich {0,2–9}, adjacent
-{3–7}. The fresh scripted grid
+{3–7}; ap2 random {1–9}, surround {1–8}, decoy
+{0,1,3–7}, sandwich {0,2–7,9}, adjacent {2,3,5–8}.
+The fresh scripted grid
 reproduced the earlier gap runs seed-for-seed
 (determinism check passes). Three readings: (1) scripts
 collapse only on surround/decoy, where restraint +
