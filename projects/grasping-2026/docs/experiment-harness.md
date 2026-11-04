@@ -76,17 +76,58 @@ docker compose run --build --rm --entrypoint python demo \
   scripts/train_diffusion.py --help
 ```
 
-Current status: old PPO/diffusion models are stale (trained on
-freejoint physics + old spawn). Retrain before any new
-force-closure or diffusion claim. Recommended first retrain:
-PPO 100k steps with `--contact-obs --step-penalty 2.0
---max-delta-q 1.0` (penalty must exceed 1.5, the max per-step
-contact reward, or touch-and-hold camping returns), then eval
-seeds 0-9, then collect FC demos only if eval shows FC > 0.
-Diffusion from scripted demos caps at caging — FC demos must
-come from PPO rollouts, and the bottleneck is demo count
-(15-16 demos memorized, did not generalize; aim for seeds
-0-999, ~150 FC demos, before raising epochs).
+Current best recipes (all models/ artifacts are local-only,
+never committed; full scoreboard in docs/approaches.md §8):
+
+PPO pc5 (40/50; ~50 min on CPU, checkpoints every 50k):
+
+```
+docker run --rm -v "$(pwd)":/w -w /w --entrypoint python3 \
+  grasping-2026:locked scripts/train_grasp.py --timesteps 500000 \
+  --contact-obs --step-penalty 2.0 --max-delta-q 1.0 \
+  --success-bonus 20 --fail-penalty 100 --enclosure-bonus 1.0 \
+  --precontact-disp-penalty 5.0 \
+  --train-scenes random,random,surround,decoy,sandwich,adjacent \
+  --out models/grasp_ppo_pc5
+```
+
+Shaping levers (train-only; eval uses base reward + same
+`--contact-obs --max-delta-q 1.0` dynamics): fail_penalty
+(thesis −100), enclosure_bonus (+1/enclosed step),
+precontact_disp_penalty (coef × red motion while untouched),
+scenes mix (round-robin; duplicates weight). Killed variants
+documented in approaches.md: pc20 (coef 20 whiff-basin),
+pc5nt (non-terminating out-of-reach freezes), ap2
+(approach potential too weak). Eval any checkpoint:
+
+```
+docker run --rm -v "$(pwd)":/w -w /w --entrypoint python3 \
+  grasping-2026:locked scripts/eval_policy.py \
+  --model models/grasp_ppo_pc5.zip --episodes 10 --seeds 0-9 \
+  --scene surround --contact-obs --max-delta-q 1.0
+```
+
+Cloning from PPO demos (BC 38/50 val-selected: beats 4/7 PPO,
+ties ap2; only pc5/mixw lead):
+
+```
+# 1. collect (seeds disjoint from eval 0-9; skips infeasible presets)
+docker run --rm -v "$(pwd)":/w -w /w --entrypoint python3 \
+  grasping-2026:locked scripts/collect_ppo_demos.py \
+  --model models/grasp_ppo_pc5.zip --seeds 10-39 \
+  --scene random,surround,decoy,sandwich,adjacent --keep fc \
+  --contact-obs --max-delta-q 1.0 --out data/demos_pc5_mix
+# 2. BC with episode-held-out val + best-val selection (NOT last epoch:
+#    last-epoch tickets vary ±4 by luck; see approaches.md §5)
+docker run --rm -v "$(pwd)":/w -w /w --entrypoint python3 \
+  grasping-2026:locked scripts/train_bc.py --demos data/demos_pc5_mix \
+  --val-frac 0.15 --out models/bc_pc5mix
+```
+
+Diffusion guidance: match chunk to demo horizons — chunk-16 on
+25-step PPO episodes starves (8/50); chunk-4 doubles to 16/50
+but data volume (2.8k vs scripted 17.8k steps) still binds.
+Prefer long scripted demos for diffusion, PPO demos for BC.
 
 Local model note: the S5's Ollama models (qwen3:8b/14b) are
 text-only and cannot replace the vision VLM. Local work here

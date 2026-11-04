@@ -185,6 +185,16 @@ breaks it). The live VLM on decoy 9 shows no restraint either
 decoy, VLM target/effort/restraint selection never beats the
 matching blind rule.
 
+Preset canary (seeds 2,4 × all four presets, 8 fresh calls,
+41k tokens): 1/2, 0/2, 2/2, 2/2 — VLM ≥ heuristic on all 8
+seeds, including the only scripted-family surround win
+(seed 2, caged). The win sharpens rather than settles the
+selection question: all three planned pushes reverted for
+bulldozing red, so the ladder won on a churned scene —
+approach-side selection (near) vs revert-residue luck,
+attribution open. Decoy stays 0/2 (chase, no whiffs):
+restraint selection still unobserved anywhere.
+
 Multi-pass singulation (`--max-passes`, default 1 = off)
 re-sweeps the push list until the 0.15 m gate or a fruitless
 pass. It compounds partial progress where single sweeps stall:
@@ -227,7 +237,7 @@ episodes on seeds 10–39 across all five scenes (27/25/
 retrained on them (`models/bc_pc5mix.pt`) jumps to
 **37/50**: random 9, surround 8, decoy 6, sandwich 8,
 adjacent 6 — doubling v2's 18/50 and beating four of
-six PPO checkpoints (only pc5's 40 and mixw's 39 lead).
+seven PPO checkpoints (pc5's 40, mixw's 39, ap2's 38 lead).
 Cloning distills PPO nearly whole; the 3-point gap is
 the price of single-step MSE. Rarely cages, though —
 pinches like its teacher's modal win.

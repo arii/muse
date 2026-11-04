@@ -1,5 +1,11 @@
 # Planning checklist — grasping demo
 
+> Note (2026-11-03): boxes below cover setup through 2026-10-28.
+> Later work is tracked per-commit (`git log`) with results in
+> `docs/approaches.md` §8 and `site/index.html`: PPO arc to 40/50,
+> BC-from-PPO 38/50, VLM preset canary, SARSA port (negative),
+> HF demos export. 121 tests green.
+
 Owner: Ari. Updated as work lands; a box is checked only when the
 change is tested locally (not just written). Push to `arii/muse`
 needs Ari's approval card — do not push while he is away.

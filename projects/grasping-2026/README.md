@@ -1,18 +1,25 @@
-# Language-Conditioned Grasping in Simulation
+# Revisiting Whole-Arm Grasping (2026)
 
-A robot arm that understands instructions like *"grasp the red box, first push
-the blue box away"* — and does it in simulation. The VLM handles language
-(which object? what to push?), classical robotics handles geometry (where it
-is, how to move). No hardware, no fine-tuning; the point is the integration.
+A problem in the family of my 2014 master's thesis (Anders,
+*Learning a Strategy for Whole-Arm Grasping*, MIT) — same spirit
+(3-DOF arm, no gripper, enveloping grasps, learned policies),
+deliberately *not* the same setup — rebuilt in 2026 with MuJoCo,
+modern learned policies (PPO, behavior cloning, diffusion), and
+VLM planning. No PR2 hardware access, so simulation-only — and a
+harder problem: multiple objects that must be pushed aside
+(singulation) to reach the red target. Language plays a small
+role: only the heuristic/VLM planners take an instruction
+(`"grasp the red box in isolation"`); learned policies see flat
+simulator state with no words at all.
+
+Start here: `docs/approaches.md` (approaches, action/observation
+spaces, full results matrix), `docs/experiment-harness.md`
+(compare loop, current training recipes), `site/index.html`
+(readable summary, served on localhost:8000).
 
 ![singulation demo](docs/img/singulation-demo.gif)
 *Seed 7: the arm shoves the blue box away from the red box (isolation
 0.106 → 0.159 m), then moves in to grasp.*
-
-> This is the **non-thesis** version: a general VLM foundation-model demo and
-> portfolio piece (not the 2014 thesis redo). The VLM backend is swappable —
-> local open models (Qwen-VL/LLaVA) for the portfolio, or Nemotron via Nebius
-> Token Factory if targeting the Nebius hackathon.
 
 ## How the code is set up
 
@@ -238,9 +245,11 @@ docker compose run --build --rm --entrypoint python demo scripts/compare_planner
 
 ## Local RL training (no API key)
 PPO/SAC via stable-baselines3 on a gymnasium wrapper of the same env
-— the trained policy is a third approach alongside VLM and heuristic,
+— one learned approach among seven (see docs/approaches.md §5),
 evaluated on the same force-closure criterion. No Nebius key, no
 network: MuJoCo + torch run locally, CPU-only on this VM.
+Current best recipe has moved to docs/experiment-harness.md
+("Local training"); the minimal commands below still work.
 
 ```bash
 docker compose run --build --rm --entrypoint python demo scripts/train_grasp.py --timesteps 100000
