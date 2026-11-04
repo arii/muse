@@ -380,11 +380,24 @@ All five remaining mixw failures trace to one mode:
 1.0–1.7 m out of reach on first touch (t=2–6), then flail
 contactless for ~195 steps. The timeout −100 already
 punishes whiffs, but ~197 steps after the fatal shove —
-too delayed for credit assignment. Fix under training:
-`--precontact-disp-penalty 5.0` (train-only; taxes red
-per-step motion while links_touching==0, densely and
-immediately; post-contact bulldozing stays exempt) —
-`models/grasp_ppo_pc5`, mixw recipe otherwise.
+too delayed for credit assignment. Fix tested: `--precontact-disp-penalty 5.0`
+(train-only; taxes red per-step motion while
+links_touching==0, densely and immediately; post-contact
+bulldozing stays exempt) — `models/grasp_ppo_pc5`, mixw
+recipe otherwise, 500k, 0 fallbacks — **40/50**, best
+overall. The whiff is dead where it lived: decoy jumps to
+8/10 (ties enc1; withholding seed 9 won caged in 12
+steps), sandwich to **9/10** (best of all; seed 2 even
+converts a 178-step chase). Random and surround hold 9/10.
+One regression: adjacent falls 6→5. Its traces split:
+seed 1 is a 1-link graze-freeze (gentler approach lands
+in a new local optimum), seed 0 a *slow* crowder-mediated
+ejection (0.69 m over ~20 steps — only −0.17/step at
+coef 5, too weak to reshape). So the coef bites violent
+whiffs but not quasi-static shoves; a hotter coef is the
+obvious next run. Chase resurfaces on 2 seeds (surround 3,
+sandwich 1, ~100 rew fails) — the residual mode when red
+neither ejects nor grasps.
 
 ### SARSA(λ) — the thesis learner, ported
 
@@ -533,17 +546,19 @@ top, per-seed side-by-side GIFs below. Metrics glossary:
 | PPO mix5 (presets) | 9/6/6/5 surr/decoy/sand/adj | 35/50: surround fixed, decoy/sandwich regress (bulldoze interference) |
 | PPO mixw (random 0-9) | 9/10, 6 caged | holds enc1/mix5; only seed 4 fails |
 | PPO mixw (presets) | 9/7/8/6 surr/decoy/sand/adj | 39/50 best overall; sandwich/adjacent best of all |
+| PPO pc5 (random 0-9) | 9/10, 4 caged | holds; only seed 2 fails (low contact) |
+| PPO pc5 (presets) | 9/8/9/5 surr/decoy/sand/adj | 40/50 best overall; whiffs dead, adjacent −1 |
 
 Scene × planner matrix (FC /10, seeds 0–9, default configs;
 VLM preset grids unmeasured — API cost; probes only):
 
-| Scene | Heur | Reac | Auto | BC | Diff | v3 | f100 | enc1 | mix5 | mixw | VLM |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| random | 10 | 0 | 10 | 7 | 5 | 7 | 7 | 9 | 9 | 9 | 9 |
-| surround | 0 | 0 | 0 | 2 | 0 | 4 | 9 | 7 | 9 | 9 | — |
-| decoy | 2 | 0 | 2 | 1 | 0 | 7 | 6 | 8 | 6 | 7 | — |
-| sandwich | 6 | 0 | 6 | 4 | 5 | 6 | 6 | 7 | 6 | 8 | — |
-| adjacent | 6 | 0 | 8 | 4 | 3 | 4 | 5 | 5 | 5 | 6 | — |
+| Scene | Heur | Reac | Auto | BC | Diff | v3 | f100 | enc1 | mix5 | mixw | pc5 | VLM |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| random | 10 | 0 | 10 | 7 | 5 | 7 | 7 | 9 | 9 | 9 | 9 | 9 |
+| surround | 0 | 0 | 0 | 2 | 0 | 4 | 9 | 7 | 9 | 9 | 9 | — |
+| decoy | 2 | 0 | 2 | 1 | 0 | 7 | 6 | 8 | 6 | 7 | 8 | — |
+| sandwich | 6 | 0 | 6 | 4 | 5 | 6 | 6 | 7 | 6 | 8 | 9 | — |
+| adjacent | 6 | 0 | 8 | 4 | 3 | 4 | 5 | 5 | 5 | 6 | 5 | — |
 
 Per-seed wins (FC): surround v3 {0,2,6,8}, BC {2,7};
 decoy heur {6,9}, auto {3,6}, BC {6}; sandwich heur
@@ -555,7 +570,9 @@ decoy heur {6,9}, auto {3,6}, BC {6}; sandwich heur
 decoy {0,2,3,5,7,8}, sandwich {2–5,7,9}, adjacent
 {2–5,7}; mixw random {0–3,5–9}, surround {0–6,8,9},
 decoy {0–4,6,8}, sandwich {0–6,8}, adjacent
-{1–3,5–7}. The fresh scripted grid
+{1–3,5–7}; pc5 random {0,1,3–9}, surround {0–2,4–9},
+decoy {0,1,3,4,5,6,7,9}, sandwich {0,2–9}, adjacent
+{3–7}. The fresh scripted grid
 reproduced the earlier gap runs seed-for-seed
 (determinism check passes). Three readings: (1) scripts
 collapse only on surround/decoy, where restraint +
