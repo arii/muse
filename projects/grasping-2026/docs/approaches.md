@@ -186,14 +186,21 @@ decoy, VLM target/effort/restraint selection never beats the
 matching blind rule.
 
 Preset canary (seeds 2,4 × all four presets, 8 fresh calls,
-41k tokens): 1/2, 0/2, 2/2, 2/2 — VLM ≥ heuristic on all 8
-seeds, including the only scripted-family surround win
+41k tokens): 1/2, 0/2, 2/2, 2/2 — VLM ≥ heuristic on all
+8 canary seeds (10/10 with adjacent 0,1 extension),
+including the only scripted-family surround win
 (seed 2, caged). The win sharpens rather than settles the
 selection question: all three planned pushes reverted for
 bulldozing red, so the ladder won on a churned scene —
 approach-side selection (near) vs revert-residue luck,
 attribution open. Decoy stays 0/2 (chase, no whiffs):
 restraint selection still unobserved anywhere.
+Extended to adjacent seeds 0,1 (2 fresh calls, 12k
+tokens, 0 errors): both fail — seed 0 the exact
+heuristic trace (rew 6.5, disp 0.53 m), seed 1 a
+gentler variant (disp 0.15 m, still no FC) where only
+BC wins. Adjacent VLM now 2/4 probed; seed 0 stands
+0/6 across all families.
 
 Multi-pass singulation (`--max-passes`, default 1 = off)
 re-sweeps the push list until the 0.15 m gate or a fruitless
@@ -471,8 +478,9 @@ Adjacent decomposed per-seed (pc5 / autopush /
 BC-boosted, seeds 0–9): pc5 wins {3,4,5,6,7} — all in
 ≤7 steps except seed 4 (caged, 62) — and times out the
 rest; autopush wins {2–9}; BC-boosted wins
-{1,3,5,6,7,8}. Three crisp facts. (1) Seed 0 fails 0/5
-tested planners — but the layout is benign (red
+{1,3,5,6,7,8}. Three crisp facts. (1) Seed 0 fails 0/6
+tested planners (VLM degrades to the identical
+heuristic trace) — but the layout is benign (red
 mid-reach, single 10 mm neighbor like winnable seed 1),
 and the mechanism is now traced: autopush's push drags
 red 0.10 m (contact at 10 mm is near-unavoidable), the
@@ -682,7 +690,7 @@ top, per-seed side-by-side GIFs below. Metrics glossary:
 | Diffusion presets (surr/decoy/sand/adj) | 0/0/5/3 of 10 | total collapse on 2 hardest; only beats BC on sandwich |
 | Diffusion UNet | 5/10 | gentlest grasps (0.16 m) |
 | Reactive | 0/10 | floor, as designed |
-| VLM (canary 2,4) | 2/2 | inherits cage ladder; $0 via cache |
+| VLM (adjacent canary) | 2/4 | seeds 2,4 win; 0,1 fail (=heuristic traces) |
 | VLM (seeds 0-9) | 9/10 | lone miss seed 8 (wrong side); ladder fixes |
 | VLM (adjacent 7) | 1/1, 1 attempt | push saves 3 ladder rungs vs push-free |
 | VLM (sandwich 9) | 1/1 vs heur 0/1 | strict win restored: kept shear, first-try cage |
@@ -713,7 +721,7 @@ top, per-seed side-by-side GIFs below. Metrics glossary:
 | BC adjacent-boost (+18 eps) | 8/9/7/4/5 | 33/50 lucky; "interference" retracted (pipeline luck) |
 | Diffusion chunk-4 on pc5 demos | 6/1/2/4/3 | 16/50: horizon-matched, volume still starves |
 | BC val-selected base/boosted | 34/38 of 50 | fair rematch: more demos win (+2/1/1, ties else) |
-| VLM canary (2,4 × 4 presets) | 1/2, 0/2, 2/2, 2/2 surr/decoy/sand/adj | 5/8, 8 calls 41k tok; ≥heur every seed |
+| VLM canary (2,4 × 4 + adj 0,1) | 1/2, 0/2, 2/2, 2/4 | 5/10, 10 calls 53k tok; ≥heur every seed |
 
 Scene × planner matrix (FC /10, seeds 0–9, default configs;
 VLM presets: canary †):
@@ -724,11 +732,12 @@ VLM presets: canary †):
 | surround | 0 | 0 | 0 | 2 | 0 | 4 | 9 | 7 | 9 | 9 | 9 | 8 | 7 | 0 | 9 | 1 | 1/2 |
 | decoy | 2 | 0 | 2 | 1 | 0 | 7 | 6 | 8 | 6 | 7 | 8 | 7 | 7 | 1 | 8 | 2 | 0/2 |
 | sandwich | 6 | 0 | 6 | 4 | 5 | 6 | 6 | 7 | 6 | 8 | 9 | 8 | 5 | 3 | 6 | 4 | 2/2 |
-| adjacent | 6 | 0 | 8 | 4 | 3 | 4 | 5 | 5 | 5 | 6 | 5 | 6 | 6 | 1 | 6 | 3 | 2/2 |
+| adjacent | 6 | 0 | 8 | 4 | 3 | 4 | 5 | 5 | 5 | 6 | 5 | 6 | 6 | 1 | 6 | 3 | 2/4 |
 
-† VLM presets: seeds 2,4 canary only (8 fresh calls, 41k
-tokens; full 0–9 grids unmeasured — API cost). 5/8
-overall, ≥ heuristic on every canary seed (heuristic
+† VLM presets: seeds 2,4 canary + adjacent 0,1 (10
+fresh calls, 53k tokens; full 0–9 grids unmeasured —
+API cost). 5/10 overall, ≥ heuristic on every canary
+seed (heuristic
 takes sandwich/adjacent 2,4; neither takes decoy 2,4
 or surround 2,4 — VLM's surround-2 win is the only
 scripted-family win on surround, and it came *after*
