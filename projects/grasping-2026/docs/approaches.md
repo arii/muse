@@ -415,6 +415,13 @@ charge whiffs the full bleed (non-terminating
 out-of-reach, or equivalent economics), so slow-gentle
 failure outranks ejection and FC still outranks both.
 
+Structural fix under training: `--no-terminate-out-of-
+reach` (out-of-reach latches −100 once, no early exit;
+default behavior unchanged) — `models/grasp_ppo_pc5nt`,
+pc5 recipe otherwise. Whiffs now cost full bleed +100
+on top (≈−620 vs −500 for slow failure); if the policy
+stops whiffing without freezing, the basin is fixed.
+
 ### SARSA(λ) — the thesis learner, ported
 
 `scripts/train_sarsa.py` + `scripts/tile_coding.py`: linear

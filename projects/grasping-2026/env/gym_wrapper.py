@@ -66,6 +66,10 @@ checkpoints stay loadable under the defaults):
 - precontact_disp_penalty: coef * red per-step motion taxed
   while links_touching==0 (train-only like success_bonus).
   Default 0 = off.
+- terminate_out_of_reach: fail_penalty out-of-reach ends the
+  episode (thesis behavior, default True). False latches
+  -penalty once and lets the episode bleed to timeout, so
+  whiffs rank below slow failures instead of escaping them.
 """
 import math
 
@@ -84,7 +88,8 @@ class GraspGymWrapper(gym.Env):
                  max_delta_q=None, success_bonus=0.0,
                  fail_penalty=0.0, thesis_reward=False,
                  thesis_timeout=-100.0, enclosure_bonus=0.0,
-                 scenes=("random",), precontact_disp_penalty=0.0):
+                 scenes=("random",), precontact_disp_penalty=0.0,
+                 terminate_out_of_reach=True):
         super().__init__()
         self.env = WholeArmGraspEnv(n_objects=n_objects, seed=seed)
         self.target_index = target_index
@@ -140,6 +145,13 @@ class GraspGymWrapper(gym.Env):
         # red motion (bulldoze-pinch wins) stays exempt.
         self.precontact_disp_penalty = precontact_disp_penalty
         self._prev_red = None
+        # terminate_out_of_reach: thesis behavior ends the episode
+        # when red passes 0.75 m. False instead latches -penalty
+        # once and lets the episode bleed on: terminating whiffs
+        # subsidizes them (early escape from the step bleed),
+        # while full-bleed whiffs rank below slow failures.
+        self.terminate_out_of_reach = terminate_out_of_reach
+        self._failed_oor = False
         self._steps = 0
         # Obs: q(3) + qvel(3) + target xy(2) + target half(2)
         #      + (n_objects-1) distractors x (dx, dy)
@@ -205,6 +217,7 @@ class GraspGymWrapper(gym.Env):
                 self.scene = "random"
                 self.scene_fallbacks += 1
         self._steps = 0
+        self._failed_oor = False
         if self.precontact_disp_penalty:
             self._prev_red = np.array(self.env._target_xy(), dtype=float)
         return self._flat_obs(), {"scene": self.scene}
@@ -238,9 +251,13 @@ class GraspGymWrapper(gym.Env):
             # dual-arm-only, so it has no single-arm counterpart.)
             tpos = self.env._obs()["objects"][self.target_index][:2]
             if float(np.linalg.norm(tpos)) > 0.75:  # 0.30+0.25+0.20
-                terminated = True
-                shaped -= self.fail_penalty
                 info["failed_out_of_reach"] = True
+                if self.terminate_out_of_reach:
+                    terminated = True
+                    shaped -= self.fail_penalty
+                elif not self._failed_oor:
+                    shaped -= self.fail_penalty
+                self._failed_oor = True
             elif truncated and not terminated:
                 shaped -= self.fail_penalty
                 info["failed_timeout"] = True

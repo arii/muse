@@ -1652,6 +1652,40 @@ def test_fail_out_of_reach_terminates():
     assert info["failed_out_of_reach"] is True
 
 
+def test_fail_out_of_reach_no_terminate_latches_once():
+    """terminate_out_of_reach=False: latched -penalty, no early exit.
+
+    Terminating whiffs subsidizes them (early escape from the
+    step bleed: -130 vs -500 for slow failure). Without early
+    exit the whiff pays full bleed with -100 latched on top.
+    """
+    from env.gym_wrapper import GraspGymWrapper
+    env = GraspGymWrapper(seed=0, max_steps=10, fail_penalty=100.0,
+                          terminate_out_of_reach=False)
+    env.reset(seed=0)
+    env.env.set_object_pose(0, (0.90, 0.0), yaw=0.0)
+    real_step = env.env.step
+
+    def canned(action, substeps=20):
+        obs, _, done, info = real_step(action, substeps)
+        return obs, 1.5, done, dict(info)
+
+    env.env.step = canned
+    _, r, term, trunc, info = env.step(np.zeros(3))
+    assert (term, trunc) == (False, False)
+    assert r == -98.5
+    assert info["failed_out_of_reach"] is True
+    # Latched: further OOR steps charge nothing more.
+    _, r, term, _, info = env.step(np.zeros(3))
+    assert (term, r) == (False, 1.5)
+    assert info["failed_out_of_reach"] is True
+    # Latch clears on reset.
+    env.reset(seed=0)
+    env.env.set_object_pose(0, (0.90, 0.0), yaw=0.0)
+    _, r, _, _, _ = env.step(np.zeros(3))
+    assert r == -98.5
+
+
 def test_fail_penalty_default_off():
     """fail_penalty=0: no penalty, no extra termination or keys."""
     from env.gym_wrapper import GraspGymWrapper
