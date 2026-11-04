@@ -329,6 +329,20 @@ independently. Both factors real; horizon fixed by
 matching chunk to data, volume unfixable without more
 demos.
 
+Volume tested directly: 114 fresh PPO demos (seeds
+70–99, all scenes) merged with the 112 mix demos →
+226 episodes, same distribution, chunk-4 UNet retrained
+with the identical recipe (9506 pairs vs 3887, final
+loss 0.386 vs 0.388 — same). Result: **21/50**
+(3/5/4/5/4). Volume binds as predicted (+5 net), but
+only off-distribution: every preset improves (surround
+1→5, decoy 2→4, sandwich 4→5, adjacent 3→4) while
+random regresses 6→3 — the fixed presets densify
+well, random layouts stay sparse per-layout, and ±3 on
+10 seeds is in lottery range. All 29 fails are
+bulldozes (0.68–2.33 m, low rew): like BC, the
+diffusion clone inherits the teacher's violence.
+
 ### PPO — reinforcement learning from scratch
 
 Stable-Baselines3 PPO on the gym wrapper, 500k steps, zero demos.
@@ -720,6 +734,7 @@ top, per-seed side-by-side GIFs below. Metrics glossary:
 | Diffusion on pc5 demos | 3/0/1/3/1 | 8/50: short PPO eps (25 steps) starve chunk-16 |
 | BC adjacent-boost (+18 eps) | 8/9/7/4/5 | 33/50 lucky; "interference" retracted (pipeline luck) |
 | Diffusion chunk-4 on pc5 demos | 6/1/2/4/3 | 16/50: horizon-matched, volume still starves |
+| Diffusion chunk-4 2x data | 3/5/4/5/4 | 21/50: presets densify, random 6→3 (sparse/lottery) |
 | BC val-selected base/boosted | 34/38 of 50 | fair rematch: more demos win (+2/1/1, ties else) |
 | VLM canary (2,4 × 4 + adj 0,1) | 1/2, 0/2, 2/2, 2/4 | 5/10, 10 calls 53k tok; ≥heur every seed |
 
