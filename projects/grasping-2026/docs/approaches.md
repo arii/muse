@@ -273,6 +273,21 @@ open-loop — it need not track closed-loop FC in
 general. Matrix BC columns now show val-selected
 models (BCmxV 34, BCadV 38); the lucky 37/33 stay in
 prose as a cautionary tale.
+2× volume (226/244 demos, same fair pipeline):
+base-2× **40/50** (10/8/7/8/7) — the first clone to
+tie its demonstrator (pc5 40, different shape: the
+clone takes random 10>9 and adjacent 7>5, cedes
+surround/decoy/sandwich) — while boosted-2× falls to
+**37/50** (9/9/7/6/6), below base-2× by 3 and below
+boosted-1× by 1. At 1× the adjacent boost was +4; at
+2× it is −3, losing even on adjacent itself (6 vs 7).
+Interference un-retracted in subtler form:
+overweighting helps when volume starves, hurts once
+the balanced mix suffices. Caveat as before: single
+runs, ±3 lottery range — but the sign flip across
+regimes (+4 → −3) is the signal, and best-val again
+disagrees with closed-loop (boosted-2× val 0.00202 <
+base-2× 0.00246 yet loses 37<40).
 
 ### Diffusion — chunked cloning with a denoiser
 
@@ -736,18 +751,19 @@ top, per-seed side-by-side GIFs below. Metrics glossary:
 | Diffusion chunk-4 on pc5 demos | 6/1/2/4/3 | 16/50: horizon-matched, volume still starves |
 | Diffusion chunk-4 2x data | 3/5/4/5/4 | 21/50: presets densify, random 6→3 (sparse/lottery) |
 | BC val-selected base/boosted | 34/38 of 50 | fair rematch: more demos win (+2/1/1, ties else) |
+| BC 2× base/boosted | 40/37 of 50 | first demonstrator tie (40=40); boost flips +4→−3 |
 | VLM canary (2,4 × 4 + adj 0,1) | 1/2, 0/2, 2/2, 2/4 | 5/10, 10 calls 53k tok; ≥heur every seed |
 
 Scene × planner matrix (FC /10, seeds 0–9, default configs;
 VLM presets: canary †):
 
-| Scene | Heur | Reac | Auto | BC | Diff | v3 | f100 | enc1 | mix5 | mixw | pc5 | ap2 | BCmxV | DFmx | BCadV | DFc4 | VLM† |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| random | 10 | 0 | 10 | 7 | 5 | 7 | 7 | 9 | 9 | 9 | 9 | 9 | 9 | 3 | 9 | 6 | 9 |
-| surround | 0 | 0 | 0 | 2 | 0 | 4 | 9 | 7 | 9 | 9 | 9 | 8 | 7 | 0 | 9 | 1 | 1/2 |
-| decoy | 2 | 0 | 2 | 1 | 0 | 7 | 6 | 8 | 6 | 7 | 8 | 7 | 7 | 1 | 8 | 2 | 0/2 |
-| sandwich | 6 | 0 | 6 | 4 | 5 | 6 | 6 | 7 | 6 | 8 | 9 | 8 | 5 | 3 | 6 | 4 | 2/2 |
-| adjacent | 6 | 0 | 8 | 4 | 3 | 4 | 5 | 5 | 5 | 6 | 5 | 6 | 6 | 1 | 6 | 3 | 2/4 |
+| Scene | Heur | Reac | Auto | BC | Diff | v3 | f100 | enc1 | mix5 | mixw | pc5 | ap2 | BCmxV | DFmx | BCadV | DFc4 | BCm2x | BCa2x | VLM† |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| random | 10 | 0 | 10 | 7 | 5 | 7 | 7 | 9 | 9 | 9 | 9 | 9 | 9 | 3 | 9 | 6 | 10 | 9 | 9 |
+| surround | 0 | 0 | 0 | 2 | 0 | 4 | 9 | 7 | 9 | 9 | 9 | 8 | 7 | 0 | 9 | 1 | 8 | 9 | 1/2 |
+| decoy | 2 | 0 | 2 | 1 | 0 | 7 | 6 | 8 | 6 | 7 | 8 | 7 | 7 | 1 | 8 | 2 | 7 | 7 | 0/2 |
+| sandwich | 6 | 0 | 6 | 4 | 5 | 6 | 6 | 7 | 6 | 8 | 9 | 8 | 5 | 3 | 6 | 4 | 8 | 6 | 2/2 |
+| adjacent | 6 | 0 | 8 | 4 | 3 | 4 | 5 | 5 | 5 | 6 | 5 | 6 | 6 | 1 | 6 | 3 | 7 | 6 | 2/4 |
 
 † VLM presets: seeds 2,4 canary + adjacent 0,1 (10
 fresh calls, 53k tokens; full 0–9 grids unmeasured —
