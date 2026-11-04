@@ -399,6 +399,22 @@ obvious next run. Chase resurfaces on 2 seeds (surround 3,
 sandwich 1, ~100 rew fails) — the residual mode when red
 neither ejects nor grasps.
 
+Hotter coef tried and killed: `models/grasp_ppo_pc20`
+(same recipe, `--precontact-disp-penalty 20.0`) sat at
+0/10 on random at 250k with ep_rew_mean flat at ≈−130
+since 150k (pc5's curve at the same points: −107, −85,
+climbing). Killed at 300k. Diagnosis — the **whiff
+subsidy**: out-of-reach terminates the episode, so a
+whiff costs −2×~15 steps −100 ≈ −130 while a slow
+honest failure costs −2×200 −100 = −500. Whiffing is
+the least-bad failure, and no coef below ~370 flips
+that ordering (coef×1 m ejection vs 370 time saved;
+above 370 the policy freezes instead — worse). The coef
+knob is useless here; the fix must be structural:
+charge whiffs the full bleed (non-terminating
+out-of-reach, or equivalent economics), so slow-gentle
+failure outranks ejection and FC still outranks both.
+
 ### SARSA(λ) — the thesis learner, ported
 
 `scripts/train_sarsa.py` + `scripts/tile_coding.py`: linear
