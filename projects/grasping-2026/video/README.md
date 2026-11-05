@@ -49,37 +49,30 @@ Or run the interactive preview: `npm run dev`.
 ## Assets (`public/`)
 
 - `*.gif` — planner episode clips (checked in).
-- `sam_frame.png` — MuJoCo top-camera render (seed 2) fed to SAM 3.1,
-  center-cropped 320×240 at 2× for legibility (same pixels).
-- `sam_mask.png` — binary mask returned by the live SAM 3.1 call (same crop).
-- `sam_overlay.png` — mask composited over the frame (vivid green + box).
-  Mask/overlay came from the verified 2026-11-04 API response
-  (IoU 0.73 vs sim ground truth, full-frame); regenerate with the
-  trio script (needs META_API_KEY) and compositing as above.
-- `vo/*.mp3` — narration, one track per chapter, wired via `<Audio>`
-  inside each `<Sequence>` (audio starts at the sequence start).
-  Generated with `/opt/hatch/bin/tts`:
+- `sam_frame.png` — full-frame MuJoCo top-camera render (seed 2,
+  640×480) fed to SAM 3.1: the whole arm and all boxes visible (the
+  old 320×240 center crop showed the arm base as a close-up with
+  links running off-frame).
+- `sam_mask.png` — binary mask returned by the live SAM 3.1 call
+  (full frame).
+- `sam_overlay.png` — mask composited over the frame (vivid green
+  fill). Frame/mask are `verification/20261104_155532/10_sam_frame.png`
+  and `11_sam_mask.png` (IoU 0.77 vs sim ground truth by the
+  `verify_pipeline._red_gt` rule); regenerate with
+  `scripts/verify_pipeline.py` (needs META_API_KEY) and compositing
+  as above.
+
+## Captions (no voiceover)
+
+Burned-in captions replace the old TTS narration: each chapter
+`<Sequence>` in `src/demo.tsx` mounts `<Captions>` (`src/captions.tsx`)
+with an inline cue array (chapter-relative ms, `Caption`-shaped).
+Cue text is verbatim from `VO_SCRIPT.md` (now the caption script);
+long lines are paged across cues, never rewritten. The render has no
+audio track by design — verify with:
 
 ```bash
-/opt/hatch/bin/tts speak --output public/vo/title.mp3 --text-stdin <<'EOF'
-Tell a three-jointed arm what to grasp, in words. It figures out the rest.
-EOF
+ffprobe -v error -show_entries stream=codec_type out/demo_video.mp4
 ```
 
-  (Repeat per chapter; the VO lines live in the demo script at
-  `workspace/goals/learn-llm-driven-grasping-tutorial/files/meta-demo-script.md`.)
-  Numbers are spelled out as spoken ("seventy-seven percent",
-  "forty of fifty"). Replace with your own voiceover by dropping in
-  same-named MP3s.
-
-## If the render has no audio
-
-Verify the output before blaming the player:
-
-```bash
-ffmpeg -i demo_video.mp4 -af volumedetect -f null - 2>&1 | grep max_volume
-```
-
-Speech peaks around −8 to −12 dB. If a chapter is silent, check that
-its MP3 exists in `public/vo/` and that the `<Audio>` tag sits inside
-that chapter's `<Sequence>`.
+which should list video only.

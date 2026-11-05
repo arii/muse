@@ -2,11 +2,14 @@ import React from "react";
 import {
   AbsoluteFill,
   AnimatedImage,
+  Easing,
   interpolate,
   staticFile,
   useCurrentFrame,
 } from "remotion";
 import { BG, DIM, FONT, GOLD, INK, LINE, Badge } from "./theme";
+
+const easeOut = Easing.bezier(0.23, 1, 0.32, 1);
 
 // PPO vs heuristic on seed 1 (compare-1). Seed-1 truth is shown honestly:
 // the heuristic wins this seed (FC, caged) while PPO misses (shove, 2.19 m
@@ -14,8 +17,8 @@ import { BG, DIM, FONT, GOLD, INK, LINE, Badge } from "./theme";
 // across all 5 scenes × seeds 0–9: PPO pc5 40/50, heuristic 24/50
 // (10+0+2+6+6 from the site results matrix).
 
-const PANEL_W = 420;
-const PANEL_H = Math.round((PANEL_W * 388) / 480); // 339
+const PANEL_W = 360;
+const PANEL_H = Math.round((PANEL_W * 388) / 480); // 291
 
 const Panel: React.FC<{
   name: string;
@@ -28,10 +31,12 @@ const Panel: React.FC<{
   const dx = interpolate(frame, [10, 40], [fromLeft ? -80 : 80, 0], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
+    easing: easeOut,
   });
   const opacity = interpolate(frame, [10, 30], [0, 1], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
+    easing: easeOut,
   });
   return (
     <div
@@ -44,7 +49,7 @@ const Panel: React.FC<{
         gap: 6,
       }}
     >
-      <div style={{ fontSize: 44, fontWeight: 900, color: INK }}>{name}</div>
+      <div style={{ fontSize: 40, fontWeight: 900, color: INK }}>{name}</div>
       <div
         style={{
           borderRadius: 14,
@@ -71,10 +76,12 @@ export const PpoWin: React.FC = () => {
   const captionOpacity = interpolate(frame, [200, 225], [0, 1], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
+    easing: easeOut,
   });
   const captionDy = interpolate(frame, [200, 225], [24, 0], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
+    easing: easeOut,
   });
   return (
     <AbsoluteFill
@@ -84,15 +91,15 @@ export const PpoWin: React.FC = () => {
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
-        justifyContent: "center",
-        gap: 8,
-        padding: "12px 40px",
+        justifyContent: "flex-start",
+        gap: 5,
+        padding: "12px 40px 0",
       }}
     >
-      <div style={{ fontSize: 56, fontWeight: 900, color: INK, lineHeight: 1.1 }}>
+      <div style={{ fontSize: 50, fontWeight: 900, color: INK, lineHeight: 1.1 }}>
         PPO vs heuristic
       </div>
-      <div style={{ fontSize: 34, color: DIM, lineHeight: 1.1 }}>
+      <div style={{ fontSize: 30, color: DIM, lineHeight: 1.1 }}>
         same seed · seed 1 · random scene
       </div>
       <div style={{ display: "flex", gap: 40, marginTop: 2 }}>
@@ -115,20 +122,20 @@ export const PpoWin: React.FC = () => {
         style={{
           opacity: captionOpacity,
           transform: `translateY(${captionDy}px)`,
-          marginTop: 4,
+          marginTop: 0,
           textAlign: "center",
           backgroundColor: "#1a1407",
           border: `3px solid ${GOLD}`,
           borderRadius: 14,
-          padding: "6px 30px",
+          padding: "4px 24px",
         }}
       >
-        <div style={{ fontSize: 30, color: DIM, lineHeight: 1.2 }}>
+        <div style={{ fontSize: 26, color: DIM, lineHeight: 1.2 }}>
           Verified totals · 5 scenes × seeds 0–9
         </div>
         <div
           style={{
-            fontSize: 40,
+            fontSize: 33,
             fontWeight: 900,
             color: GOLD,
             whiteSpace: "nowrap",

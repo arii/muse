@@ -24,7 +24,7 @@ import numpy as np
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 from env.whole_arm_grasp import WholeArmGraspEnv
-from perception.grounding import make_labeller
+from perception.grounding import HeuristicLabeller, make_labeller
 from planning.primitives import (EFFORT_DISTANCES, approach_face,
                                  approach_transit_clear, frame_status,
                                  ik_tip_oriented, push)
@@ -474,7 +474,12 @@ def run_episode(env, plan, instruction, frames=None, verbose=True,
                 tmove_cap=0.12):
     """Execute one episode: plan -> singulate -> gate -> cage.
 
-    env must already be reset; target_index is set from the plan here.
+    env must already be reset. The plan DRIVES execution (singulate +
+    cage run on plan["grasp_target"]), but SCORING follows the task
+    target parsed from the instruction — never the plan. A planner
+    that names the wrong box must not score force closure on it
+    (2026-11-04 fix: target_index used to come from the plan, so a
+    blue grasp on a "grasp the red box" task reported FC=True).
     plan: canonical dict from perception.grounding.normalize_plan
     (grasp_target, push_away [{index, effort}], approach_side,
     rationale) — from any planner (VLM, heuristic, scripted).
@@ -482,11 +487,9 @@ def run_episode(env, plan, instruction, frames=None, verbose=True,
     (metrics dict, frames list, cage info).
     Metrics are the comparison surface: force_closure is the goal
     criterion; caged/enclosed/isolation/reward are diagnostics.
-    The plan DRIVES execution: push_away pushes exactly those
-    objects (in order, at their efforts); an empty push_away means
-    push nothing — it does NOT fall back to the crowding filter
-    (that fallback, via push_targets=None, is only for direct
-    scripted_singulate calls).
+    An empty push_away means push nothing — it does NOT fall back to
+    the crowding filter (that fallback, via push_targets=None, is
+    only for direct scripted_singulate calls).
     approach_side biases the cage entry yaw. Two different plans on
     the same seed must be able to produce different trajectories —
     otherwise the comparison is vacuous (that was the old bug: the
@@ -496,7 +499,13 @@ def run_episode(env, plan, instruction, frames=None, verbose=True,
     if frames is None:
         frames = [env.render()]
     target_idx = plan["grasp_target"]
-    env.target_index = target_idx
+    # Task target: the box the instruction names (default red). The
+    # heuristic parse is instruction-only (rgb unused, hence None);
+    # execution still runs on the plan's target above, so a grounding
+    # error stays visible as a scored failure, not a masked success.
+    task_idx = HeuristicLabeller().plan(
+        None, env.objects, instruction)["grasp_target"]
+    env.target_index = task_idx
     # Per-frame grasp status, aligned 1:1 with frames. The initial frame
     # predates any step, so its status comes from _reward() (a pure
     # contact read, no physics step). Singulate/cage append one status
@@ -611,6 +620,8 @@ def run_episode(env, plan, instruction, frames=None, verbose=True,
     metrics = {
         "target_index": target_idx,
         "target_color": env.objects[target_idx]["color"],
+        "task_target": task_idx,
+        "task_color": env.objects[task_idx]["color"],
         "rationale": plan["rationale"],
         "push_away": plan["push_away"],
         "approach_side": approach_side,
@@ -649,6 +660,8 @@ def run_reactive_episode(env, target_idx, frames=None):
     metrics = {
         "target_index": target_idx,
         "target_color": env.objects[target_idx]["color"],
+        "task_target": target_idx,
+        "task_color": env.objects[target_idx]["color"],
         "rationale": "reactive: proportional approach, curl on contact",
         "push_away": [],
         "approach_side": "reactive",

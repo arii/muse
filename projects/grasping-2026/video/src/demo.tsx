@@ -1,7 +1,7 @@
 import React from "react";
 import {
   AbsoluteFill,
-  Audio,
+  Easing,
   Img,
   Sequence,
   interpolate,
@@ -9,6 +9,7 @@ import {
   useCurrentFrame,
 } from "remotion";
 import { BG, DIM, FONT, GOLD, GREEN, INK, LINE } from "./theme";
+import { Captions } from "./captions";
 import { Lineup } from "./lineup";
 import { PpoWin } from "./ppowin";
 import { Matrix } from "./matrix";
@@ -16,16 +17,21 @@ import { Matrix } from "./matrix";
 // 3-minute-track demo video: 3660 frames @30fps ≈ 122s.
 // Chapters: title / pipeline / SAM hero / lineup / ppo-win / matrix / close.
 
+// Strong ease-out on all entrances (linear reads mechanical).
+const easeOut = Easing.bezier(0.23, 1, 0.32, 1);
+
 const fade = (frame: number, start = 0, len = 24) =>
   interpolate(frame, [start, start + len], [0, 1], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
+    easing: easeOut,
   });
 
 const rise = (frame: number, start = 0, len = 24, dist = 28) =>
   interpolate(frame, [start, start + len], [dist, 0], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
+    easing: easeOut,
   });
 
 const Center: React.FC<{ children: React.ReactNode }> = ({ children }) => (
@@ -67,6 +73,7 @@ const TitleCard: React.FC = () => {
       <div
         style={{
           opacity: fade(frame, 45),
+          transform: `translateY(${rise(frame, 45)}px)`,
           marginTop: 28,
           fontSize: 40,
           color: DIM,
@@ -78,6 +85,7 @@ const TitleCard: React.FC = () => {
       <div
         style={{
           opacity: fade(frame, 80),
+          transform: `translateY(${rise(frame, 80)}px)`,
           marginTop: 44,
           fontSize: 30,
           color: GOLD,
@@ -154,12 +162,14 @@ const Pipeline: React.FC = () => {
     interpolate(frame, [start, start + 30], [0, 1], {
       extrapolateLeft: "clamp",
       extrapolateRight: "clamp",
+      easing: easeOut,
     });
   return (
     <Center>
       <div
         style={{
           opacity: fade(frame, 0),
+          transform: `translateY(${rise(frame, 0)}px)`,
           fontSize: 52,
           fontWeight: 800,
           color: INK,
@@ -200,6 +210,7 @@ const Pipeline: React.FC = () => {
       <div
         style={{
           opacity: fade(frame, 430),
+          transform: `translateY(${rise(frame, 430, 20, 16)}px)`,
           marginTop: 36,
           fontSize: 30,
           color: DIM,
@@ -218,7 +229,7 @@ const Pipeline: React.FC = () => {
 const SamHero: React.FC = () => {
   const frame = useCurrentFrame();
   // sub-timeline (relative): prompt 0-300, reveal 300-750, split 750-1350
-  const promptText = '"red box"';
+  const promptText = "\u201cred box\u201d";
   const typed = Math.min(
     promptText.length,
     Math.floor(interpolate(frame, [60, 200], [0, promptText.length], {
@@ -229,6 +240,7 @@ const SamHero: React.FC = () => {
   const reveal = interpolate(frame, [330, 700], [0, 1], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
+    easing: easeOut,
   });
   const mainOut = interpolate(frame, [740, 810], [1, 0], {
     extrapolateLeft: "clamp",
@@ -237,8 +249,13 @@ const SamHero: React.FC = () => {
   const split = interpolate(frame, [820, 900], [0, 1], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
+    easing: easeOut,
   });
-  const imgW = 880;
+  // Full-frame stills (2026-11-04): the old 320x240 center crop showed the
+  // arm base as a close-up with links running off-frame. Full frame keeps
+  // the whole arm and all boxes visible; a slow push-in keeps the stills
+  // in motion. Stage geometry leaves the bottom ~90px to the caption band.
+  const imgW = 624;
   const imgH = Math.round((imgW * 480) / 640);
 
   return (
@@ -246,13 +263,14 @@ const SamHero: React.FC = () => {
       <div
         style={{
           position: "absolute",
-          top: 44,
+          top: 28,
           width: "100%",
           textAlign: "center",
-          fontSize: 52,
+          fontSize: 48,
           fontWeight: 800,
           color: INK,
           opacity: fade(frame, 0),
+          transform: `translateY(${rise(frame, 0, 24, 20)}px)`,
         }}
       >
         SAM 3.1 sees the robot's camera
@@ -262,16 +280,17 @@ const SamHero: React.FC = () => {
       <div
         style={{
           position: "absolute",
-          top: 130,
+          top: 100,
           width: "100%",
           textAlign: "center",
-          fontSize: 40,
+          fontSize: 36,
           color: DIM,
           opacity: fade(frame, 30),
+          transform: `translateY(${rise(frame, 30, 24, 16)}px)`,
         }}
       >
         prompt:{" "}
-        <span style={{ color: GOLD, fontWeight: 700, fontFamily: "monospace" }}>
+        <span style={{ color: GOLD, fontWeight: 700 }}>
           {promptText.slice(0, typed)}
         </span>
         <span style={{ color: GOLD }}>▍</span>
@@ -281,45 +300,53 @@ const SamHero: React.FC = () => {
       <div
         style={{
           position: "absolute",
-          top: 210,
+          top: 160,
           left: (1280 - imgW) / 2,
           width: imgW,
           height: imgH,
           opacity: mainOut,
+          scale: interpolate(frame, [0, 810], [1, 1.045], {
+            extrapolateLeft: "clamp",
+            extrapolateRight: "clamp",
+          }),
         }}
       >
         <Img
           src={staticFile("sam_frame.png")}
           style={{ position: "absolute", width: imgW, height: imgH, borderRadius: 12 }}
         />
-        <div
+        <Img
+          src={staticFile("sam_overlay.png")}
           style={{
             position: "absolute",
-            width: imgW * reveal,
+            width: imgW,
             height: imgH,
-            overflow: "hidden",
             borderRadius: 12,
+            clipPath: `inset(0 ${(1 - reveal) * 100}% 0 0 round 12px)`,
           }}
-        >
-          <Img src={staticFile("sam_overlay.png")} style={{ width: imgW, height: imgH }} />
-        </div>
+        />
         <div
           style={{
             position: "absolute",
             bottom: 12,
             left: 12,
-            fontSize: 26,
+            fontSize: 24,
             color: INK,
             backgroundColor: "#000000aa",
             padding: "6px 14px",
             borderRadius: 8,
+            lineHeight: 1.4,
             opacity: interpolate(frame, [700, 760], [0, 1], {
               extrapolateLeft: "clamp",
               extrapolateRight: "clamp",
             }),
           }}
         >
-          Live output · Meta Model API · model sam-3.1
+          Live output · Meta Model API · sam-3.1 · IoU 0.77
+          <br />
+          <span style={{ color: GOLD }}>
+            Perception verified live · closed-loop integration next
+          </span>
         </div>
       </div>
 
@@ -327,12 +354,16 @@ const SamHero: React.FC = () => {
       <div
         style={{
           position: "absolute",
-          top: 210,
+          top: 190,
           width: "100%",
           display: split > 0 ? "flex" : "none",
           justifyContent: "center",
           gap: 24,
           opacity: split,
+          scale: interpolate(frame, [820, 1350], [1, 1.04], {
+            extrapolateLeft: "clamp",
+            extrapolateRight: "clamp",
+          }),
         }}
       >
         {[
@@ -343,34 +374,11 @@ const SamHero: React.FC = () => {
           <div key={p.src} style={{ textAlign: "center" }}>
             <Img
               src={staticFile(p.src)}
-              style={{ width: 380, height: 285, borderRadius: 12, border: `2px solid ${LINE}` }}
+              style={{ width: 400, height: 300, borderRadius: 12, border: `2px solid ${LINE}` }}
             />
             <div style={{ fontSize: 28, color: DIM, marginTop: 10 }}>{p.label}</div>
           </div>
         ))}
-      </div>
-
-      {/* honest footer */}
-      <div
-        style={{
-          position: "absolute",
-          bottom: 36,
-          width: "100%",
-          textAlign: "center",
-          fontSize: 28,
-          color: DIM,
-          opacity: interpolate(frame, [950, 1030], [0, 1], {
-            extrapolateLeft: "clamp",
-            extrapolateRight: "clamp",
-          }),
-        }}
-      >
-        Checked against simulator ground truth (IoU 0.73) — ground truth never
-        produced it. The model saw only the image.
-        <br />
-        <span style={{ color: GOLD }}>
-          Perception stage verified live · closed-loop integration next
-        </span>
       </div>
     </AbsoluteFill>
   );
@@ -398,6 +406,7 @@ const Close: React.FC = () => {
       <div
         style={{
           opacity: fade(frame, 60),
+          transform: `translateY(${rise(frame, 60)}px)`,
           marginTop: 40,
           fontSize: 34,
           color: DIM,
@@ -412,6 +421,7 @@ const Close: React.FC = () => {
       <div
         style={{
           opacity: fade(frame, 110),
+          transform: `translateY(${rise(frame, 110, 24, 20)}px)`,
           marginTop: 24,
           display: "flex",
           gap: 16,
@@ -433,41 +443,165 @@ const Close: React.FC = () => {
           </div>
         ))}
       </div>
+      <div
+        style={{
+          opacity: fade(frame, 150),
+          transform: `translateY(${rise(frame, 150, 24, 16)}px)`,
+          marginTop: 28,
+          fontSize: 30,
+          fontWeight: 600,
+          color: INK,
+          textAlign: "center",
+        }}
+      >
+        Made by Ariel Anders and Muse
+      </div>
     </Center>
   );
 };
 
 // ---------------- Assembly ----------------
+// Burned-in captions replace the TTS voiceover (2026-11-04): no <Audio>.
+// Cue text is verbatim from VO_SCRIPT.md (now the caption script);
+// timings are chapter-relative ms, one cue array per chapter Sequence.
 export const Demo: React.FC = () => {
   return (
     <AbsoluteFill style={{ backgroundColor: BG }}>
       <Sequence from={0} durationInFrames={300}>
-        <Audio src={staticFile("vo/title.mp3")} />
         <TitleCard />
+        <Captions
+          cues={[
+            {
+              text: "Tell a three-jointed arm what to grasp, in words.",
+              startMs: 400,
+              endMs: 5100,
+            },
+            { text: "It figures out the rest.", startMs: 5200, endMs: 9800 },
+          ]}
+        />
       </Sequence>
       <Sequence from={300} durationInFrames={450}>
-        <Audio src={staticFile("vo/pipeline.mp3")} />
         <Pipeline />
+        <Captions
+          cues={[
+            { text: "Six stages turn language into motion.", startMs: 200, endMs: 3100 },
+            { text: "A vision model grounds the instruction.", startMs: 3200, endMs: 6100 },
+            { text: "SAM three point one segments the target.", startMs: 6200, endMs: 9100 },
+            { text: "A sampler proposes grasps.", startMs: 9200, endMs: 11900 },
+            { text: "And MuJoCo executes.", startMs: 12000, endMs: 14800 },
+          ]}
+        />
       </Sequence>
       <Sequence from={750} durationInFrames={1350}>
-        <Audio src={staticFile("vo/sam.mp3")} />
         <SamHero />
+        <Captions
+          cues={[
+            { text: "Here is the perception stage, live.", startMs: 400, endMs: 5900 },
+            { text: "The prompt is red box.", startMs: 6000, endMs: 11400 },
+            {
+              text: "Watch SAM three point one find it among the clutter",
+              startMs: 11500,
+              endMs: 14700,
+            },
+            { text: "and trace its exact outline.", startMs: 14800, endMs: 17000 },
+            {
+              text: "We checked the mask against simulator ground truth:",
+              startMs: 17100,
+              endMs: 20300,
+            },
+            {
+              text: "seventy-seven percent overlap.",
+              startMs: 20400,
+              endMs: 22700,
+            },
+            {
+              text: "Ground truth never produced it. The model saw only the image.",
+              startMs: 22800,
+              endMs: 28300,
+            },
+            {
+              text: "This mask is what the grasp sampler reasons over.",
+              startMs: 28400,
+              endMs: 33800,
+            },
+            {
+              text: "Boxes touch and overlap in clutter. Bounding boxes go ambiguous.",
+              startMs: 33900,
+              endMs: 37600,
+            },
+            { text: "Pixel masks do not.", startMs: 37700, endMs: 39400 },
+            {
+              text: "That is why segmentation is load-bearing for this task.",
+              startMs: 39500,
+              endMs: 44800,
+            },
+          ]}
+        />
       </Sequence>
       <Sequence from={2100} durationInFrames={450}>
-        <Audio src={staticFile("vo/lineup.mp3")} />
         <Lineup />
+        <Captions
+          cues={[
+            { text: "Seven planners attempt the same scenes.", startMs: 2200, endMs: 7600 },
+            {
+              text: "Scripts, reinforcement learning, cloning,",
+              startMs: 7700,
+              endMs: 11200,
+            },
+            {
+              text: "and vision-language planning, side by side.",
+              startMs: 11300,
+              endMs: 14800,
+            },
+          ]}
+        />
       </Sequence>
       <Sequence from={2550} durationInFrames={360}>
-        <Audio src={staticFile("vo/ppowin.mp3")} />
         <PpoWin />
+        <Captions
+          cues={[
+            {
+              text: "The PPO policy wins forty of fifty episodes, the best overall,",
+              startMs: 300,
+              endMs: 6100,
+            },
+            {
+              text: "by learning restraint: approach gently, disturb nothing.",
+              startMs: 6200,
+              endMs: 11800,
+            },
+          ]}
+        />
       </Sequence>
       <Sequence from={2910} durationInFrames={450}>
-        <Audio src={staticFile("vo/matrix.mp3")} />
         <Matrix />
+        <Captions
+          cues={[
+            {
+              text: "Across five scene types, learned policies match or beat every script.",
+              startMs: 300,
+              endMs: 7600,
+            },
+            {
+              text: "Cloning at double data ties its own teacher, forty to forty.",
+              startMs: 7700,
+              endMs: 14800,
+            },
+          ]}
+        />
       </Sequence>
       <Sequence from={3360} durationInFrames={300}>
-        <Audio src={staticFile("vo/close.mp3")} />
         <Close />
+        <Captions
+          cues={[
+            { text: "A robot arm that grasps what you name.", startMs: 300, endMs: 5100 },
+            {
+              text: "Built with SAM three point one on the Meta Model API.",
+              startMs: 5200,
+              endMs: 9800,
+            },
+          ]}
+        />
       </Sequence>
     </AbsoluteFill>
   );

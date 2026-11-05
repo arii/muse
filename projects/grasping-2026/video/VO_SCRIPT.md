@@ -1,7 +1,8 @@
-# Demo video narration (edge-tts, en-US-GuyNeural)
+# Demo video caption script (was TTS narration, now burned-in captions)
 
-Generated: `edge-tts --voice en-US-GuyNeural --text-stdin --write-media public/vo/<chapter>.mp3`
-(numbers spelled out as spoken). Lines sized to chapter durations.
+Source of the `<Captions>` cue text in `src/demo.tsx` (verbatim; long
+lines are paged across cues in the composition, never rewritten).
+Numbers spelled out as read ("seventy-seven percent", "forty of fifty").
 
 ## title (0:00–0:10)
 Tell a three-jointed arm what to grasp, in words. It figures out the rest.
@@ -14,7 +15,7 @@ And MuJoCo executes.
 ## sam (0:25–1:10)
 Here is the perception stage, live. The prompt is red box.
 Watch SAM three point one find it among the clutter and trace its exact outline.
-We checked the mask against simulator ground truth: seventy-three percent overlap.
+We checked the mask against simulator ground truth: seventy-seven percent overlap.
 Ground truth never produced it. The model saw only the image.
 This mask is what the grasp sampler reasons over.
 Boxes touch and overlap in clutter. Bounding boxes go ambiguous. Pixel masks do not.

@@ -10,8 +10,8 @@ YouTube/unlisted and link on the CV submission page)
 ## What it is
 
 Tell a three-jointed arm what to grasp, in words. A VLM grounds the
-instruction, **SAM 3.1 (Meta Model API) segments the named target from a
-text prompt**, an antipodal sampler proposes grasps on the mask, and
+instruction; **SAM 3.1 (Meta Model API) segments the named target from
+a text prompt**. An antipodal sampler proposes grasps on the mask, and
 MuJoCo executes. Around that spine, the project benchmarks seven
 planner families (scripts, PPO, BC, diffusion, VLM) on five clutter
 scenes × seeds 0–9.
@@ -19,10 +19,10 @@ scenes × seeds 0–9.
 ## Meta models used (requirement)
 
 - **SAM 3.1 via Meta Model API** — the perception stage. Text phrase
-  ("red box") → pixel mask, verified live (IoU 0.73 vs simulator
-  ground truth) and wired into `scripts/verify_pipeline.py`
-  (segmentation + grasp-synthesis stages, figures saved).
-- Built with **Muse Code** (this repo was developed with it throughout).
+  ("red box") → pixel mask. Live verification: IoU 0.77 vs simulator
+  ground truth. `scripts/verify_pipeline.py` wires the stage into
+  segmentation + grasp synthesis; figures saved.
+- Built by Ariel Anders and Muse (Muse Code).
 
 The VLM planner itself runs on Nebius (Nemotron); the Meta-model
 component of the system is SAM 3.1 perception.
@@ -30,10 +30,11 @@ component of the system is SAM 3.1 perception.
 ## Built during the hackathon (Oct 27 – Nov 4, 115+ commits)
 
 Pre-existing base (Oct 22–26): repo scaffold, MuJoCo env + scripted
-heuristic demo, perception stub files. Everything below is new:
+heuristic demo, perception stub files. New in this window:
 
 - SAM 3.1 integration: Responses-API client, official-parser SSE
-  decoding, recorded-fixture tests, pipeline wiring, grasp figures
+  decoding, recorded-fixture tests
+- Pipeline wiring: segmentation + grasp synthesis with saved figures
 - PPO from scratch (40/50): reward shaping studies (enclosure bonus,
   precontact penalty, ablated variants), mixed-scene training
 - Cloning: BC + diffusion policy, val-split fair pipeline, chunk
@@ -41,7 +42,7 @@ heuristic demo, perception stub files. Everything below is new:
 - Task + harness: 5 scene presets, compare harness, full
   scene×planner matrix, VLM ladder/attribution/canary studies
 - Artifacts: results site, HF demo-dataset exporter, Remotion videos
-- This video (`video/src/demo.tsx`) and its narration
+- This video (`video/src/demo.tsx`), now with burned-in captions
 
 ## Run it
 

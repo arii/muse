@@ -1,6 +1,8 @@
 import React from "react";
-import { AbsoluteFill, interpolate, useCurrentFrame } from "remotion";
+import { AbsoluteFill, Easing, interpolate, useCurrentFrame } from "remotion";
 import { BG, DIM, FONT, GOLD, GREEN, INK, LINE, PANEL } from "./theme";
+
+const easeOut = Easing.bezier(0.23, 1, 0.32, 1);
 
 // Animated results matrix. Every number is from the verified scene × planner
 // matrix in site/index.html (FC /10, seeds 0–9):
@@ -23,10 +25,10 @@ const ROWS: { name: string; tag?: string; best?: boolean; vals: number[] }[] = [
 ];
 
 const NAME_W = 270;
-const CELL_W = 126;
+const CELL_W = 130;
 const TOTAL_W = 112;
-const ROW_H = 60;
-const HEADER_H = 52;
+const ROW_H = 56;
+const HEADER_H = 48;
 
 const cellBg = (v: number) =>
   v >= 8
@@ -42,14 +44,16 @@ const MatrixRow: React.FC<{ row: (typeof ROWS)[number]; index: number }> = ({
   index,
 }) => {
   const frame = useCurrentFrame();
-  const enter = 70 + index * 45;
+  const enter = 70 + index * 18;
   const opacity = interpolate(frame, [enter, enter + 20], [0, 1], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
+    easing: easeOut,
   });
   const dx = interpolate(frame, [enter, enter + 20], [-40, 0], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
+    easing: easeOut,
   });
   const total = row.vals.reduce((a, b) => a + b, 0);
   const shown = Math.round(
@@ -132,10 +136,22 @@ export const Matrix: React.FC = () => {
   const headOpacity = interpolate(frame, [20, 45], [0, 1], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
+    easing: easeOut,
+  });
+  const headDy = interpolate(frame, [20, 45], [16, 0], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+    easing: easeOut,
   });
   const footOpacity = interpolate(frame, [345, 370], [0, 1], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
+    easing: easeOut,
+  });
+  const footDy = interpolate(frame, [345, 370], [12, 0], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+    easing: easeOut,
   });
   return (
     <AbsoluteFill
@@ -145,26 +161,34 @@ export const Matrix: React.FC = () => {
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
-        justifyContent: "center",
-        gap: 12,
+        justifyContent: "flex-start",
+        gap: 8,
+        padding: "56px 0 0",
       }}
     >
-      <div style={{ opacity: headOpacity, textAlign: "center" }}>
-        <div style={{ fontSize: 64, fontWeight: 900, color: INK, lineHeight: 1.1 }}>
+      <div
+        style={{
+          opacity: headOpacity,
+          transform: `translateY(${headDy}px)`,
+          textAlign: "center",
+        }}
+      >
+        <div style={{ fontSize: 58, fontWeight: 900, color: INK, lineHeight: 1.1 }}>
           Results matrix
         </div>
-        <div style={{ fontSize: 34, color: DIM }}>
+        <div style={{ fontSize: 32, color: DIM }}>
           FC wins /10 · seeds 0–9 · best overall:{" "}
           <span style={{ color: GOLD, fontWeight: 800 }}>PPO pc5 40/50</span>
         </div>
       </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         <div
           style={{
             display: "flex",
             height: HEADER_H,
             alignItems: "center",
             opacity: headOpacity,
+            transform: `translateY(${headDy}px)`,
           }}
         >
           <div style={{ width: NAME_W }} />
@@ -174,7 +198,7 @@ export const Matrix: React.FC = () => {
               style={{
                 width: CELL_W,
                 textAlign: "center",
-                fontSize: 26,
+                fontSize: 24,
                 fontWeight: 700,
                 color: DIM,
                 whiteSpace: "nowrap",
@@ -199,7 +223,14 @@ export const Matrix: React.FC = () => {
           <MatrixRow key={r.name} row={r} index={i} />
         ))}
       </div>
-      <div style={{ opacity: footOpacity, fontSize: 28, color: DIM }}>
+      <div
+        style={{
+          opacity: footOpacity,
+          transform: `translateY(${footDy}px)`,
+          fontSize: 26,
+          color: DIM,
+        }}
+      >
         source: site results matrix · scene × planner FC /10
       </div>
     </AbsoluteFill>

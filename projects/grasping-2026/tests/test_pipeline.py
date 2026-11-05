@@ -713,6 +713,38 @@ def test_run_episode_heuristic_no_api(monkeypatch):
     assert metrics["force_closure"] == info["force_closure"]
 
 
+def test_run_episode_scores_task_target_not_plan_target():
+    """A wrong-target plan must not score force closure on the wrong box.
+
+    Regression (2026-11-04): run_episode set env.target_index from the
+    plan's grasp_target, so a planner that named blue on a "grasp the
+    red box" task scored FC for grasping blue. Scoring now follows the
+    TASK target parsed from the instruction; the plan still drives
+    execution (so the planner's error stays visible as a failure).
+    Seed 1's blue box is genuinely graspable (phase 1), which keeps
+    the phase-2 assertion non-vacuous.
+    """
+    from scripts.demo_vlm_grasp import run_episode, scripted_cage
+    env = WholeArmGraspEnv(seed=1)
+    env.reset(seed=1)
+    env.target_index = 1
+    _, info = scripted_cage(env, 1, frames=[])
+    assert info["force_closure"] is True
+
+    env2 = WholeArmGraspEnv(seed=1)
+    env2.reset(seed=1)
+    plan = {"grasp_target": 1, "push_away": [],
+            "approach_side": "near", "rationale": "wrong box"}
+    m, _, _ = run_episode(env2, plan, "grasp the red box",
+                          verbose=False)
+    assert m["force_closure"] is False
+    assert env2.target_index == 0
+    assert m["task_target"] == 0
+    assert m["task_color"] == "red"
+    assert m["target_index"] == 1
+    assert m["target_color"] == "blue"
+
+
 def test_compare_aggregate():
     """compare_planners.aggregate computes rates and means correctly."""
     from scripts.compare_planners import aggregate

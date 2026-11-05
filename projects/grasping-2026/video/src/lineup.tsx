@@ -2,11 +2,14 @@ import React from "react";
 import {
   AbsoluteFill,
   AnimatedImage,
+  Easing,
   interpolate,
   staticFile,
   useCurrentFrame,
 } from "remotion";
-import { BG, DIM, FONT, INK, LINE, Badge, Footer } from "./theme";
+import { BG, DIM, FONT, INK, LINE, Badge } from "./theme";
+
+const easeOut = Easing.bezier(0.23, 1, 0.32, 1);
 
 // Seed-1 outcomes verified against episodes/compare-0-9.json (FC flags) and
 // episodes/compare-report.md (autopush seed 1 FC=True). VLM seed 1: full-run
@@ -41,18 +44,26 @@ const Cell: React.FC<{
   cellW: number;
 }> = ({ name, file, win, note, index, cellW }) => {
   const frame = useCurrentFrame();
-  const enter = GRID_START + index * 14;
+  const enter = GRID_START + index * 2;
   const opacity = interpolate(frame, [enter, enter + 18], [0, 1], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
+    easing: easeOut,
   });
   const dy = interpolate(frame, [enter, enter + 18], [36, 0], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
+    easing: easeOut,
   });
   const badgeOpacity = interpolate(frame, [330, 350], [0, 1], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
+    easing: easeOut,
+  });
+  const badgeScale = interpolate(frame, [330, 350], [0.9, 1], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+    easing: easeOut,
   });
   const gifH = Math.round((cellW * 388) / 480);
   return (
@@ -71,7 +82,7 @@ const Cell: React.FC<{
       <div
         style={{
           fontFamily: FONT,
-          fontSize: 36,
+          fontSize: 30,
           fontWeight: 800,
           color: INK,
           textAlign: "center",
@@ -93,6 +104,7 @@ const Cell: React.FC<{
           right: 10,
           bottom: 10,
           opacity: badgeOpacity,
+          transform: `scale(${badgeScale})`,
         }}
       >
         <Badge win={win} text={win ? `✓ ${note}` : `✗ ${note}`} size={26} />
@@ -107,9 +119,15 @@ export const Lineup: React.FC = () => {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
   });
+  const titleDy = interpolate(frame, [0, 25], [24, 0], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+    easing: easeOut,
+  });
   const gridOpacity = interpolate(frame, [GRID_START, GRID_START + 12], [0, 1], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
+    easing: easeOut,
   });
 
   return (
@@ -118,6 +136,7 @@ export const Lineup: React.FC = () => {
         <AbsoluteFill
           style={{
             opacity: titleOpacity,
+            transform: `translateY(${titleDy}px)`,
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
@@ -163,14 +182,14 @@ export const Lineup: React.FC = () => {
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
-            justifyContent: "center",
-            gap: 14,
-            padding: "20px 32px",
+            justifyContent: "flex-start",
+            gap: 8,
+            padding: "24px 32px 0",
           }}
         >
           <div
             style={{
-              fontSize: 46,
+              fontSize: 42,
               fontWeight: 800,
               color: INK,
               whiteSpace: "nowrap",
@@ -178,17 +197,20 @@ export const Lineup: React.FC = () => {
           >
             Planner lineup · seed 1 · same scene
           </div>
-          <div style={{ display: "flex", gap: 16 }}>
+          <div style={{ fontSize: 24, color: DIM, whiteSpace: "nowrap" }}>
+            badges = seed-1 force closure · verified: episodes/compare-0-9.json
+            + compare-report.md
+          </div>
+          <div style={{ display: "flex", gap: 12 }}>
             {ROW1.map((p, i) => (
-              <Cell key={p.name} {...p} index={i} cellW={270} />
+              <Cell key={p.name} {...p} index={i} cellW={224} />
             ))}
           </div>
-          <div style={{ display: "flex", gap: 16 }}>
+          <div style={{ display: "flex", gap: 12 }}>
             {ROW2.map((p, i) => (
-              <Cell key={p.name} {...p} index={i + 4} cellW={270} />
+              <Cell key={p.name} {...p} index={i + 4} cellW={224} />
             ))}
           </div>
-          <Footer text="badges = seed-1 force closure · verified: episodes/compare-0-9.json + compare-report.md" />
         </AbsoluteFill>
       )}
     </AbsoluteFill>
