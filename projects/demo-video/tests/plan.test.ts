@@ -81,6 +81,14 @@ describe("compileScript", () => {
     );
   });
 
+  it("accepts the screenshot visual hint", () => {
+    const shot = compileScript(
+      "# T\n## App screen\n<!-- visual: screenshot -->\n\nNarrated over the image.\n",
+      "shot.md"
+    );
+    assert.equal(shot.chapters[0]!.visual, "screenshot");
+  });
+
   it("spells numbers as read in narration and cues", () => {
     const spoken = script.chapters[1]!;
     assert.equal(

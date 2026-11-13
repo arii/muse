@@ -22,7 +22,7 @@ import {
   WORDS_PER_SECOND,
 } from "./config";
 
-const VISUALS: Visual[] = ["title", "bullets", "terminal", "split"];
+const VISUALS: Visual[] = ["title", "bullets", "terminal", "split", "screenshot"];
 
 export class PlanError extends Error {}
 
