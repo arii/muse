@@ -8,6 +8,19 @@ export const PROJECT_ROOT = path.resolve(import.meta.dirname, "..");
 // kokoro-js model: Kokoro-82M, Apache-2.0 (code and weights), offline.
 export const KOKORO_MODEL_ID = "onnx-community/Kokoro-82M-v1.0-ONNX";
 export const KOKORO_DTYPE = "q8" as const;
+
+// Version pin for the offline model cache: recorded into .cache/kokoro/pin.json
+// after a successful fetch and verified on every load. Changing any value
+// invalidates the cache — synthesis refuses to mix model versions; delete
+// .cache/kokoro and re-run `npm run setup` to re-fetch. transformers is pinned
+// here because tts.ts imports its env directly (it is a real dependency of
+// kokoro-js 1.2.1).
+export const KOKORO_PIN = {
+  modelId: KOKORO_MODEL_ID,
+  dtype: KOKORO_DTYPE,
+  kokoroJs: "1.2.1",
+  transformers: "3.8.1",
+} as const;
 // Pre-selected, quality-audited English voice — good defaults with zero tuning.
 export const KOKORO_VOICE = "af_heart";
 export const TTS_SPEED = 1.0;

@@ -9,6 +9,7 @@ import {
   KOKORO_CACHE_DIR,
   KOKORO_DTYPE,
   KOKORO_MODEL_ID,
+  KOKORO_PIN,
   TTS_SPEED,
   VOICEOVER_DIR,
 } from "./config";
@@ -72,17 +73,71 @@ export function cacheIsPopulated(cacheDir: string): boolean {
 
 let kokoroModule: typeof import("kokoro-js") | null = null;
 
+// --- model cache pinning ---------------------------------------------------
+// The cache is pinned by version: config's KOKORO_PIN is written to
+// pin.json after a successful fetch and verified before every load, so
+// synthesis never silently mixes model versions.
+
+export type CachePin = {
+  modelId: string;
+  dtype: string;
+  kokoroJs: string;
+  transformers: string;
+};
+
+export function pinsMatch(cached: CachePin, expected: CachePin): boolean {
+  return (
+    cached.modelId === expected.modelId &&
+    cached.dtype === expected.dtype &&
+    cached.kokoroJs === expected.kokoroJs &&
+    cached.transformers === expected.transformers
+  );
+}
+
+function pinPath(cacheDir: string): string {
+  return path.join(cacheDir, "pin.json");
+}
+
+export function readCachePin(cacheDir: string): CachePin | null {
+  try {
+    return JSON.parse(fs.readFileSync(pinPath(cacheDir), "utf8")) as CachePin;
+  } catch {
+    return null; // no pin yet — first fetch writes it
+  }
+}
+
+function assertCachePin(cacheDir: string): void {
+  const cached = readCachePin(cacheDir);
+  if (cached && !pinsMatch(cached, KOKORO_PIN)) {
+    throw new Error(
+      `kokoro model cache at ${cacheDir} was fetched for ${cached.modelId}/${cached.dtype} ` +
+        `(kokoro-js ${cached.kokoroJs}) but config pins ${KOKORO_PIN.modelId}/${KOKORO_PIN.dtype} ` +
+        `(kokoro-js ${KOKORO_PIN.kokoroJs}). Delete the directory and re-run npm run setup.`
+    );
+  }
+}
+
+function writeCachePin(cacheDir: string): void {
+  fs.mkdirSync(cacheDir, { recursive: true });
+  fs.writeFileSync(
+    pinPath(cacheDir),
+    JSON.stringify(KOKORO_PIN, null, 2) + "\n"
+  );
+}
+
 export async function loadTts(voice: string): Promise<TtsHandle> {
   const offline = cacheIsPopulated(KOKORO_CACHE_DIR);
   if (!kokoroModule) {
     await configureModelCache(offline);
     kokoroModule = await import("kokoro-js");
   }
+  assertCachePin(KOKORO_CACHE_DIR);
   const { KokoroTTS } = kokoroModule;
   const tts = await KokoroTTS.from_pretrained(KOKORO_MODEL_ID, {
     dtype: KOKORO_DTYPE,
     device: "cpu",
   });
+  writeCachePin(KOKORO_CACHE_DIR);
   return {
     generate: (text: string) =>
       tts.generate(text, {

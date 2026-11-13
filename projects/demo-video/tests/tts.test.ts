@@ -6,9 +6,12 @@ import { afterEach, describe, it } from "node:test";
 import {
   applyCacheEnv,
   countWords,
+  pinsMatch,
+  readCachePin,
   synthesizeScript,
   synthSecondsPer100Words,
   voiceoverPath,
+  type CachePin,
   type SynthesizedAudio,
   type TtsHandle,
 } from "../scripts/tts";
@@ -142,6 +145,33 @@ describe("synthesizeScript", () => {
       voiceoverPath(script.id, chapter, outDir)
     );
     assert.ok(result!.file.endsWith(path.join("tts-test", "opening.wav")));
+  });
+});
+
+describe("pinsMatch", () => {
+  const pin: CachePin = {
+    modelId: "onnx-community/Kokoro-82M-v1.0-ONNX",
+    dtype: "q8",
+    kokoroJs: "1.2.1",
+    transformers: "3.8.1",
+  };
+
+  it("accepts an identical pin", () => {
+    assert.ok(pinsMatch(pin, { ...pin }));
+  });
+
+  it("rejects any changed component of the pin", () => {
+    for (const key of ["modelId", "dtype", "kokoroJs", "transformers"] as const) {
+      const drifted = { ...pin, [key]: "other" };
+      assert.ok(
+        !pinsMatch(drifted, pin),
+        `expected a changed ${key} to mismatch`
+      );
+    }
+  });
+
+  it("reads a missing pin as null", () => {
+    assert.equal(readCachePin("/nonexistent/kokoro-cache"), null);
   });
 });
 
