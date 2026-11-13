@@ -70,6 +70,9 @@ npm run tts -- templates/demo-video.md       # synthesize narration only
 npm run render -- templates/demo-video.md    # plan -> tts -> render
 ```
 
+`render` runs all three stages in one command — it always writes the plan to
+`src/generated/<id>.json` itself, so a standalone `plan` run is optional.
+
 (The `demo-video` bin also exists for packing; within the repo, `npm run`
 is the interface — npx would resolve the npm registry package of the same
 name, not this private one.)
@@ -94,14 +97,20 @@ Output defaults to `out/<composition-id>.mp4` (gitignored).
 
 ```bash
 npm run lint   # eslint (src, scripts, tests) + tsc, zero errors expected
-npm test       # node:test unit tests (script parsing, CLI flags, preflight logic)
+npm test       # node:test unit tests (script parsing, CLI flags, cue timing, preflight logic)
 npm run dev    # Remotion Studio
 ```
 
-Chapter durations and captions come from the plan; once voiceover audio
-exists for a chapter (from `npx demo-video tts`), the next PR wiring audio
-durations will size those chapters to the audio per the in-repo
-`remotion-markup/voiceover.md` pattern.
+## How timing works
+
+Each `##` chapter becomes a `<Sequence>`. Composition sizing follows the
+in-repo `remotion-markup/voiceover.md` pattern: `calculateMetadata` measures
+each chapter's narration file with `getAudioDuration` (mediabunny) and sizes
+the composition — and the chapter — to the audio, frame-aligned at 30 fps.
+Captions are one cue per sentence, cut verbatim from the same narration
+string the TTS speaks, so audio and text cannot drift. A chapter with no
+narration renders as an explicit timed silent card; a narration file that
+exists but cannot be measured fails the render with a named error.
 
 `projects/grasping-2026/**` is off-limits to this toolkit: files there trigger
 the Python CI and Docker builds.
