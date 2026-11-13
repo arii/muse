@@ -13,6 +13,7 @@
     "demo-video": "bin/demo-video"
   },
   "dependencies": {
+    "@huggingface/transformers": "3.8.1",
     "@remotion/cli": "4.0.540",
     "kokoro-js": "1.2.1",
     "react": "19.3.1",

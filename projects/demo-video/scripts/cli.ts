@@ -6,7 +6,10 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { compileScript } from "./plan";
-import { synthesizeScript } from "./tts";
+import {
+  synthesizeScript,
+  synthSecondsPer100Words,
+} from "./tts";
 import {
   GENERATED_DIR,
   KOKORO_VOICE,
@@ -136,7 +139,19 @@ async function main(): Promise<void> {
   if (args.command === "tts") {
     if (silent) fail("--silent is a render flag; tts always synthesizes");
     const results = await synthesizeScript(script, voice);
-    console.error(`tts: ${results.length} chapter file(s) under public/voiceover/${script.id}/`);
+    for (const r of results) {
+      console.error(
+        `tts: ${path.basename(r.file)} ${r.durationSec.toFixed(2)}s ` +
+          `(${r.words} words in ${(r.synthMs / 1000).toFixed(1)}s)`
+      );
+    }
+    const per100 = synthSecondsPer100Words(results);
+    if (per100 !== null) {
+      console.error(`tts: ${per100.toFixed(1)}s synthesis per 100 words`);
+    }
+    console.error(
+      `tts: ${results.length} chapter file(s) under public/voiceover/${script.id}/`
+    );
     return;
   }
 
