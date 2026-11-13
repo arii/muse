@@ -1,0 +1,229 @@
+{
+  "id": "posture-guard",
+  "title": "Posture Guard",
+  "chapters": [
+    {
+      "name": "A camera that watches your back",
+      "slug": "a-camera-that-watches-your-back",
+      "visual": "title",
+      "narration": "Posture Guard is a Linux desktop posture corrector. It watches you through an Intel RealSense depth camera, scores how you sit, and nudges you before the slump becomes the afternoon.",
+      "bullets": [],
+      "terminal": [],
+      "cues": [
+        {
+          "text": "Posture Guard is a Linux desktop posture corrector.",
+          "startMs": 0,
+          "endMs": 3209
+        },
+        {
+          "text": "It watches you through an Intel RealSense depth camera, scores how you sit, and nudges you before the slump becomes the afternoon.",
+          "startMs": 3209,
+          "endMs": 12033.333333333334
+        }
+      ],
+      "durationMs": 12033.333333333334
+    },
+    {
+      "name": "What it actually scores",
+      "slug": "what-it-actually-scores",
+      "visual": "bullets",
+      "narration": "Scoring is pure geometry: head forward, trunk lean, head tilt, and shoulder level angles, checked against a depth gate. A local dashboard shows the live skeleton, so you can verify tracking and tune camera placement.",
+      "bullets": [
+        "Posture scored from head and shoulder geometry, gated by depth",
+        "A chime first, then a spoken prompt while the slouch persists",
+        "A local web dashboard with the live skeleton overlay"
+      ],
+      "terminal": [],
+      "cues": [
+        {
+          "text": "Scoring is pure geometry: head forward, trunk lean, head tilt, and shoulder level angles, checked against a depth gate.",
+          "startMs": 0,
+          "endMs": 7799
+        },
+        {
+          "text": "A local dashboard shows the live skeleton, so you can verify tracking and tune camera placement.",
+          "startMs": 7799,
+          "endMs": 14366.666666666668
+        }
+      ],
+      "durationMs": 14366.666666666668
+    },
+    {
+      "name": "From zero to dashboard",
+      "slug": "from-zero-to-dashboard",
+      "visual": "terminal",
+      "narration": "Getting running is two commands, and setup ends with a hardware preflight report. Setup is idempotent, and every preflight line should read pass before the first run. Then one command serves the dashboard.",
+      "bullets": [],
+      "terminal": [
+        "$ ./setup.sh",
+        "PASS  camera detected — RealSense D415/D435",
+        "PASS  USB connection type — 3.x",
+        "PASS  depth stream readable",
+        "PASS  audio sinks — USB sound card",
+        "PASS  TTS renderable",
+        "$ make run",
+        "dashboard: http://127.0.0.1:8000"
+      ],
+      "cues": [
+        {
+          "text": "Getting running is two commands, and setup ends with a hardware preflight report.",
+          "startMs": 0,
+          "endMs": 5266
+        },
+        {
+          "text": "Setup is idempotent, and every preflight line should read pass before the first run.",
+          "startMs": 5266,
+          "endMs": 10937
+        },
+        {
+          "text": "Then one command serves the dashboard.",
+          "startMs": 10937,
+          "endMs": 13366.666666666668
+        }
+      ],
+      "durationMs": 13366.666666666668
+    },
+    {
+      "name": "The nudge ladder",
+      "slug": "the-nudge-ladder",
+      "visual": "split",
+      "narration": "Hold a slouch for two seconds and the chime fires once. Ten seconds later the spoken prompt fires, repeating at most every thirty seconds. Sit up straight for three seconds and everything goes quiet.",
+      "bullets": [],
+      "terminal": [
+        "$ curl -X POST http://127.0.0.1:8000/nudge/test",
+        "# chime plays, then the spoken prompt"
+      ],
+      "cues": [
+        {
+          "text": "Hold a slouch for two seconds and the chime fires once.",
+          "startMs": 0,
+          "endMs": 4260
+        },
+        {
+          "text": "Ten seconds later the spoken prompt fires, repeating at most every thirty seconds.",
+          "startMs": 4260,
+          "endMs": 9294
+        },
+        {
+          "text": "Sit up straight for three seconds and everything goes quiet.",
+          "startMs": 9294,
+          "endMs": 13166.666666666666
+        }
+      ],
+      "durationMs": 13166.666666666666
+    },
+    {
+      "name": "Never nudges on bad data",
+      "slug": "never-nudges-on-bad-data",
+      "visual": "bullets",
+      "narration": "Nudges never fire on bad data. If landmark confidence or depth drops, the badge reads unreliable, and the system stays silent.",
+      "bullets": [
+        "The person must sit inside the depth band to be scored",
+        "Landmark visibility must clear a floor before a score is trusted",
+        "Leave the desk, and the badge reads NO PERSON — silent"
+      ],
+      "terminal": [],
+      "cues": [
+        {
+          "text": "Nudges never fire on bad data.",
+          "startMs": 0,
+          "endMs": 2686
+        },
+        {
+          "text": "If landmark confidence or depth drops, the badge reads unreliable, and the system stays silent.",
+          "startMs": 2686,
+          "endMs": 9400
+        }
+      ],
+      "durationMs": 9400
+    },
+    {
+      "name": "Tuning, not code",
+      "slug": "tuning-not-code",
+      "visual": "split",
+      "narration": "Every threshold, duration, and audio sink lives in one config file. Chimes too eager? Raise the angle thresholds. Voice too chatty? Stretch the cooldown. All durations are seconds, and all angles are degrees.",
+      "bullets": [],
+      "terminal": [
+        "# config.yaml",
+        "scoring:",
+        "head_forward_deg: 12.0",
+        "state:",
+        "voice_repeat_cooldown_s: 30.0"
+      ],
+      "cues": [
+        {
+          "text": "Every threshold, duration, and audio sink lives in one config file.",
+          "startMs": 0,
+          "endMs": 4856
+        },
+        {
+          "text": "Chimes too eager?",
+          "startMs": 4856,
+          "endMs": 6180
+        },
+        {
+          "text": "Raise the angle thresholds.",
+          "startMs": 6180,
+          "endMs": 7946
+        },
+        {
+          "text": "Voice too chatty?",
+          "startMs": 7946,
+          "endMs": 9270
+        },
+        {
+          "text": "Stretch the cooldown.",
+          "startMs": 9270,
+          "endMs": 10594
+        },
+        {
+          "text": "All durations are seconds, and all angles are degrees.",
+          "startMs": 10594,
+          "endMs": 14566.666666666666
+        }
+      ],
+      "durationMs": 14566.666666666666
+    },
+    {
+      "name": "No camera? No problem",
+      "slug": "no-camera-no-problem",
+      "visual": "split",
+      "narration": "Without a RealSense attached, the pipeline falls back to a synthetic frame source, so the dashboard is fully verifiable before the camera is ever plugged in. The full test suite runs the same way.",
+      "bullets": [],
+      "terminal": [
+        "$ pytest",
+        "$ ruff check ."
+      ],
+      "cues": [
+        {
+          "text": "Without a RealSense attached, the pipeline falls back to a synthetic frame source, so the dashboard is fully verifiable before the camera is ever plugged in.",
+          "startMs": 0,
+          "endMs": 9661
+        },
+        {
+          "text": "The full test suite runs the same way.",
+          "startMs": 9661,
+          "endMs": 12633.333333333332
+        }
+      ],
+      "durationMs": 12633.333333333332
+    },
+    {
+      "name": "Sit like you mean it",
+      "slug": "sit-like-you-mean-it",
+      "visual": "title",
+      "narration": "Posture Guard: a camera that watches your back, so you can sit like you mean it.",
+      "bullets": [],
+      "terminal": [],
+      "cues": [
+        {
+          "text": "Posture Guard: a camera that watches your back, so you can sit like you mean it.",
+          "startMs": 0,
+          "endMs": 4866.666666666666
+        }
+      ],
+      "durationMs": 4866.666666666666
+    }
+  ],
+  "durationMs": 94400
+}
