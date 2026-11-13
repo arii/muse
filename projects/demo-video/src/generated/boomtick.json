@@ -6,22 +6,27 @@
       "name": "The tooling your agents wish they had",
       "slug": "the-tooling-your-agents-wish-they-had",
       "visual": "title",
-      "narration": "Boomtick is a template repository that hands your autonomous agents the tooling real projects need. No glue code, no re-invented workflows, no key hunting.",
+      "narration": "Boomtick is a template repository that hands your autonomous agents the tooling real projects need. No glue code, no re-invented workflows, no key hunting. Frontier SF — made by Ariel Anders using obvious.ai.",
       "bullets": [],
       "terminal": [],
       "cues": [
         {
           "text": "Boomtick is a template repository that hands your autonomous agents the tooling real projects need.",
           "startMs": 0,
-          "endMs": 7125
+          "endMs": 7258
         },
         {
           "text": "No glue code, no re-invented workflows, no key hunting.",
-          "startMs": 7125,
-          "endMs": 11400
+          "startMs": 7258,
+          "endMs": 11613
+        },
+        {
+          "text": "Frontier SF — made by Ariel Anders using obvious.ai.",
+          "startMs": 11613,
+          "endMs": 15966.666666666666
         }
       ],
-      "durationMs": 11400
+      "durationMs": 15966.666666666666
     },
     {
       "name": "Three pillars",
@@ -165,5 +170,5 @@
       "durationMs": 8266.666666666668
     }
   ],
-  "durationMs": 88866.66666666667
+  "durationMs": 93433.33333333334
 }
