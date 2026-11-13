@@ -9,7 +9,7 @@ title: BoomTick
 
 <!-- visual: title -->
 
-BoomTick is two products in one repo: a content platform that ships to boomtick dot blog, and a developer toolkit that keeps it honest.
+BoomTick is two products in one repo: a content platform that ships to boomtick dot blog, and a developer toolkit that keeps it honest. Frontier SF — made by Ariel Anders, using obvious dot AI.
 
 ## A real content platform
 

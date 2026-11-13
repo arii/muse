@@ -6,17 +6,22 @@
       "name": "One repo, two products",
       "slug": "one-repo-two-products",
       "visual": "title",
-      "narration": "BoomTick is two products in one repo: a content platform that ships to boomtick dot blog, and a developer toolkit that keeps it honest.",
+      "narration": "BoomTick is two products in one repo: a content platform that ships to boomtick dot blog, and a developer toolkit that keeps it honest. Frontier SF — made by Ariel Anders, using obvious dot AI.",
       "bullets": [],
       "terminal": [],
       "cues": [
         {
           "text": "BoomTick is two products in one repo: a content platform that ships to boomtick dot blog, and a developer toolkit that keeps it honest.",
           "startMs": 0,
-          "endMs": 9033.333333333334
+          "endMs": 9783
+        },
+        {
+          "text": "Frontier SF — made by Ariel Anders, using obvious dot AI.",
+          "startMs": 9783,
+          "endMs": 14266.666666666668
         }
       ],
-      "durationMs": 9033.333333333334
+      "durationMs": 14266.666666666668
     },
     {
       "name": "A real content platform",
@@ -179,5 +184,5 @@
       "durationMs": 9466.666666666666
     }
   ],
-  "durationMs": 79533.33333333334
+  "durationMs": 84766.66666666667
 }
