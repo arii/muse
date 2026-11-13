@@ -87,7 +87,8 @@ describe("compileScript", () => {
       spoken.narration,
       "seventy-seven percent of one thousand two hundred runs finished in three point five seconds."
     );
-    assert.equal(spoken.cues[0]!.text, spoken.narration);
+    // Sentence-level cues cut verbatim from the same narration string.
+    assert.equal(spoken.cues.map((c) => c.text).join(" "), spoken.narration);
   });
 
   it("collects bullets and terminal lines separately from narration", () => {
