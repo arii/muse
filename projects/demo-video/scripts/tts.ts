@@ -12,34 +12,70 @@ import {
   TTS_SPEED,
   VOICEOVER_DIR,
 } from "./config";
+import { kokoroModelPresent } from "./preflight";
 import type { Chapter, VideoScript } from "../src/script-types";
+
+// Structural shape of kokoro-js RawAudio that synthesis needs: the sample
+// buffer (for the exact duration), the sampling rate, and a wav writer.
+export type SynthesizedAudio = {
+  audio: { length: number };
+  sampling_rate: number;
+  save: (path: string) => void;
+};
 
 export type SynthesisResult = {
   chapter: string;
   file: string;
-  durationSec: number | null;
+  // Exact duration from the synthesized sample count (samples / rate) — not
+  // an estimate, so per-chapter scene timing can be checked against ffprobe.
+  durationSec: number;
+  words: number;
+  synthMs: number;
 };
+
+export type TtsHandle = {
+  generate: (text: string) => Promise<SynthesizedAudio>;
+};
+
+export type ModelCacheEnv = {
+  cacheDir: string;
+  allowRemoteModels: boolean;
+};
+
+// Redirect the transformers.js cache into .cache/kokoro. Pure so tests can
+// assert the offline behavior; configureModelCache applies it to the real env.
+export function applyCacheEnv(
+  env: ModelCacheEnv,
+  cacheDir: string,
+  offline: boolean
+): void {
+  env.cacheDir = cacheDir;
+  // Offline mode: with the cache populated, transformers.js serves every
+  // file from disk and never constructs a remote URL.
+  env.allowRemoteModels = !offline;
+}
+
+// Must run before the model loads.
+export async function configureModelCache(offline = false): Promise<void> {
+  const { env } = await import("@huggingface/transformers");
+  applyCacheEnv(env as unknown as ModelCacheEnv, KOKORO_CACHE_DIR, offline);
+}
+
+// With the model cache populated, synthesis runs fully offline: transformers.js
+// is pinned to local files. A cold cache fetches once (`npm run setup` does
+// this), then every later run is offline.
+export function cacheIsPopulated(cacheDir: string): boolean {
+  if (!fs.existsSync(cacheDir)) return false;
+  const files = fs.readdirSync(cacheDir, { recursive: true }).map(String);
+  return kokoroModelPresent(files, KOKORO_MODEL_ID.split("/").pop()!);
+}
 
 let kokoroModule: typeof import("kokoro-js") | null = null;
 
-export type TtsHandle = {
-  generate: (text: string) => Promise<{ save: (p: string) => void }>;
-};
-
-// Redirect the transformers.js cache into .cache/kokoro (it defaults to a
-// path inside node_modules). Must run before the model loads; after that,
-// synthesis runs fully offline.
-export async function configureModelCache(): Promise<void> {
-  const { env } = await import("@huggingface/transformers");
-  env.cacheDir = KOKORO_CACHE_DIR;
-  env.allowRemoteModels = true;
-}
-
-// The model download happens on first load and is cached under .cache/kokoro;
-// afterwards synthesis runs fully offline.
 export async function loadTts(voice: string): Promise<TtsHandle> {
+  const offline = cacheIsPopulated(KOKORO_CACHE_DIR);
   if (!kokoroModule) {
-    await configureModelCache();
+    await configureModelCache(offline);
     kokoroModule = await import("kokoro-js");
   }
   const { KokoroTTS } = kokoroModule;
@@ -71,28 +107,55 @@ function validateVoice(
   return voice as keyof typeof tts.voices;
 }
 
-export function voiceoverPath(scriptId: string, chapter: Chapter): string {
-  return path.join(VOICEOVER_DIR, scriptId, `${chapter.slug}.wav`);
+export function voiceoverPath(
+  scriptId: string,
+  chapter: Chapter,
+  outDir: string = VOICEOVER_DIR
+): string {
+  return path.join(outDir, scriptId, `${chapter.slug}.wav`);
 }
 
-export function voiceoverExists(scriptId: string, chapter: Chapter): boolean {
-  return fs.existsSync(voiceoverPath(scriptId, chapter));
+export function countWords(text: string): number {
+  const words = text.trim().match(/\S+/g);
+  return words ? words.length : 0;
 }
+
+// Synthesis throughput in seconds per 100 words — the Piper fallback decision
+// metric. Returns null when nothing was synthesized.
+export function synthSecondsPer100Words(
+  results: SynthesisResult[]
+): number | null {
+  const words = results.reduce((n, r) => n + r.words, 0);
+  if (words === 0) return null;
+  const seconds = results.reduce((n, r) => n + r.synthMs, 0) / 1000;
+  return (seconds / words) * 100;
+}
+
+export type SynthesizeOptions = {
+  // Inject a handle in tests; defaults to loading the real kokoro model.
+  loadHandle?: () => Promise<TtsHandle>;
+  // Defaults to the project voiceover dir.
+  outDir?: string;
+};
 
 // Synthesize every chapter that has narration; chapters without narration are
 // silent cards and get no audio file. Synthesis failing for one chapter fails
 // the run with the chapter named — never a silent gap.
 export async function synthesizeScript(
   script: VideoScript,
-  voice: string
+  voice: string,
+  options: SynthesizeOptions = {}
 ): Promise<SynthesisResult[]> {
-  const tts = await loadTts(voice);
+  const outDir = options.outDir ?? VOICEOVER_DIR;
+  const load = options.loadHandle ?? (() => loadTts(voice));
+  const tts = await load();
   const results: SynthesisResult[] = [];
   for (const chapter of script.chapters) {
     if (!chapter.narration) {
       continue;
     }
-    const out = voiceoverPath(script.id, chapter);
+    const out = voiceoverPath(script.id, chapter, outDir);
+    const startedAt = Date.now();
     try {
       fs.mkdirSync(path.dirname(out), { recursive: true });
       const audio = await tts.generate(chapter.narration);
@@ -100,7 +163,9 @@ export async function synthesizeScript(
       results.push({
         chapter: chapter.slug,
         file: out,
-        durationSec: null,
+        durationSec: audio.audio.length / audio.sampling_rate,
+        words: countWords(chapter.narration),
+        synthMs: Date.now() - startedAt,
       });
     } catch (err) {
       throw new Error(
