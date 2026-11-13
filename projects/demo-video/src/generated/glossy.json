@@ -6,22 +6,27 @@
       "name": "Old English, three layers deep",
       "slug": "old-english-three-layers-deep",
       "visual": "title",
-      "narration": "Reading Old English means decoding three layers at once: the manuscript words, their grammar, and their meaning. Glossy makes those layers work together.",
+      "narration": "Frontier SF — made by Ariel Anders using obvious.ai. Reading Old English means decoding three layers at once: the manuscript words, their grammar, and their meaning. Glossy makes those layers work together.",
       "bullets": [],
       "terminal": [],
       "cues": [
         {
-          "text": "Reading Old English means decoding three layers at once: the manuscript words, their grammar, and their meaning.",
+          "text": "Frontier SF — made by Ariel Anders using obvious.ai.",
           "startMs": 0,
-          "endMs": 6818
+          "endMs": 4022
+        },
+        {
+          "text": "Reading Old English means decoding three layers at once: the manuscript words, their grammar, and their meaning.",
+          "startMs": 4022,
+          "endMs": 11619
         },
         {
           "text": "Glossy makes those layers work together.",
-          "startMs": 6818,
-          "endMs": 9225
+          "startMs": 11619,
+          "endMs": 14300
         }
       ],
-      "durationMs": 9225
+      "durationMs": 14300
     },
     {
       "name": "Meet Glossy",
@@ -34,15 +39,15 @@
         {
           "text": "Glossy is an interlinear glossing platform for Old English, built for students, researchers, and linguistic editors.",
           "startMs": 0,
-          "endMs": 6267
+          "endMs": 6919
         },
         {
           "text": "Its corpus ships four texts with more than one thousand eight hundred annotated tokens, each word aligned with its gloss.",
-          "startMs": 6267,
-          "endMs": 14100
+          "startMs": 6919,
+          "endMs": 15566.666666666666
         }
       ],
-      "durationMs": 14100
+      "durationMs": 15566.666666666666
     },
     {
       "name": "Read with the morphemes",
@@ -55,15 +60,15 @@
         {
           "text": "In the reader, clicking any word opens its morphemes, its grammatical features, and a link to its dictionary entry.",
           "startMs": 0,
-          "endMs": 7532
+          "endMs": 8460
         },
         {
           "text": "Forty-two glossing abbreviations are documented in the built-in reference.",
-          "startMs": 7532,
-          "endMs": 11100
+          "startMs": 8460,
+          "endMs": 12466.666666666666
         }
       ],
-      "durationMs": 11100
+      "durationMs": 12466.666666666666
     },
     {
       "name": "Edit with live preview",
@@ -76,15 +81,15 @@
         {
           "text": "In the editing workspace, select a token, refine its lemma or morphology, and watch the interlinear preview update as you type.",
           "startMs": 0,
-          "endMs": 8360
+          "endMs": 8535
         },
         {
           "text": "Drafts autosave as you work.",
-          "startMs": 8360,
-          "endMs": 10350
+          "startMs": 8535,
+          "endMs": 10566.666666666666
         }
       ],
-      "durationMs": 10350
+      "durationMs": 10566.666666666666
     },
     {
       "name": "Checked by one command",
@@ -102,15 +107,15 @@
         {
           "text": "Glossy checks its own work.",
           "startMs": 0,
-          "endMs": 2089
+          "endMs": 2012
         },
         {
           "text": "One command audits a text's lemmas against the lexicon.",
-          "startMs": 2089,
-          "endMs": 5850
+          "startMs": 2012,
+          "endMs": 5633.333333333334
         }
       ],
-      "durationMs": 5850
+      "durationMs": 5633.333333333334
     },
     {
       "name": "In, out, and published",
@@ -123,10 +128,10 @@
         {
           "text": "Paste a LaTeX gbfoure document to start a new text, or export your work to LaTeX, JSON, or PDF, and publish drafts to Git when they are ready.",
           "startMs": 0,
-          "endMs": 11100
+          "endMs": 11133.333333333332
         }
       ],
-      "durationMs": 11100
+      "durationMs": 11133.333333333332
     },
     {
       "name": "Glossy",
@@ -139,16 +144,16 @@
         {
           "text": "Glossy.",
           "startMs": 0,
-          "endMs": 461
+          "endMs": 443
         },
         {
           "text": "Old English, glossed for the web.",
-          "startMs": 461,
-          "endMs": 3225
+          "startMs": 443,
+          "endMs": 3100
         }
       ],
-      "durationMs": 3225
+      "durationMs": 3100
     }
   ],
-  "durationMs": 64950
+  "durationMs": 72766.66666666666
 }

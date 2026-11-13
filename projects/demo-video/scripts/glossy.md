@@ -9,7 +9,7 @@ title: Glossy
 
 <!-- visual: title -->
 
-Reading Old English means decoding three layers at once: the manuscript words, their grammar, and their meaning. Glossy makes those layers work together.
+Frontier SF — made by Ariel Anders using obvious.ai. Reading Old English means decoding three layers at once: the manuscript words, their grammar, and their meaning. Glossy makes those layers work together.
 
 ## Meet Glossy
 
