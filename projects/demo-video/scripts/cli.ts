@@ -16,6 +16,8 @@ import {
   PROJECT_ROOT,
 } from "./config";
 import { BROWSER_CACHE_ROOTS, findBrowserExecutable } from "./browser";
+import { fitChapterToAudio } from "../src/timing";
+import type { VideoScript } from "../src/script-types";
 
 export const USAGE = `demo-video — repo + narration script in, demo video out
 
@@ -113,6 +115,16 @@ export function resolveBrowser(flagValue?: string): string | null {
   return findBrowserExecutable(BROWSER_CACHE_ROOTS(PROJECT_ROOT));
 }
 
+// Persist the compiled plan for src/Root.tsx to discover. The composition is
+// discovered from src/generated/*.json, so render must write it even when the
+// plan stage never ran as its own command.
+function writePlan(script: VideoScript): string {
+  fs.mkdirSync(GENERATED_DIR, { recursive: true });
+  const outPath = path.join(GENERATED_DIR, `${script.id}.json`);
+  fs.writeFileSync(outPath, JSON.stringify(script, null, 2) + "\n");
+  return outPath;
+}
+
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   if (args.help) {
@@ -124,9 +136,7 @@ async function main(): Promise<void> {
 
   if (args.command === "plan") {
     const script = loadScript(args);
-    fs.mkdirSync(GENERATED_DIR, { recursive: true });
-    const outPath = path.join(GENERATED_DIR, `${script.id}.json`);
-    fs.writeFileSync(outPath, JSON.stringify(script, null, 2) + "\n");
+    const outPath = writePlan(script);
     console.log(JSON.stringify(script, null, 2));
     console.error(`plan: wrote ${outPath} (${script.chapters.length} chapters, ${(script.durationMs / 1000).toFixed(1)}s)`);
     return;
@@ -179,8 +189,31 @@ async function main(): Promise<void> {
 
   if (!silent) {
     console.error("tts: synthesizing narration...");
-    await synthesizeScript(script, voice);
+    const results = await synthesizeScript(script, voice);
+    // Re-fit chapters to the measured narration audio so the written plan
+    // (and therefore the composition) is audio-exact even before
+    // calculateMetadata re-measures; same source, so cues cannot drift.
+    const measured = new Map(results.map((r) => [r.chapter, r.durationSec]));
+    script.chapters = script.chapters.map((c) =>
+      fitChapterToAudio(c, measured.get(c.slug) ?? null)
+    );
+    script.durationMs = script.chapters.reduce((n, c) => n + c.durationMs, 0);
+    for (const r of results) {
+      console.error(
+        `tts: ${path.basename(r.file)} ${r.durationSec.toFixed(2)}s ` +
+          `(${r.words} words in ${(r.synthMs / 1000).toFixed(1)}s)`
+      );
+    }
+    const per100 = synthSecondsPer100Words(results);
+    if (per100 !== null) {
+      console.error(`tts: ${per100.toFixed(1)}s synthesis per 100 words`);
+    }
+    console.error(
+      `tts: ${results.length} chapter file(s) under public/voiceover/${script.id}/`
+    );
   }
+  const outPath = writePlan(script);
+  console.error(`plan: wrote ${outPath} (${script.chapters.length} chapters, ${(script.durationMs / 1000).toFixed(1)}s)`);
 
   const out = (args.flags["out"] as string) ?? path.join("out", `${script.id}.mp4`);
   const browser = resolveBrowser(args.flags["browser-executable"] as string | undefined);
