@@ -1,0 +1,154 @@
+{
+  "id": "glossy",
+  "title": "Glossy",
+  "chapters": [
+    {
+      "name": "Old English, three layers deep",
+      "slug": "old-english-three-layers-deep",
+      "visual": "title",
+      "narration": "Reading Old English means decoding three layers at once: the manuscript words, their grammar, and their meaning. Glossy makes those layers work together.",
+      "bullets": [],
+      "terminal": [],
+      "cues": [
+        {
+          "text": "Reading Old English means decoding three layers at once: the manuscript words, their grammar, and their meaning.",
+          "startMs": 0,
+          "endMs": 6818
+        },
+        {
+          "text": "Glossy makes those layers work together.",
+          "startMs": 6818,
+          "endMs": 9225
+        }
+      ],
+      "durationMs": 9225
+    },
+    {
+      "name": "Meet Glossy",
+      "slug": "meet-glossy",
+      "visual": "screenshot",
+      "narration": "Glossy is an interlinear glossing platform for Old English, built for students, researchers, and linguistic editors. Its corpus ships four texts with more than one thousand eight hundred annotated tokens, each word aligned with its gloss.",
+      "bullets": [],
+      "terminal": [],
+      "cues": [
+        {
+          "text": "Glossy is an interlinear glossing platform for Old English, built for students, researchers, and linguistic editors.",
+          "startMs": 0,
+          "endMs": 6267
+        },
+        {
+          "text": "Its corpus ships four texts with more than one thousand eight hundred annotated tokens, each word aligned with its gloss.",
+          "startMs": 6267,
+          "endMs": 14100
+        }
+      ],
+      "durationMs": 14100
+    },
+    {
+      "name": "Read with the morphemes",
+      "slug": "read-with-the-morphemes",
+      "visual": "screenshot",
+      "narration": "In the reader, clicking any word opens its morphemes, its grammatical features, and a link to its dictionary entry. Forty-two glossing abbreviations are documented in the built-in reference.",
+      "bullets": [],
+      "terminal": [],
+      "cues": [
+        {
+          "text": "In the reader, clicking any word opens its morphemes, its grammatical features, and a link to its dictionary entry.",
+          "startMs": 0,
+          "endMs": 7532
+        },
+        {
+          "text": "Forty-two glossing abbreviations are documented in the built-in reference.",
+          "startMs": 7532,
+          "endMs": 11100
+        }
+      ],
+      "durationMs": 11100
+    },
+    {
+      "name": "Edit with live preview",
+      "slug": "edit-with-live-preview",
+      "visual": "screenshot",
+      "narration": "In the editing workspace, select a token, refine its lemma or morphology, and watch the interlinear preview update as you type. Drafts autosave as you work.",
+      "bullets": [],
+      "terminal": [],
+      "cues": [
+        {
+          "text": "In the editing workspace, select a token, refine its lemma or morphology, and watch the interlinear preview update as you type.",
+          "startMs": 0,
+          "endMs": 8360
+        },
+        {
+          "text": "Drafts autosave as you work.",
+          "startMs": 8360,
+          "endMs": 10350
+        }
+      ],
+      "durationMs": 10350
+    },
+    {
+      "name": "Checked by one command",
+      "slug": "checked-by-one-command",
+      "visual": "terminal",
+      "narration": "Glossy checks its own work. One command audits a text's lemmas against the lexicon.",
+      "bullets": [],
+      "terminal": [
+        "$ npm run validate:lemmas",
+        "Audited 1716 tokens across 75 sentences:",
+        "All Old English lemmas and Wiktionary URLs passed validation",
+        "with 100% accuracy!"
+      ],
+      "cues": [
+        {
+          "text": "Glossy checks its own work.",
+          "startMs": 0,
+          "endMs": 2089
+        },
+        {
+          "text": "One command audits a text's lemmas against the lexicon.",
+          "startMs": 2089,
+          "endMs": 5850
+        }
+      ],
+      "durationMs": 5850
+    },
+    {
+      "name": "In, out, and published",
+      "slug": "in-out-and-published",
+      "visual": "screenshot",
+      "narration": "Paste a LaTeX gbfoure document to start a new text, or export your work to LaTeX, JSON, or PDF, and publish drafts to Git when they are ready.",
+      "bullets": [],
+      "terminal": [],
+      "cues": [
+        {
+          "text": "Paste a LaTeX gbfoure document to start a new text, or export your work to LaTeX, JSON, or PDF, and publish drafts to Git when they are ready.",
+          "startMs": 0,
+          "endMs": 11100
+        }
+      ],
+      "durationMs": 11100
+    },
+    {
+      "name": "Glossy",
+      "slug": "glossy",
+      "visual": "title",
+      "narration": "Glossy. Old English, glossed for the web.",
+      "bullets": [],
+      "terminal": [],
+      "cues": [
+        {
+          "text": "Glossy.",
+          "startMs": 0,
+          "endMs": 461
+        },
+        {
+          "text": "Old English, glossed for the web.",
+          "startMs": 461,
+          "endMs": 3225
+        }
+      ],
+      "durationMs": 3225
+    }
+  ],
+  "durationMs": 64950
+}
