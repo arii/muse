@@ -6,6 +6,7 @@ import { Title } from "./components/Title";
 import { BulletList } from "./components/BulletList";
 import { TerminalChapter } from "./components/Terminal";
 import { Split } from "./components/Split";
+import { Screenshot } from "./components/Screenshot";
 import { chapterVoiceoverFile } from "./timing";
 import type { Chapter, VideoScript } from "./script-types";
 
@@ -14,9 +15,10 @@ import type { Chapter, VideoScript } from "./script-types";
 // files exist (voiceover.md pattern), so trimming or reordering chapters in
 // the script is enough.
 
-const ChapterCard: React.FC<{ chapter: Chapter; kicker: string }> = ({
+const ChapterCard: React.FC<{ chapter: Chapter; kicker: string; videoId: string }> = ({
   chapter,
   kicker,
+  videoId,
 }) => {
   switch (chapter.visual) {
     case "bullets":
@@ -25,6 +27,8 @@ const ChapterCard: React.FC<{ chapter: Chapter; kicker: string }> = ({
       return <TerminalChapter chapter={chapter} />;
     case "split":
       return <Split chapter={chapter} />;
+    case "screenshot":
+      return <Screenshot chapter={chapter} videoId={videoId} />;
     case "title":
       return <Title chapter={chapter} kicker={kicker} />;
   }
@@ -50,7 +54,7 @@ export const DemoVideo: React.FC<DemoVideoProps> = ({ script }) => {
               // (no narration) intentionally have no audio track.
               <Audio src={staticFile(chapterVoiceoverFile(script.id, chapter.slug))} />
             ) : null}
-            <ChapterCard chapter={chapter} kicker={script.title} />
+            <ChapterCard chapter={chapter} kicker={script.title} videoId={script.id} />
             <Captions cues={chapter.cues} />
           </Sequence>
         );

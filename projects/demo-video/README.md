@@ -59,7 +59,9 @@ $ fenced blocks become terminal lines
 
 Visuals: `title` (full-screen card), `bullets` (list entering one by one),
 `terminal` (terminal window with typed lines), `split` (text beside a
-terminal/panel). A chapter with no narration renders as a timed silent card —
+terminal/panel), `screenshot` (a framed image from the featured repo, read
+from `public/screenshots/<script-id>/<chapter-slug>.png` with a slow zoom —
+a missing file fails the render explicitly). A chapter with no narration renders as a timed silent card —
 explicit, not accidental.
 
 ## CLI
