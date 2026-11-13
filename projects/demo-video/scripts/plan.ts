@@ -13,7 +13,8 @@
 // A chapter with no narration text renders as a timed silent card — explicit,
 // not accidental (CHAPTER_MIN_MS).
 
-import type { Chapter, Cue, Visual, VideoScript } from "../src/script-types";
+import type { Chapter, Visual, VideoScript } from "../src/script-types";
+import { deriveCues, splitSentences } from "../src/timing";
 import { spellAsRead } from "./numbers";
 import {
   CHAPTER_MIN_MS,
@@ -67,25 +68,9 @@ export function estimateChapterMs(chapter: {
   return Math.max(CHAPTER_MIN_MS, Math.round((words / WORDS_PER_SECOND) * 1000) + CHAPTER_PAD_MS);
 }
 
-// Distribute the chapter duration across cues proportionally to word count,
-// so captions track the spoken pace of each paragraph.
-export function deriveCues(paragraphs: string[], durationMs: number): Cue[] {
-  const weights = paragraphs.map((p) =>
-    Math.max(1, p.split(/\s+/).filter(Boolean).length)
-  );
-  const total = weights.reduce((a, b) => a + b, 0);
-  let cursor = 0;
-  return paragraphs.map((text, i) => {
-    const span = Math.round((weights[i]! / total) * durationMs);
-    const cue: Cue = {
-      text,
-      startMs: cursor,
-      endMs: i === paragraphs.length - 1 ? durationMs : cursor + span,
-    };
-    cursor += span;
-    return cue;
-  });
-}
+// Re-exported so the plan module stays the one-stop import for script
+// compilation (tests and callers import deriveCues from here).
+export { deriveCues } from "../src/timing";
 
 function parseChapter(header: string, lines: string[]): Chapter {
   const hint = lines.map((l) => l.match(VISUAL_HINT)?.[1]).find(Boolean);
@@ -139,9 +124,11 @@ function parseChapter(header: string, lines: string[]): Chapter {
   flush();
 
   // Numbers spelled as read: the narration string is the verbatim TTS input
-  // and the caption text is cut from it, so they cannot drift.
+  // and the caption text is cut from it, so they cannot drift. Cues are
+  // sentence-level, word-weighted, so captions track the spoken pace.
   const narration = spellAsRead(paragraphs.join(" "));
   const durationMs = estimateChapterMs({ narration });
+  const sentences = paragraphs.flatMap((p) => splitSentences(p).map(spellAsRead));
   return {
     name: header,
     slug: slugify(header),
@@ -149,7 +136,7 @@ function parseChapter(header: string, lines: string[]): Chapter {
     narration,
     bullets,
     terminal,
-    cues: deriveCues(paragraphs.map(spellAsRead), durationMs),
+    cues: deriveCues(sentences, durationMs),
     durationMs,
   };
 }

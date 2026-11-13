@@ -18,8 +18,12 @@ Rspack, 1280×720@30, Kokoro-82M offline TTS). One markdown script per video.
    script into `src/generated/<id>.json` (commit both files; `src/Root.tsx`
    discovers them, no Root edits needed).
 3. `npx demo-video render scripts/<repo>.md` — runs plan → tts → render;
-   output `out/<id>.mp4` (gitignored). Verify with ffprobe (video + audio
-   stream, 1280×720, 30 fps).
+   output `out/<id>.mp4` (gitignored). The composition self-sizes: each
+   chapter is frame-aligned to its measured narration audio via
+   `calculateMetadata` + `getAudioDuration` (the in-repo voiceover.md
+   pattern), and captions are sentence-level cues cut from the same script.
+   Verify with ffprobe (video + audio stream, 1280×720, 30 fps; per-chapter
+   duration within ±0.5 s of the narration file).
 4. Human-QA the render: voice listenability (never robotic — this is a named
    acceptance check), caption sync, visual quality.
 
