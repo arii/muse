@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# demo-video CLI wrapper: routes the bin entry through tsx so the CLI can be
+# authored in TypeScript, matching the repo's bash-wrapper convention.
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+exec "$PROJECT_DIR/node_modules/.bin/tsx" "$PROJECT_DIR/scripts/cli.ts" "$@"
