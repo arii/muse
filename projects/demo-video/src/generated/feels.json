@@ -1,0 +1,184 @@
+{
+  "id": "feels",
+  "title": "Feels — Teaching a Robot to Feel",
+  "chapters": [
+    {
+      "name": "What is in the cup?",
+      "slug": "what-is-in-the-cup",
+      "visual": "title",
+      "narration": "What is in the cup? This robot cannot see inside it — and it does not need to. Frontier SF — made by Ariel Anders using obvious.ai.",
+      "bullets": [],
+      "terminal": [],
+      "cues": [
+        {
+          "text": "What is in the cup?",
+          "startMs": 0,
+          "endMs": 1765
+        },
+        {
+          "text": "This robot cannot see inside it — and it does not need to.",
+          "startMs": 1765,
+          "endMs": 6355
+        },
+        {
+          "text": "Frontier SF — made by Ariel Anders using obvious.ai.",
+          "startMs": 6355,
+          "endMs": 9533.333333333334
+        }
+      ],
+      "durationMs": 9533.333333333334
+    },
+    {
+      "name": "The swirl is the sensor",
+      "slug": "the-swirl-is-the-sensor",
+      "visual": "split",
+      "narration": "Feels teaches a robot to feel. The arm picks up a sealed, lidded cup, swirls it, and reads the joint torques.",
+      "bullets": [
+        "Pick, swirl, place — one macro",
+        "Torques become a 10-dimensional physical signature",
+        "Vector search retrieves the nearest taught example",
+        "Teach a new item: one label, one swirl, no retraining",
+        "No force-torque sensor, no camera on the contents"
+      ],
+      "terminal": [],
+      "cues": [
+        {
+          "text": "Feels teaches a robot to feel.",
+          "startMs": 0,
+          "endMs": 2086
+        },
+        {
+          "text": "The arm picks up a sealed, lidded cup, swirls it, and reads the joint torques.",
+          "startMs": 2086,
+          "endMs": 7300
+        }
+      ],
+      "durationMs": 7300
+    },
+    {
+      "name": "A mystery cup, live",
+      "slug": "a-mystery-cup-live",
+      "visual": "terminal",
+      "narration": "Here is the real CLI on a recorded mystery cup — contents unknown to the model. Stage one: the cup is loaded. Stage two: liquid, with the swirl model in agreement. Every number comes from torques alone.",
+      "bullets": [],
+      "terminal": [
+        "$ python src/predict_content.py recordings/recording_20261029_200617_mystery.csv",
+        "file: recording_20261029_200617_mystery.csv",
+        "true: mystery -> mystery   (swirl in recording: True)",
+        "",
+        "[stage 1] loaded   (loaded=0.77, empty=0.23)",
+        "[stage 2] liquid   (liquid=0.98, solid=0.02)",
+        "",
+        "PREDICTION: LIQUID  (swirl-model agrees: liquid)"
+      ],
+      "cues": [
+        {
+          "text": "Here is the real CLI on a recorded mystery cup — contents unknown to the model.",
+          "startMs": 0,
+          "endMs": 6241
+        },
+        {
+          "text": "Stage one: the cup is loaded.",
+          "startMs": 6241,
+          "endMs": 8582
+        },
+        {
+          "text": "Stage two: liquid, with the swirl model in agreement.",
+          "startMs": 8582,
+          "endMs": 12093
+        },
+        {
+          "text": "Every number comes from torques alone.",
+          "startMs": 12093,
+          "endMs": 14433.333333333334
+        }
+      ],
+      "durationMs": 14433.333333333334
+    },
+    {
+      "name": "Reading the spectrum",
+      "slug": "reading-the-spectrum",
+      "visual": "terminal",
+      "narration": "The same signature drives a state spectrum, with the nearest neighbors from the Atlas vector library. Loadedness and rigidity, read at a glance. The neighbors are all water — the mystery cup reads as water, at point nine cosine similarity.",
+      "bullets": [],
+      "terminal": [
+        "$ python src/state_spectrum.py recordings/recording_20261029_200617_mystery.csv --neighbors",
+        "",
+        "STATE SPECTRUM",
+        "loadedness     empty [███████████████████·····] full        77%",
+        "rigidity      liquid [························] solid        2%",
+        "",
+        "reads as: LIQUID  (loaded 77%, solid 2%)",
+        "",
+        "0.949  water_075pct",
+        "0.904  water_050pct"
+      ],
+      "cues": [
+        {
+          "text": "The same signature drives a state spectrum, with the nearest neighbors from the Atlas vector library.",
+          "startMs": 0,
+          "endMs": 6400
+        },
+        {
+          "text": "Loadedness and rigidity, read at a glance.",
+          "startMs": 6400,
+          "endMs": 9200
+        },
+        {
+          "text": "The neighbors are all water — the mystery cup reads as water, at point nine cosine similarity.",
+          "startMs": 9200,
+          "endMs": 16000
+        }
+      ],
+      "durationMs": 16000
+    },
+    {
+      "name": "The numbers",
+      "slug": "the-numbers",
+      "visual": "bullets",
+      "narration": "And that last number is the honest one: static hold torques are identical across contents. The swirl dynamics are the innovation.",
+      "bullets": [
+        "115 labeled telemetry recordings, 5 content classes",
+        "10-D signatures embedded on the unit hypersphere",
+        "Leak-free time-split evaluation: earliest 70% train, latest 30% test",
+        "Static-hold baseline: only 3 of 7 correct"
+      ],
+      "terminal": [],
+      "cues": [
+        {
+          "text": "And that last number is the honest one: static hold torques are identical across contents.",
+          "startMs": 0,
+          "endMs": 6119
+        },
+        {
+          "text": "The swirl dynamics are the innovation.",
+          "startMs": 6119,
+          "endMs": 8566.666666666666
+        }
+      ],
+      "durationMs": 8566.666666666666
+    },
+    {
+      "name": "Tactile common sense",
+      "slug": "tactile-common-sense",
+      "visual": "title",
+      "narration": "Tactile common sense, on hardware you already own. Feels — built by Sree Dhyuti Nimmagadda and Ariel Anders at the Mongo Learn robot hackathon.",
+      "bullets": [],
+      "terminal": [],
+      "cues": [
+        {
+          "text": "Tactile common sense, on hardware you already own.",
+          "startMs": 0,
+          "endMs": 3400
+        },
+        {
+          "text": "Feels — built by Sree Dhyuti Nimmagadda and Ariel Anders at the Mongo Learn robot hackathon.",
+          "startMs": 3400,
+          "endMs": 10200
+        }
+      ],
+      "durationMs": 10200
+    }
+  ],
+  "durationMs": 66033.33333333334
+}

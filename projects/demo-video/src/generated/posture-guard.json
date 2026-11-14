@@ -1,0 +1,128 @@
+{
+  "id": "posture-guard",
+  "title": "Posture Guard — Frontier SF",
+  "chapters": [
+    {
+      "name": "A camera that watches your back",
+      "slug": "a-camera-that-watches-your-back",
+      "visual": "title",
+      "narration": "Posture Guard is a Linux desktop posture corrector, built by Ariel Anders for the Frontier SF hackathon using Obvious AI. An Intel RealSense depth camera scores how you sit, and nudges you before the slump sticks.",
+      "bullets": [],
+      "terminal": [],
+      "cues": [
+        {
+          "text": "Posture Guard is a Linux desktop posture corrector, built by Ariel Anders for the Frontier SF hackathon using Obvious AI.",
+          "startMs": 0,
+          "endMs": 8389
+        },
+        {
+          "text": "An Intel RealSense depth camera scores how you sit, and nudges you before the slump sticks.",
+          "startMs": 8389,
+          "endMs": 15100
+        }
+      ],
+      "durationMs": 15100
+    },
+    {
+      "name": "Live on the dashboard",
+      "slug": "live-on-the-dashboard",
+      "visual": "replay",
+      "narration": "Here it is live: the pose skeleton overlaid on the camera feed, and posture metrics updating in real time. Camera-placement guidance sits beside it, and the Test button fires a nudge on demand.",
+      "bullets": [],
+      "terminal": [
+        "live-dashboard.mp4"
+      ],
+      "cues": [
+        {
+          "text": "Here it is live: the pose skeleton overlaid on the camera feed, and posture metrics updating in real time.",
+          "startMs": 0,
+          "endMs": 7466
+        },
+        {
+          "text": "Camera-placement guidance sits beside it, and the Test button fires a nudge on demand.",
+          "startMs": 7466,
+          "endMs": 12966.666666666666
+        }
+      ],
+      "durationMs": 12966.666666666666
+    },
+    {
+      "name": "The nudge ladder",
+      "slug": "the-nudge-ladder",
+      "visual": "split",
+      "narration": "Hold a slouch and the chime fires first. Ten seconds later, a spoken prompt follows. Sit up straight for three seconds, and everything goes quiet.",
+      "bullets": [],
+      "terminal": [
+        "$ curl -X POST http://127.0.0.1:8000/nudge/test",
+        "# chime plays, then the spoken prompt"
+      ],
+      "cues": [
+        {
+          "text": "Hold a slouch and the chime fires first.",
+          "startMs": 0,
+          "endMs": 3104
+        },
+        {
+          "text": "Ten seconds later, a spoken prompt follows.",
+          "startMs": 3104,
+          "endMs": 5820
+        },
+        {
+          "text": "Sit up straight for three seconds, and everything goes quiet.",
+          "startMs": 5820,
+          "endMs": 9700
+        }
+      ],
+      "durationMs": 9700
+    },
+    {
+      "name": "Tuning, not code",
+      "slug": "tuning-not-code",
+      "visual": "split",
+      "narration": "Every threshold, duration, and audio sink lives in one config file. Raise an angle threshold, stretch the voice cooldown. Tuning, not code.",
+      "bullets": [],
+      "terminal": [
+        "# config.yaml",
+        "scoring:",
+        "head_forward_deg: 12.0",
+        "state:",
+        "voice_repeat_cooldown_s: 30.0"
+      ],
+      "cues": [
+        {
+          "text": "Every threshold, duration, and audio sink lives in one config file.",
+          "startMs": 0,
+          "endMs": 4983
+        },
+        {
+          "text": "Raise an angle threshold, stretch the voice cooldown.",
+          "startMs": 4983,
+          "endMs": 8607
+        },
+        {
+          "text": "Tuning, not code.",
+          "startMs": 8607,
+          "endMs": 9966.666666666666
+        }
+      ],
+      "durationMs": 9966.666666666666
+    },
+    {
+      "name": "Sit like you mean it",
+      "slug": "sit-like-you-mean-it",
+      "visual": "title",
+      "narration": "Posture Guard: a camera that watches your back, so you can sit like you mean it.",
+      "bullets": [],
+      "terminal": [],
+      "cues": [
+        {
+          "text": "Posture Guard: a camera that watches your back, so you can sit like you mean it.",
+          "startMs": 0,
+          "endMs": 4866.666666666666
+        }
+      ],
+      "durationMs": 4866.666666666666
+    }
+  ],
+  "durationMs": 52599.99999999999
+}

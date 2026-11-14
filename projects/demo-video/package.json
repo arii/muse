@@ -1,0 +1,48 @@
+{
+  "name": "demo-video",
+  "version": "1.0.0",
+  "description": "Remotion demo-video toolkit: repo + narration script in, polished demo video out",
+  "repository": {},
+  "license": "UNLICENSED",
+  "engines": {
+    "node": "^20.19.0 || ^22.13.0 || >=24"
+  },
+  "private": true,
+  "type": "module",
+  "bin": {
+    "demo-video": "bin/demo-video"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "3.8.1",
+    "@remotion/cli": "4.0.540",
+    "kokoro-js": "1.2.1",
+    "mediabunny": "1.64.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "remotion": "4.0.540"
+  },
+  "devDependencies": {
+    "@remotion/eslint-config-flat": "4.0.540",
+    "@types/node": "20.19.0",
+    "@types/react": "19.3.0",
+    "@types/web": "0.0.166",
+    "eslint": "10.12.0",
+    "prettier": "3.8.1",
+    "tsx": "4.20.3",
+    "typescript": "5.9.3"
+  },
+  "scripts": {
+    "setup": "tsx scripts/setup.ts",
+    "plan": "tsx scripts/cli.ts plan",
+    "tts": "tsx scripts/cli.ts tts",
+    "render": "tsx scripts/cli.ts render",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "lint": "eslint src scripts tests && tsc",
+    "dev": "remotion studio",
+    "build": "remotion bundle",
+    "upgrade": "remotion upgrade"
+  },
+  "allowScripts": {
+    "esbuild": false
+  }
+}

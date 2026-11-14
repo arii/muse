@@ -1,0 +1,174 @@
+{
+  "id": "boomtick",
+  "title": "Boomtick",
+  "chapters": [
+    {
+      "name": "The tooling your agents wish they had",
+      "slug": "the-tooling-your-agents-wish-they-had",
+      "visual": "title",
+      "narration": "Boomtick is a template repository that hands your autonomous agents the tooling real projects need. No glue code, no re-invented workflows, no key hunting. Frontier SF — made by Ariel Anders using obvious.ai.",
+      "bullets": [],
+      "terminal": [],
+      "cues": [
+        {
+          "text": "Boomtick is a template repository that hands your autonomous agents the tooling real projects need.",
+          "startMs": 0,
+          "endMs": 7258
+        },
+        {
+          "text": "No glue code, no re-invented workflows, no key hunting.",
+          "startMs": 7258,
+          "endMs": 11613
+        },
+        {
+          "text": "Frontier SF — made by Ariel Anders using obvious.ai.",
+          "startMs": 11613,
+          "endMs": 15966.666666666666
+        }
+      ],
+      "durationMs": 15966.666666666666
+    },
+    {
+      "name": "Three pillars",
+      "slug": "three-pillars",
+      "visual": "bullets",
+      "narration": "Boomtick ships three pillars. The MCP server exposes GitHub operations to any agent host. The T D command line is the local fallback tier. And the review framework measures blast radius before code lands.",
+      "bullets": [
+        "A Model Context Protocol server for GitHub operations",
+        "The T D command line for local automation",
+        "An AI review framework with blast radius analysis"
+      ],
+      "terminal": [],
+      "cues": [
+        {
+          "text": "Boomtick ships three pillars.",
+          "startMs": 0,
+          "endMs": 1718
+        },
+        {
+          "text": "The MCP server exposes GitHub operations to any agent host.",
+          "startMs": 1718,
+          "endMs": 6012
+        },
+        {
+          "text": "The T D command line is the local fallback tier.",
+          "startMs": 6012,
+          "endMs": 10306
+        },
+        {
+          "text": "And the review framework measures blast radius before code lands.",
+          "startMs": 10306,
+          "endMs": 14600
+        }
+      ],
+      "durationMs": 14600
+    },
+    {
+      "name": "Wire it up in one command",
+      "slug": "wire-it-up-in-one-command",
+      "visual": "terminal",
+      "narration": "The MCP server gives agents structured access to pull requests, repository state, and CI logs. One command registers it with Claude Code, Cursor, and VS Code. Integration is zero submodule: the server ships as an npm package, a docker image, and a composite action.",
+      "bullets": [],
+      "terminal": [
+        "$ ./setup-agent.sh",
+        "$ td mcp install --execute",
+        "$ node mcp/dist/index.js"
+      ],
+      "cues": [
+        {
+          "text": "The MCP server gives agents structured access to pull requests, repository state, and CI logs.",
+          "startMs": 0,
+          "endMs": 6739
+        },
+        {
+          "text": "One command registers it with Claude Code, Cursor, and VS Code.",
+          "startMs": 6739,
+          "endMs": 11681
+        },
+        {
+          "text": "Integration is zero submodule: the server ships as an npm package, a docker image, and a composite action.",
+          "startMs": 11681,
+          "endMs": 19766.666666666664
+        }
+      ],
+      "durationMs": 19766.666666666664
+    },
+    {
+      "name": "Rescue pull requests, safely",
+      "slug": "rescue-pull-requests-safely",
+      "visual": "bullets",
+      "narration": "The rescue agent scouts conflicted pull requests, applies minimal repairs in isolated git worktrees, and proves the fix with real verification suites. Every mutating action sits behind explicit write guards, and every shell command runs through a token redacting allowlist. Your working directory is never touched.",
+      "bullets": [
+        "Scouts conflicted pull requests and overlapping branches",
+        "Applies minimal repairs in isolated git worktrees",
+        "Proves the fix with test and Playwright suites"
+      ],
+      "terminal": [],
+      "cues": [
+        {
+          "text": "The rescue agent scouts conflicted pull requests, applies minimal repairs in isolated git worktrees, and proves the fix with real verification suites.",
+          "startMs": 0,
+          "endMs": 9884
+        },
+        {
+          "text": "Every mutating action sits behind explicit write guards, and every shell command runs through a token redacting allowlist.",
+          "startMs": 9884,
+          "endMs": 17971
+        },
+        {
+          "text": "Your working directory is never touched.",
+          "startMs": 17971,
+          "endMs": 20666.666666666668
+        }
+      ],
+      "durationMs": 20666.666666666668
+    },
+    {
+      "name": "Reviews that see the blast radius",
+      "slug": "reviews-that-see-the-blast-radius",
+      "visual": "split",
+      "narration": "The review framework pairs GitHub Models for low latency code review with Gemini for multi-modal visual interface analysis. It is routed through LangChain, with retrieval augmented triage built in.",
+      "bullets": [],
+      "terminal": [
+        "$ pnpm run impact:analysis",
+        "$ pnpm run impact:gemini-review",
+        "$ pnpm run impact:visual-diff"
+      ],
+      "cues": [
+        {
+          "text": "The review framework pairs GitHub Models for low latency code review with Gemini for multi-modal visual interface analysis.",
+          "startMs": 0,
+          "endMs": 8793
+        },
+        {
+          "text": "It is routed through LangChain, with retrieval augmented triage built in.",
+          "startMs": 8793,
+          "endMs": 14166.666666666666
+        }
+      ],
+      "durationMs": 14166.666666666666
+    },
+    {
+      "name": "Clone it. Wire it. Ship it.",
+      "slug": "clone-it-wire-it-ship-it",
+      "visual": "title",
+      "narration": "Boomtick already powers boomtick dot blog. Clone the repo, run the setup script, and give your agents the tooling they deserve.",
+      "bullets": [],
+      "terminal": [],
+      "cues": [
+        {
+          "text": "Boomtick already powers boomtick dot blog.",
+          "startMs": 0,
+          "endMs": 2362
+        },
+        {
+          "text": "Clone the repo, run the setup script, and give your agents the tooling they deserve.",
+          "startMs": 2362,
+          "endMs": 8266.666666666668
+        }
+      ],
+      "durationMs": 8266.666666666668
+    }
+  ],
+  "durationMs": 93433.33333333334
+}

@@ -1,0 +1,92 @@
+{
+  "id": "demo",
+  "title": "Demo Video Toolkit",
+  "chapters": [
+    {
+      "name": "One command, one video",
+      "slug": "one-command-one-video",
+      "visual": "title",
+      "narration": "Demo video turns a repository and a narration script into a polished, minute-long demo.",
+      "bullets": [],
+      "terminal": [],
+      "cues": [
+        {
+          "text": "Demo video turns a repository and a narration script into a polished, minute-long demo.",
+          "startMs": 0,
+          "endMs": 5850
+        }
+      ],
+      "durationMs": 5850
+    },
+    {
+      "name": "What is in the box",
+      "slug": "what-is-in-the-box",
+      "visual": "bullets",
+      "narration": "Everything is derived from a single source, so the captions and the voice never drift.",
+      "bullets": [
+        "One markdown script drives narration, captions, and timing",
+        "Offline narration with kokoro, no API keys",
+        "Chapter components with a consistent motion language"
+      ],
+      "terminal": [],
+      "cues": [
+        {
+          "text": "Everything is derived from a single source, so the captions and the voice never drift.",
+          "startMs": 0,
+          "endMs": 6225
+        }
+      ],
+      "durationMs": 6225
+    },
+    {
+      "name": "Watch the pipeline",
+      "slug": "watch-the-pipeline",
+      "visual": "terminal",
+      "narration": "The CLI can run every stage alone. Each stage is checkable on its own before the next one runs.",
+      "bullets": [],
+      "terminal": [
+        "$ npx demo-video plan templates/demo-video.md",
+        "$ npx demo-video tts templates/demo-video.md",
+        "$ npx demo-video render templates/demo-video.md"
+      ],
+      "cues": [
+        {
+          "text": "The CLI can run every stage alone.",
+          "startMs": 0,
+          "endMs": 2846
+        },
+        {
+          "text": "Each stage is checkable on its own before the next one runs.",
+          "startMs": 2846,
+          "endMs": 7725
+        }
+      ],
+      "durationMs": 7725
+    },
+    {
+      "name": "Two views, one script",
+      "slug": "two-views-one-script",
+      "visual": "split",
+      "narration": "The same script can show a terminal beside the narration, or bullets beside it. This chapter shows a split layout, with the command on the right.",
+      "bullets": [],
+      "terminal": [
+        "$ npx demo-video render --silent",
+        "render: out/demo.mp4"
+      ],
+      "cues": [
+        {
+          "text": "The same script can show a terminal beside the narration, or bullets beside it.",
+          "startMs": 0,
+          "endMs": 5573
+        },
+        {
+          "text": "This chapter shows a split layout, with the command on the right.",
+          "startMs": 5573,
+          "endMs": 10350
+        }
+      ],
+      "durationMs": 10350
+    }
+  ],
+  "durationMs": 30150
+}
