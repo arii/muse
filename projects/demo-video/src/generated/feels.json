@@ -6,22 +6,27 @@
       "name": "What is in the cup?",
       "slug": "what-is-in-the-cup",
       "visual": "title",
-      "narration": "What is in the cup? This robot cannot see inside it — and it does not need to.",
+      "narration": "What is in the cup? This robot cannot see inside it — and it does not need to. Frontier SF — made by Ariel Anders using obvious.ai.",
       "bullets": [],
       "terminal": [],
       "cues": [
         {
           "text": "What is in the cup?",
           "startMs": 0,
-          "endMs": 1426
+          "endMs": 1765
         },
         {
           "text": "This robot cannot see inside it — and it does not need to.",
-          "startMs": 1426,
-          "endMs": 5133.333333333334
+          "startMs": 1765,
+          "endMs": 6355
+        },
+        {
+          "text": "Frontier SF — made by Ariel Anders using obvious.ai.",
+          "startMs": 6355,
+          "endMs": 9533.333333333334
         }
       ],
-      "durationMs": 5133.333333333334
+      "durationMs": 9533.333333333334
     },
     {
       "name": "The swirl is the sensor",
@@ -175,5 +180,5 @@
       "durationMs": 10200
     }
   ],
-  "durationMs": 61633.333333333336
+  "durationMs": 66033.33333333334
 }
