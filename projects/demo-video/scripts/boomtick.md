@@ -11,6 +11,8 @@ title: Boomtick
 
 Boomtick is a template repository that hands your autonomous agents the tooling real projects need. No glue code, no re-invented workflows, no key hunting.
 
+Frontier SF — made by Ariel Anders using obvious.ai.
+
 ## Three pillars
 
 <!-- visual: bullets -->
