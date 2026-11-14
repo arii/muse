@@ -9,7 +9,7 @@ title: Feels — Teaching a Robot to Feel
 
 <!-- visual: title -->
 
-What is in the cup? This robot cannot see inside it — and it does not need to.
+What is in the cup? This robot cannot see inside it — and it does not need to. Frontier SF — made by Ariel Anders using obvious.ai.
 
 ## The swirl is the sensor
 
