@@ -1,16 +1,16 @@
 # QA note: tech-dancer proof video
 
 - Script: `scripts/tech-dancer.md` · Render: `out/tech-dancer.mp4` (gitignored; delivered as a project file)
-- Toolkit head at render: see PR (branch `video/tech-dancer`)
+- Toolkit head at render: branch `video/tech-dancer-intro` (intro-credit rework, PR against `release/demo-video-toolkit`)
 
 ## Acceptance checks (measured, this session)
 
 | Check | Result |
 |---|---|
-| Duration | 79.6 s (`ffprobe` format.duration = 79.552) — inside 60–120 s |
+| Duration | 84.8 s (`ffprobe` format.duration = 84.779) — inside 60–120 s |
 | Resolution / fps | 1280×720 @ 30 fps (`ffprobe`: h264, r_frame_rate 30/1) |
-| Audio stream | Present: aac, full 79.552 s |
-| Per-chapter narration files | 8 wav files under `public/voiceover/tech-dancer/`, each ffprobe-verified valid pcm_f32le audio (9.03 / 8.05 / 5.85 / 9.00 / 14.43 / 13.03 / 10.63 / 9.45 s) |
+| Audio stream | Present: aac, full 84.779 s |
+| Per-chapter narration files | 8 wav files under `public/voiceover/tech-dancer/`, each ffprobe-verified valid pcm_f32le audio (14.28 / 8.05 / 5.85 / 9.00 / 14.43 / 13.03 / 10.63 / 9.45 s) |
 | Caption source | Cues cut verbatim from the same narration strings the TTS speaks (toolkit invariant; `scripts/tech-dancer.md` is the single source) |
 | No `projects/grasping-2026/**` touched | `git status` clean except toolkit files |
 
@@ -18,7 +18,7 @@
 
 Four frames sampled across the timeline (5.0 s, 23.3 s, 43.3 s, 66.7 s) and inspected this session:
 
-- `title` card (open): clean hierarchy — gold kicker "BOOMTICK", large white headline, dim subtitle; caption bar carries the verbatim opening sentence.
+- `title` card (open): clean hierarchy — gold kicker "BOOMTICK", large white headline, dim subtitle; caption bar carries the verbatim opening sentence. **Intro credit (this rework):** the opening narration now ends with "Frontier SF — made by Ariel Anders, using obvious dot AI." — shown on the title card as the subtitle and spoken by the voice; the caption bar carries it verbatim when that sentence is delivered (verified at ~12 s frame). "obvious dot AI" follows the toolkit's spelled-as-read convention (cf. "boomtick dot blog") so the caption stays verbatim with the TTS input; "obvious.ai" as a raw token is not verified TTS-safe.
 - `split` chapter ("Built like a product"): narration text beside the `pnpm build` pipeline panel; line lengths safe at 1280×720, no clipping.
 - `terminal` chapters ("Meet the td CLI", "Guarded by quality gates"): the repo's own commands (`td doctor`, `td preflight`, `pnpm ci:local`) with the check names `td doctor` actually verifies (node runtime, pnpm, git safe directory, GitHub app credentials) and the repo's `ci:local` gate list (oxlint + eslint, vitest + playwright, semgrep + knip, lighthouse). Note: `td doctor` fails in this sandbox only from a Node version mismatch (expects 24.16.0, sandbox runs 20.20.2); the video shows the tool's real check surface, not this environment's error output.
 - Motion consistent with the toolkit's bezier ease-out language; captions legible in every sampled frame.
