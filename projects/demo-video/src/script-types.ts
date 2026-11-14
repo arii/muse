@@ -3,7 +3,13 @@
 // (src/generated/<id>.json). One script drives narration, captions, and
 // scene timing, so they cannot drift.
 
-export type Visual = "title" | "bullets" | "terminal" | "split" | "screenshot";
+export type Visual =
+  | "title"
+  | "bullets"
+  | "terminal"
+  | "split"
+  | "screenshot"
+  | "replay";
 
 // Cue shape matches @remotion/captions `Caption`
 // (text/startMs/endMs, chapter-relative milliseconds).

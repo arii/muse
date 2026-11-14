@@ -135,6 +135,16 @@ describe("compileScript", () => {
     );
   });
 
+  it("parses a replay chapter with its clip spec in the fence block", () => {
+    const replay = compileScript(
+      "---\nid: r\ntitle: R\n---\n# R\n## Live footage\n\n<!-- visual: replay -->\n\nNarration here.\n\n```replay\nlive-dashboard.mp4\n```\n",
+      "replay.md"
+    ).chapters[0]!;
+    assert.equal(replay.visual, "replay");
+    assert.deepEqual(replay.terminal, ["live-dashboard.mp4"]);
+    assert.ok(replay.narration.includes("Narration here."));
+  });
+
   it("rejects scripts with no chapters", () => {
     assert.throws(
       () => compileScript("# T\n\nJust prose.\n", "bad.md"),

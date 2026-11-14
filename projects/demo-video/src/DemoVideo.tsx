@@ -7,6 +7,7 @@ import { BulletList } from "./components/BulletList";
 import { TerminalChapter } from "./components/Terminal";
 import { Split } from "./components/Split";
 import { Screenshot } from "./components/Screenshot";
+import { Replay } from "./components/Replay";
 import { chapterVoiceoverFile } from "./timing";
 import type { Chapter, VideoScript } from "./script-types";
 
@@ -29,6 +30,8 @@ const ChapterCard: React.FC<{ chapter: Chapter; kicker: string; videoId: string 
       return <Split chapter={chapter} />;
     case "screenshot":
       return <Screenshot chapter={chapter} videoId={videoId} />;
+    case "replay":
+      return <Replay chapter={chapter} videoId={videoId} />;
     case "title":
       return <Title chapter={chapter} kicker={kicker} />;
   }
