@@ -13,18 +13,18 @@
 | Audio stream | Present: aac (`ffprobe`), narration-only |
 | Chapter count | 5 (`title`, `replay`, `split`, `split`, `title`); plan estimate 52.5 s |
 | Per-chapter narration files | 5 wav files under `public/voiceover/posture-guard/` (15.10 / 12.95 / 9.70 / 9.95 / 4.85 s), 22.7 s synthesis per 100 words |
-| Replay source | Project file `fl_BKXxmrNc` ("Recording Nov 13, 2026 - 3_14 PM.mp4", 43.19 s, 1920×1080 @ 30 fps, h264+aac) — user-uploaded live dashboard footage |
-| Replay clip | Source 26–42 s span (pose skeleton + live metrics + camera-placement panel + Test nudge button all visible), lanczos-scaled 1920×1080 → 1280×720 (full-frame, aspect-matched, no crop), ambient audio stream removed — the clip is silent (`ffprobe`: video stream only), so narration is never competed with. Committed at `public/replay/posture-guard/live-dashboard.mp4` (16.0 s, ~1.0 MB); the chapter's narration (12.95 s) fits inside it |
+| Replay source | Project file `fl_u5qpw7z4` ("Recording Nov 13, 2026 - 4_33 PM.mp4", 18.297 s, 1920×1080 @ 30 fps, h264+aac) — user-uploaded live dashboard footage; **replaces the older 3:14 PM recording (`fl_BKXxmrNc`) used in the PR #19 cut** |
+| Replay clip | Source 0–16 s span — the whole 18.3 s clip qualifies (needle visible and moving, reading 8 then 6); pose skeleton + live metrics + POSTURE NEEDLE gauge + 'Good — reward chime' banner all on screen. Lanczos-scaled 1920×1080 → 1280×720 (full-frame, aspect-matched, no crop), ambient audio stream removed — the clip is silent (`ffprobe`: video stream only), so narration is never competed with. Committed at `public/replay/posture-guard/live-dashboard.mp4` (16.0 s, ~1.0 MB); the chapter's narration (12.95 s) fits inside it |
 | Caption source | Cues cut verbatim from the same narration strings the TTS speaks (toolkit invariant; `scripts/posture-guard.md` is the single source). Numbers spelled as read; no bare digits in spoken text |
 | No `projects/grasping-2026/**` touched | `git status` shows only `projects/demo-video/**` files |
 | Toolkit checks | `npm run lint` clean, `npm test` 80 pass / 0 fail |
 
 ## Visual quality (verified by frame inspection)
 
-Frames sampled at 2, 8, 18, 25, 32, 42, and 50 s and inspected this session:
+Frames sampled this session: 8, 18, 20, 25, and 32 s, with 18 s and 25 s (mid-replay) inspected closely:
 
 - `title` cards (open/close): gold kicker reads "POSTURE GUARD — FRONTIER SF", large white headline, dim subtitle, caption bar clear of the card text. The opening card carries the Frontier SF hackathon credit (Ariel Anders, Obvious AI) in the on-card narration text, the spoken line, and the burned-in caption.
-- `replay` chapter ("Live on the dashboard"): full-bleed live footage — green pose-skeleton overlay over the RealSense feed, live metrics panel updating on screen (head-forward / trunk-lean / head-tilt / shoulder-level angles with degree readouts), camera-placement guidance beside the feed, and the Test nudge button visible. Frames at 18 s and 25 s show motion (footage is playing, not frozen) and the verbatim caption tracking the narration.
+- `replay` chapter ("Live on the dashboard"): full-bleed live footage — green pose-skeleton overlay over the RealSense feed, live metrics panel updating on screen (head-forward / trunk-lean / head-tilt / shoulder-level angles with degree readouts), and the **POSTURE NEEDLE gauge with the needle visibly moving across frames (reading 7 at the sampled timestamps), plus the GOOD state and 'Good — reward chime' banner** — all from the newer 4:33 PM recording (`fl_u5qpw7z4`). Frames at 18 s and 25 s show motion (footage is playing, not frozen) and the verbatim caption tracking the narration. The camera-placement guidance and Test button from the older recording's framing are no longer visible in this clip's crop; the narration sentence is unchanged because the script is the single source and the swap is footage-only.
 - `split` chapters: the repo's own documented test-nudge curl (`POST /nudge/test`) and real `config.yaml` knobs (`head_forward_deg: 12.0`, `voice_repeat_cooldown_s: 30.0`).
 
 One intermediate render was discarded this session: an edit race briefly reverted the title-card kicker to "POSTURE GUARD"; the fix was re-applied, the plan regenerated (title confirmed in `src/generated/posture-guard.json`), and the delivered render is the corrected one.
