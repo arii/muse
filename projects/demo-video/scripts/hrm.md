@@ -11,6 +11,8 @@ title: HRM Dashboard
 
 HRM is a real-time heart rate monitoring dashboard for group workouts. It streams live heart rate from Bluetooth sensors to a shared big-screen view, and keeps every phone, laptop, and display in sync.
 
+Frontier SF — made by Ariel Anders using obvious.ai.
+
 ## What it does
 
 <!-- visual: bullets -->
