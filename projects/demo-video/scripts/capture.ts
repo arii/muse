@@ -1,3 +1,4 @@
+/// <reference lib="es2022.error" />
 import fs from "node:fs";
 import path from "node:path";
 import { spawn, execFileSync } from "node:child_process";
@@ -5,7 +6,7 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { parseArgs } from "node:util";
 import { pathToFileURL } from "node:url";
-import { chromium } from "playwright-core";
+import { chromium, type Page } from "playwright-core";
 import { findBrowserExecutable, BROWSER_CACHE_ROOTS } from "./browser";
 import { PROJECT_ROOT } from "./config";
 import { serveDirectory } from "./capture-server";
@@ -53,9 +54,10 @@ export function captureOptions(args: string[]) {
 }
 
 export async function captureMain(args: string[]): Promise<void> {
-  const options = captureOptions(args);
-  if (!options) { console.log(CAPTURE_USAGE); return; }
-  const executablePath = options["browser-executable"] ?? findBrowserExecutable(BROWSER_CACHE_ROOTS(PROJECT_ROOT)) ?? process.env.CHROME_PATH;
+  const parsed = captureOptions(args);
+  if (!parsed) { console.log(CAPTURE_USAGE); return; }
+  const options = parsed;
+  const executablePath = captureBrowser(options["browser-executable"]);
   if (!executablePath) throw new Error("Browser not found; run npm run setup or pass --browser-executable");
   execFileSync("ffmpeg", ["-version"], { stdio: "ignore" });
   const hosted = options.serve ? await serveDirectory(options.serve) : null;
@@ -68,11 +70,7 @@ export async function captureMain(args: string[]): Promise<void> {
     page.setDefaultTimeout(options.timeout);
     page.on("pageerror", error => console.error(`page error: ${error.message}`));
     await page.goto(url, { timeout: options.timeout, waitUntil: "load" });
-    try {
-      await page.waitForFunction(() => window.__cinema?.ready === true && typeof window.__cinema.render === "function", null, { timeout: options.timeout });
-    } catch {
-      throw new Error(`Page never exposed ready window.__cinema.render(t) within ${options.timeout}ms: ${url}`);
-    }
+    await waitForCinema(page, options.timeout, url);
     await page.evaluate(() => document.fonts.ready);
     const duration = options.duration ?? await page.evaluate(() => window.__cinema!.duration);
     if (!Number.isFinite(duration) || duration <= 0) throw new Error("__cinema.duration must be positive (or provide --duration)");
@@ -86,15 +84,16 @@ export async function captureMain(args: string[]): Promise<void> {
     const total = Math.ceil(duration * options.fps), started = Date.now();
     async function* frames() {
       for (let i = 0; i < total; i++) {
-        await page.evaluate(t => window.__cinema!.render(t), i / options!.fps);
+        await page.evaluate(t => window.__cinema!.render(t), i / options.fps);
         yield await page.screenshot({ type: "jpeg", quality: 94, animations: "disabled" });
-        if (i % options!.fps === 0) console.log(`capture: frame ${i}/${total} (${((Date.now() - started) / 1000).toFixed(1)}s elapsed)`);
+        if (i % options.fps === 0) console.log(`capture: frame ${i}/${total} (${((Date.now() - started) / 1000).toFixed(1)}s elapsed)`);
       }
     }
     await Promise.all([pipeline(Readable.from(frames(), { objectMode: false }), encoder.stdin!), encoded]);
     for (const second of options.stills) {
       const file = options.out.replace(/\.mp4$/, `_${second}s.png`);
-      execFileSync("ffmpeg", ["-y", "-loglevel", "error", "-ss", String(second), "-i", options.out, "-frames:v", "1", file]);
+      await page.evaluate(t => window.__cinema!.render(t), second);
+      await page.screenshot({ path: file, type: "png", animations: "disabled" });
       console.log(`still: ${file}`);
     }
     console.log(`capture: ${options.out} (${total} frames, ${options.fps} fps, ${(total / options.fps).toFixed(3)}s)`);
@@ -102,6 +101,19 @@ export async function captureMain(args: string[]): Promise<void> {
     encoder?.kill();
     await browser?.close();
     if (hosted) await new Promise<void>((resolve, reject) => hosted.server.close(error => error ? reject(error) : resolve()));
+  }
+}
+
+export function captureBrowser(explicit?: string) {
+  return explicit ?? process.env.CHROME_PATH ?? findBrowserExecutable(BROWSER_CACHE_ROOTS(PROJECT_ROOT));
+}
+
+export async function waitForCinema(page: Pick<Page, "waitForFunction">, timeout: number, url: string) {
+  try {
+    await page.waitForFunction(() => window.__cinema?.ready === true && typeof window.__cinema.render === "function", null, { timeout });
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : String(cause);
+    throw new Error(`Page never exposed ready window.__cinema.render(t) within ${timeout}ms: ${url}: ${message}`, { cause });
   }
 }
 

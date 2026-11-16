@@ -11,8 +11,18 @@ const TYPES: Record<string, string> = {
 export async function serveDirectory(directory: string) {
   const root = fs.realpathSync(directory);
   if (!fs.statSync(root).isDirectory()) throw new Error(`Not a directory: ${root}`);
-  const contained = (file: string) => file === root || file.startsWith(root + path.sep);
   const server = http.createServer((request, response) => {
+    const allowPath = (file: string) => {
+      if (file === root || file.startsWith(root + path.sep)) return true;
+      response.writeHead(403).end("Outside static root");
+      return false;
+    };
+    const fileError = (error: NodeJS.ErrnoException) => {
+      const missing = error.code === "ENOENT" || error.code === "ENOTDIR";
+      if (!missing) console.error("capture server:", error);
+      if (response.headersSent) response.destroy();
+      else response.writeHead(missing ? 404 : 500).end(missing ? "Not found" : "Internal server error");
+    };
     let requested: string;
     try {
       requested = decodeURIComponent((request.url ?? "/").split("?")[0]!);
@@ -22,28 +32,22 @@ export async function serveDirectory(directory: string) {
       return;
     }
     let file = path.resolve(root, `.${requested}`);
-    if (!contained(file)) {
-      response.writeHead(403).end("Outside static root");
-      return;
-    }
+    if (!allowPath(file)) return;
     try {
       file = fs.realpathSync(file);
-      if (!contained(file)) {
-        response.writeHead(403).end("Outside static root");
-        return;
-      }
+      if (!allowPath(file)) return;
       if (fs.statSync(file).isDirectory()) file = fs.realpathSync(path.join(file, "index.html"));
-      if (!contained(file)) {
-        response.writeHead(403).end("Outside static root");
+      if (!allowPath(file)) return;
+      if (!fs.statSync(file).isFile()) {
+        response.writeHead(404).end("Not found");
         return;
       }
-      if (!fs.statSync(file).isFile()) throw new Error("Not a file");
-      response.writeHead(200, { "Content-Type": TYPES[path.extname(file)] ?? "application/octet-stream" });
       const stream = fs.createReadStream(file);
-      stream.on("error", () => response.destroy());
+      stream.on("error", fileError);
+      response.setHeader("Content-Type", TYPES[path.extname(file)] ?? "application/octet-stream");
       stream.pipe(response);
-    } catch {
-      response.writeHead(404).end("Not found");
+    } catch (error) {
+      fileError(error as NodeJS.ErrnoException);
     }
   });
   await new Promise<void>((resolve, reject) => {

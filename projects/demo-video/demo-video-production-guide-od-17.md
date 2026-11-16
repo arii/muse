@@ -1,9 +1,5 @@
 # OD-17 production guide: deterministic Cinema and compressed highlight cuts
 
-This guide was not found in the checkout, elsewhere on disk, or by GitHub code
-search for `demo-video-production-guide` / `demo-video-production-guide-od-17`
-in `user:arii` on 2026-11-16, so it is created here for issue #24.
-
 ## Locked decisions (unchanged)
 
 One Markdown script remains the source for narration, captions and chapters.
@@ -35,16 +31,8 @@ Source: [`src/engine/cinema.ts`](https://github.com/arii/caffeinated/blob/main/s
 (`CinemaPhase`, `CINEMA_PHASES`, `cinemaPlan`, `cinemaTickAt`). It derives
 beats from real events and assigns less screen time to quiet ticks. Do not
 blindly copy the phase times to another product: derive its beats from its own
-recording. The toolkit supports the same pattern as explicit replay segments:
-
-````markdown
-```replay
-clip.mp4
-0-6
-6-40 x4
-40-52
-```
-````
+recording. Use the [README replay syntax](README.md#replay-highlight-cuts) for
+explicit source-clip segments.
 
 Ranges are source seconds, end-exclusive. `x4` gives a quiet stretch one quarter
 of its natural screen time relative to `x1` stretches. Segments play in listed
@@ -55,6 +43,8 @@ edit weight, not a promise of exactly four-times playback after fitting.
 Frame budgets use cumulative rounding and exactly fill the chapter. Check
 that every range falls inside the actual clip with ffprobe; the planner can
 validate syntax and ordering within a range, not remote media duration.
+Source endpoints are rounded to composition frames before fitting; rates use
+that same trimmed frame span. Sub-frame source ranges fail during planning.
 Single-line replay blocks retain their original untrimmed, normal-speed behavior.
 
 Hold important action at readable speed. Accelerate idle/search/waiting
@@ -76,6 +66,15 @@ pattern, not a reason to fork the toolkit's single-source narration captions.
 * Capture calls `render(i/fps)` and awaits its completion before each screenshot.
   The ffmpeg pipe uses stream backpressure. Slow SwiftShader changes wall time,
   not video pacing. Capture duration defaults to the page's duration.
+
+Capture defaults are 30 fps, 1280×720, and a 30,000 ms readiness timeout
+(`--timeout-ms`). Dimensions must be even. `--stills 5,18` makes lossless PNG
+screenshots beside the MP4 after separate `render(5)` and `render(18)` calls;
+it does not decode stills from the lossy video. Browser selection is explicit
+`--browser-executable`, then `CHROME_PATH`, then the toolkit cache. Run setup
+to prefetch the cache; `playwright-core` does not download another browser.
+Segmented replays contain the whole source above a 120 px narration-caption
+band and omit the redundant toolkit badge; legacy clips remain full-frame.
 
 Provenance in Caffeinated:
 

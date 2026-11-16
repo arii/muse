@@ -128,40 +128,13 @@ npm run capture -- --serve /path/to/build --path '/?cinema=1&capture=1' \
 # The bin wrapper also accepts: demo-video capture <same flags>
 ```
 
-Capture contract for the app being filmed:
-
-* `?cinema=1` is director mode: hide every ordinary UI panel/drawer/control,
-  keeping only the canvas and intentional director overlay.
-* `?cinema=1&capture=1` stops the live wall-clock loop and exposes
-  `window.__cinema = { ready, duration, render(t) }`. `duration` and `t` are
-  seconds; `ready` becomes true once recording/assets/scene are loaded.
-  `render(t)` may be async. **All state must be a pure function of t**, including
-  camera, lighting, transitions and seeded effects. Repeated/out-of-order calls
-  must produce the same frame; no wall-clock physics or accumulating deltas.
-
-The command awaits readiness, calls `render(i/fps)`, screenshots each frame,
-then pipes JPEGs to ffmpeg with stream backpressure. Slow rendering changes
-wall time, not pacing. Duration defaults to `__cinema.duration`; override with
-`--duration <seconds>`. Defaults: 30 fps, 1280×720, 30,000 ms readiness timeout
-(`--timeout-ms`). Missing contract fails explicitly. `--stills 5,18` extracts
-PNGs from the encoded MP4 beside it. Size dimensions must be even. Use the
-app's intended layout dimensions (Caffeinated targets **1920×1080**), then scale
-the real clip if needed for the 1280×720 composition.
-
-Browser selection: explicit `--browser-executable`, then the existing toolkit
-browser caches (`scripts/browser.ts`), then `CHROME_PATH`. Run the unchanged
-`npm run setup` prefetch first. `playwright-core` drives that browser; it does
-not download a second browser. The optional static server uses resolved and
-real-path containment (including symlinks), returns 403 outside the root, and
-binds loopback only. It is not an internet-facing production server.
-
-Sources in **arii/caffeinated**: `video/CINEMA_STATUS.md`,
-`video/scripts/cinema.mjs`, `src/engine/cinema.ts`, `src/engine/cinemaView.ts`,
-`src/cinema.css`, `src/main.ts` (Cinema flag, capture bridge and live loop,
-approximately lines 57–632), and `tests/cinema.test.js`. Detailed source links,
-the hook/trap/snap/breakthrough/proof pattern, 2.8-second caption flashes and
-real-results proof-card guidance are in
-[demo-video-production-guide-od-17.md](demo-video-production-guide-od-17.md).
+`?cinema=1` hides ordinary UI, keeping canvas + director overlay.
+`?cinema=1&capture=1` exposes `window.__cinema = { ready, duration, render(t) }`;
+all state must be a pure function of `t` in seconds. Capture awaits readiness
+and renders each frame explicitly. Browser: `--browser-executable` →
+`CHROME_PATH` → toolkit cache. See `npm run capture -- --help` for flags and the
+[production guide](demo-video-production-guide-od-17.md) for defaults, lossless
+stills, containment, Caffeinated source references and production/QA guidance.
 
 ## Replay highlight cuts
 
@@ -177,21 +150,6 @@ clip.mp4
 ```
 ````
 
-Source ranges are seconds, end-exclusive; an omitted speed means `x1`. Segments
-play in listed order (gaps/reordering/repeats are intentional edit decisions).
-The example cut lasts 26.5 seconds before fitting. Once chapter audio is
-measured, the **whole cut fits that chapter** proportionally; `x4` makes a quiet
-stretch four times faster relative to an `x1` stretch, not necessarily exactly
-four-times speed after fitting. Cumulative frame rounding fills the chapter
-without gaps. The legacy single-file syntax is unchanged and is not retimed.
-
-`plan` rejects missing clips, escaping paths, malformed ranges, nonpositive
-speeds and end ≤ start. Confirm ranges against ffprobe duration: the parser
-cannot infer a clip's available source seconds. Footage remains muted. The
-single narration script still drives speech and captions; no OD-17 decisions,
-TTS defaults, prefetch behavior or render presets are changed.
-
-Segmented footage is contained above a 120 px narration-caption band, without
-the toolkit's chapter badge, so embedded director captions and branding remain
-visible and do not collide with narration. Legacy single-file clips keep the
-original full-frame layout and badge.
+The filename alone keeps legacy playback. Segment fitting, relative speeds,
+validation and caption-safe layout are detailed in the
+[highlight-cut guide](demo-video-production-guide-od-17.md#the-compressed-highlight-cut-pattern).
