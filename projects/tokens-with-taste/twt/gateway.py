@@ -164,7 +164,7 @@ class Gateway:
                         and attempt["prompt_tokens"] is not None and attempt["completion_tokens"] is not None):
                     attempt["cost_usd"] = attempt["prompt_tokens"] * model["input_price"] + attempt["completion_tokens"] * model["output_price"]
                 if response.status_code == 429:
-                    self.cooldowns[key] = self.clock() + retry_seconds(response.headers.get("Retry-After"))
+                    self.cooldowns[key] = max(self.cooldowns.get(key, 0), self.clock() + retry_seconds(response.headers.get("Retry-After")))
                 if response.status_code == 429 or response.status_code >= 500:
                     attempt["reason"] = f"upstream HTTP {response.status_code}"
                     continue

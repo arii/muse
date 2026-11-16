@@ -62,6 +62,40 @@ def test_concurrent_requests_reserve_rpm_before_http(store, monkeypatch):
     asyncio.run(scenario())
 
 
+def test_concurrent_429s_preserve_longest_cooldown(store, monkeypatch):
+    configuration = setup(store, monkeypatch, 1)
+
+    async def scenario():
+        both_started, release_short = asyncio.Event(), asyncio.Event()
+        started = 0
+
+        async def upstream(request):
+            nonlocal started
+            started += 1
+            ordinal = started
+            if ordinal == 2:
+                both_started.set()
+                await release_short.wait()
+            else:
+                await asyncio.wait_for(both_started.wait(), timeout=2)
+            return httpx.Response(429, json={"error": "rate limited"},
+                                  headers={"Retry-After": "100" if ordinal == 1 else "10"})
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
+            gateway = Gateway(store, client, configuration, clock=lambda: 1000)
+            long_request = asyncio.create_task(gateway.complete(REQUEST))
+            short_request = asyncio.create_task(gateway.complete(REQUEST))
+            try:
+                await asyncio.wait_for(long_request, timeout=2)
+            finally:
+                release_short.set()
+                await asyncio.wait_for(short_request, timeout=2)
+            assert started == 2
+            assert gateway.cooldowns[("p0", "chat")] == 1100
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("origin", ["https://evil.test", "null", "http://localhost.evil.test", "http://127.0.0.1@evil.test", "http://localhost:bad"])
 def test_hostile_origin_cannot_spend(store, monkeypatch, origin):
     configuration = setup(store, monkeypatch, 1)
