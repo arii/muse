@@ -157,12 +157,32 @@ def shell_lines(source):
             yield number, tokens
 
 
+def shell_text(line):
+    quote, escaped, result = None, False, []
+    for char in line.strip():
+        if escaped:
+            escaped = False
+        elif char == "\\" and quote != "'":
+            escaped = True
+        elif char in "\"'" and (quote is None or quote == char):
+            quote = char if quote is None else None
+        elif char.isspace() and quote is None:
+            if result and result[-1] != " ":
+                result.append(" ")
+            continue
+        result.append(char)
+    return "".join(result)
+
+
 def shell_findings(source):
     lines = list(shell_lines(source))
+    raw_lines = source.splitlines()
     seen = {}
     branches = []
     for index, (number, tokens) in enumerate(lines):
+        body_line = shell_text(raw_lines[number - 1])
         if tokens[0] in {"then", "do"}:
+            body_line = re.sub(r"^(then|do)\b\s*;?\s*", "", body_line)
             tokens = tokens[1:]
             if tokens and tokens[0] == ";":
                 tokens = tokens[1:]
@@ -170,7 +190,7 @@ def shell_findings(source):
                 continue
         separator = tokens[0] in {"else", "elif", "fi"}
         for _, alternatives in branches[:-1] if separator else branches:
-            alternatives[-1].append(tokens)
+            alternatives[-1].append(body_line)
         if tokens[0] == "if":
             branches.append([number, [[]]])
             if len(branches) == 4:
@@ -195,8 +215,8 @@ def shell_findings(source):
         block = lines[index:index + 4]
         if len(block) != 4 or any(t[0] in {"if", "then", "else", "fi", "done", "}"} for _, t in block):
             continue
-        key = tuple(tuple(re.sub(r"\d+", "N", t) for t in row) for _, row in block)
-        if sum(len(" ".join(row)) for row in key) < 100:
+        key = tuple(re.sub(r"\d+", "N", shell_text(raw_lines[n - 1])) for n, _ in block)
+        if sum(map(len, key)) < 100:
             continue
         if key in seen and number >= seen[key] + 4:
             yield "near-duplicate", number, f"text block repeats line {seen[key]}"

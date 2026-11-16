@@ -70,6 +70,13 @@ class DetectorTests(unittest.TestCase):
             with self.subTest(first=first):
                 self.assertEqual(1, len(audit.audit_source(source, "sample.sh", ["dead-fallback"])))
 
+    def test_shell_duplicates_preserve_quotes(self):
+        source = 'if first; then\n echo "$HOME"\nelse\n echo \'$HOME\'\nfi\n'
+        self.assertEqual([], audit.audit_source(source, "sample.sh", ["dead-fallback"]))
+        block = 'echo "$HOME" --long-argument-one\necho "$USER" --long-argument-two\necho "$PATH" --long-argument-three\necho "$PWD" --long-argument-four\n'
+        self.assertEqual([], audit.audit_source(block + block.replace('"', "'"), "sample.sh", ["near-duplicate"]))
+        self.assertEqual(1, len(audit.audit_source(source.replace("'$HOME'", '"$HOME"'), "sample.sh", ["dead-fallback"])))
+
     def test_over_defensive(self):
         self.assert_detector("over-defensive", "if a:\n if b:\n  if c:\n   if d:\n    run()\n",
                              "if a:\n if b:\n  run()\n")
