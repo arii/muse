@@ -45,7 +45,7 @@ def main(argv=None):
             try:
                 print("\n".join(asyncio.run(sync(store))))
             except Exception as error:
-                parser.exit(1, f"Catalog sync failed ({type(error).__name__}); existing catalog retained.\n")
+                parser.exit(1, f"Catalog sync failed ({type(error).__name__}: {error}); existing catalog retained.\n")
         elif args.command == "models":
             rows = [m for m in store.models() if m["chat"] and (not args.free or m["free"])
                     and (not args.tools or m["tools"])]

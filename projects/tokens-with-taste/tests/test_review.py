@@ -4,9 +4,62 @@ import json
 import httpx
 import pytest
 
-from twt.gateway import create_app
+from twt.gateway import Gateway, create_app
 from twt.audit import report
 from test_gateway import REQUEST, reply, run, setup
+
+
+def test_slow_upstream_requests_overlap(store, monkeypatch):
+    configuration = setup(store, monkeypatch, 1)
+
+    async def scenario():
+        both_started = asyncio.Event()
+        started = 0
+
+        async def upstream(request):
+            nonlocal started
+            started += 1
+            if started == 2:
+                both_started.set()
+            await asyncio.wait_for(both_started.wait(), timeout=2)
+            return httpx.Response(200, json=reply())
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
+            gateway = Gateway(store, client, configuration)
+            results = await asyncio.gather(gateway.complete(REQUEST), gateway.complete(REQUEST))
+        assert started == 2
+        assert [status for _, status, _ in results] == [200, 200]
+        assert len(store.traces()) == 2
+
+    asyncio.run(scenario())
+
+
+def test_concurrent_requests_reserve_rpm_before_http(store, monkeypatch):
+    configuration = setup(store, monkeypatch, 1)
+    model = store.models()[0]
+    store.replace_models("p0", [{**model, "rpm": 1}])
+
+    async def scenario():
+        started, release = asyncio.Event(), asyncio.Event()
+
+        async def upstream(request):
+            started.set()
+            await release.wait()
+            return httpx.Response(200, json=reply())
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
+            gateway = Gateway(store, client, configuration)
+            first = asyncio.create_task(gateway.complete(REQUEST))
+            try:
+                await asyncio.wait_for(started.wait(), timeout=2)
+                payload, status, _ = await asyncio.wait_for(gateway.complete(REQUEST), timeout=2)
+                assert status == 503
+                assert "local RPM limit" in payload["error"]["message"]
+            finally:
+                release.set()
+                assert (await first)[1] == 200
+
+    asyncio.run(scenario())
 
 
 @pytest.mark.parametrize("origin", ["https://evil.test", "null", "http://localhost.evil.test", "http://127.0.0.1@evil.test", "http://localhost:bad"])

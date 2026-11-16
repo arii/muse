@@ -30,7 +30,7 @@ def flags_for(store, trace, context):
     if sum(a["called"] for a in trace["attempts"]) > 1:
         flags.append("FALLBACK_CASCADE")
     signatures = []
-    choices = (trace["response"] or {}).get("choices", [])
+    choices = trace["response"].get("choices", [])
     for choice in choices if isinstance(choices, list) else []:
         if not isinstance(choice, dict):
             continue
@@ -43,7 +43,7 @@ def flags_for(store, trace, context):
         for call in calls if isinstance(calls, list) else []:
             if not isinstance(call, dict) or not isinstance(call.get("function"), dict):
                 continue
-            function = call.get("function", {})
+            function = call["function"]
             arguments = function.get("arguments", "")
             try:
                 arguments = json.loads(arguments)

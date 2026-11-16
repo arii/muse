@@ -24,7 +24,8 @@ def loopback_origin(origin):
         if (parsed.scheme not in ("http", "https") or not parsed.hostname
                 or parsed.username or parsed.password or parsed.path or parsed.query or parsed.fragment):
             return False
-        parsed.port
+        if parsed.port == 0:
+            return False
         return parsed.hostname == "localhost" or ip_address(parsed.hostname).is_loopback
     except ValueError:
         return False
@@ -41,6 +42,33 @@ def retry_seconds(value):
             return 60
 
 
+def trace_headers(trace):
+    return {
+        "X-Trace-Id": trace["trace_id"], "X-Provider-Used": trace["provider"] or "none",
+        "X-Cost-Usd": str(trace["cost_usd"]) if trace["cost_usd"] is not None else "unknown",
+        "X-Audit-Flags": ",".join(trace["flags"]),
+    }
+
+
+def error_response(message, status):
+    return JSONResponse({"error": {"message": message}}, status_code=status)
+
+
+def eligible_models(catalog, provider, body):
+    candidates = [m for m in catalog if m["provider"] == provider["id"] and m["chat"]]
+    requested = body.get("model", "default")
+    if requested not in ("default", "route:default"):
+        candidates = [m for m in candidates if requested in (m["id"], f"{provider['id']}/{m['id']}")]
+    elif provider.get("free_only"):
+        candidates = [m for m in candidates if m["free"]]
+    if body.get("tools"):
+        candidates = [m for m in candidates if m["tools"]]
+    if body.get("response_format") and body["response_format"].get("type") != "text":
+        capability = "json_schema" if body["response_format"].get("type") == "json_schema" else "json"
+        candidates = [m for m in candidates if m.get(capability)]
+    return candidates
+
+
 class Gateway:
     def __init__(self, store, client, configuration=None, clock=time.monotonic):
         self.store = store
@@ -52,10 +80,6 @@ class Gateway:
         self.lock = asyncio.Lock()
 
     async def complete(self, body, privacy="standard", session=None):
-        async with self.lock:
-            return await self._complete(body, privacy, session)
-
-    async def _complete(self, body, privacy, session):
         started = self.clock()
         original_body = dict(body)
         body = {**body, "stream": False}
@@ -80,8 +104,7 @@ class Gateway:
                 trace["response"] = {"error": {"message": "TWT_DAILY_BUDGET_USD must be a finite nonnegative number"}}
                 trace["http_status"] = 500
                 self.store.save_trace(trace)
-                return trace["response"], 500, {"X-Trace-Id": trace["trace_id"], "X-Provider-Used": "none",
-                                               "X-Cost-Usd": "unknown", "X-Audit-Flags": ""}
+                return trace["response"], 500, trace_headers(trace)
         for provider in self.providers:
             attempt = {"provider": provider["id"], "model": None, "called": False,
                        "timestamp": now(),
@@ -97,39 +120,29 @@ class Gateway:
             if privacy == "strict" and (not provider["strict"] or provider["trains_on_free_tier"] is not False):
                 attempt["reason"] = "strict privacy excluded"
                 continue
-            candidates = [m for m in catalog if m["provider"] == provider["id"] and m["chat"]]
-            requested = body.get("model", "default")
-            if requested not in ("default", "route:default"):
-                candidates = [m for m in candidates if requested in (m["id"], f"{provider['id']}/{m['id']}")]
-            elif provider.get("free_only"):
-                candidates = [m for m in candidates if m["free"]]
-            if body.get("tools"):
-                candidates = [m for m in candidates if m["tools"]]
-            if body.get("response_format") and body["response_format"].get("type") != "text":
-                capability = "json_schema" if body["response_format"].get("type") == "json_schema" else "json"
-                candidates = [m for m in candidates if m.get(capability)]
+            candidates = eligible_models(catalog, provider, body)
             if not candidates:
                 attempt["reason"] = "no synced eligible chat model matching requested model/free-tier/tools/JSON capabilities; run twt sync"
                 continue
-            candidates.sort(key=lambda m: (not m["free"], m["input_price"] if m["input_price"] is not None else float("inf"), m["id"]))
-            model = candidates[0]
+            model = min(candidates, key=lambda m: (not m["free"], m["input_price"] if m["input_price"] is not None else float("inf"), m["id"]))
             attempt["model"] = model["id"]
-            if budget is not None and not model["free"] and (
-                    self.store.spend_today() >= budget or model["input_price"] is None or model["output_price"] is None):
-                attempt["reason"] = "daily budget reached or paid model price unknown"
-                continue
             key = (provider["id"], model["id"])
-            current = self.clock()
-            if self.cooldowns.get(key, 0) > current:
-                attempt["reason"] = "Retry-After cooldown"
-                continue
-            window = self.calls[key]
-            while window and window[0] <= current - 60:
-                window.popleft()
-            if model.get("rpm") is not None and len(window) >= model["rpm"]:
-                attempt["reason"] = "local RPM limit"
-                continue
-            window.append(current)
+            async with self.lock:
+                if budget is not None and not model["free"] and (
+                        self.store.spend_today() >= budget or model["input_price"] is None or model["output_price"] is None):
+                    attempt["reason"] = "daily budget reached or paid model price unknown"
+                    continue
+                current = self.clock()
+                if self.cooldowns.get(key, 0) > current:
+                    attempt["reason"] = "Retry-After cooldown"
+                    continue
+                window = self.calls[key]
+                while window and window[0] <= current - 60:
+                    window.popleft()
+                if model.get("rpm") is not None and len(window) >= model["rpm"]:
+                    attempt["reason"] = "local RPM limit"
+                    continue
+                window.append(current)
             attempt["called"] = True
             trace["provider"] = provider["id"]
             trace["model"] = model["id"]
@@ -191,11 +204,7 @@ class Gateway:
         trace["latency_ms"] = (self.clock() - started) * 1000
         trace["flags"] = flags_for(self.store, trace, context)
         self.store.save_trace(trace)
-        return response_payload, trace["http_status"], {
-            "X-Trace-Id": trace["trace_id"], "X-Provider-Used": trace["provider"] or "none",
-            "X-Cost-Usd": str(trace["cost_usd"]) if trace["cost_usd"] is not None else "unknown",
-            "X-Audit-Flags": ",".join(trace["flags"]),
-        }
+        return response_payload, trace["http_status"], trace_headers(trace)
 
 
 def create_app(store=None, client=None, configuration=None):
@@ -223,20 +232,20 @@ def create_app(store=None, client=None, configuration=None):
     async def complete(request: Request):
         origin = request.headers.get("origin")
         if origin is not None and not loopback_origin(origin):
-            return JSONResponse({"error": {"message": "Only loopback origins are allowed"}}, status_code=403)
+            return error_response("Only loopback origins are allowed", 403)
         if request.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/json":
-            return JSONResponse({"error": {"message": "Content-Type must be application/json"}}, status_code=415)
+            return error_response("Content-Type must be application/json", 415)
         try:
             body = await request.json()
         except ValueError:
-            return JSONResponse({"error": {"message": "Invalid JSON"}}, status_code=400)
+            return error_response("Invalid JSON", 400)
         if (not isinstance(body, dict) or not isinstance(body.get("messages"), list)
                 or not body["messages"] or not isinstance(body.get("model", "default"), str)
                 or ("response_format" in body and not isinstance(body["response_format"], dict))):
-            return JSONResponse({"error": {"message": "Expected a model string, nonempty messages list and response_format object"}}, status_code=400)
+            return error_response("Expected a model string, nonempty messages list and response_format object", 400)
         privacy = request.headers.get("X-Privacy", "standard").lower()
         if privacy not in ("standard", "strict"):
-            return JSONResponse({"error": {"message": "X-Privacy must be standard or strict"}}, status_code=400)
+            return error_response("X-Privacy must be standard or strict", 400)
         payload, status, response_headers = await gateway.complete(body, privacy, request.headers.get("X-Session-Id"))
         return JSONResponse(payload, status_code=status, headers=response_headers)
 

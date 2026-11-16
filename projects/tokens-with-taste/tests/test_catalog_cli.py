@@ -145,8 +145,8 @@ def test_cli_report_inspect_flagged_and_models(store, monkeypatch, capsys):
 
 def test_cli_sync_failure(store, monkeypatch, capsys):
     async def failed(storage):
-        raise httpx.ConnectError("test")
+        raise httpx.ConnectError("DNS resolution failed")
     monkeypatch.setattr("twt.cli.sync", failed)
     with pytest.raises(SystemExit, match="1"):
         main(["--db", str(store.path), "sync"])
-    assert "Catalog sync failed (ConnectError)" in capsys.readouterr().err
+    assert "Catalog sync failed (ConnectError: DNS resolution failed)" in capsys.readouterr().err

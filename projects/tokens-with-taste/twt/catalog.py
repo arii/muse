@@ -61,14 +61,23 @@ def normalize(provider, row, prices, router):
             number(pricing.get("prompt")) == 0 and number(pricing.get("completion")) == 0)
     if provider.get("free_prototyping"):
         free = True
+    if "supported_parameters" in reference:
+        tools = "tools" in params
+        json_mode = "response_format" in params
+        json_schema = "structured_outputs" in params
+    else:
+        tools = metadata.get("supports_function_calling") is True
+        json_mode = json_schema = metadata.get("supports_response_schema") is True
+    default_rpm = provider.get("rpm")
+    if provider["id"] == "openrouter" and not model_id.endswith(":free"):
+        default_rpm = None
+    rpm = known.get("rpm", default_rpm)
     return {
         "provider": provider["id"], "id": model_id, "chat": chat,
-        "tools": "tools" in params if "supported_parameters" in reference else metadata.get("supports_function_calling") is True,
-        "json": "response_format" in params if "supported_parameters" in reference else metadata.get("supports_response_schema") is True,
-        "json_schema": "structured_outputs" in params if "supported_parameters" in reference else metadata.get("supports_response_schema") is True,
+        "tools": tools, "json": json_mode, "json_schema": json_schema,
         "context_length": reference.get("context_length") or metadata.get("max_input_tokens"),
         "input_price": 0.0 if free else input_price, "output_price": 0.0 if free else output_price,
-        "free": free, "rpm": known.get("rpm", provider.get("rpm") if provider["id"] != "openrouter" or model_id.endswith(":free") else None),
+        "free": free, "rpm": rpm,
         "daily": known.get("daily"), "synced_source": provider.get("models_url") or base_url(provider) + "/models",
         "metadata_source": OPENROUTER_URL if reference else PRICE_URL,
         "price_source": OPENROUTER_URL if provider["id"] == "openrouter" else PRICE_URL,

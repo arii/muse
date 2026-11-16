@@ -3,7 +3,7 @@
 A local OpenAI-compatible chat gateway with an ordered `httpx` waterfall,
 live catalog discovery, SQLite traces, and actionable token audits. No LiteLLM
 runtime dependency, Router, or proxy: its pinned price map is **data only**.
-Python 3.11+; explicit setuptools package discovery.
+Python 3.11+.
 
 ## Quick start
 
@@ -46,7 +46,7 @@ or `--db`. It contains **full prompts and responses**, including tool arguments.
 New directories are private and the database is chmod 0600. Protect backups,
 and do not share `inspect` output without checking its contents. HTTP
 authorization headers and credential values are never saved. There is no
-automatic trace deletion or redaction. No network calls happen at import time.
+automatic trace deletion or redaction.
 
 ## Routing, limits and costs
 
@@ -58,9 +58,7 @@ Within a provider, selection is deterministic: free first, then lowest known
 input price, then ID. One matching model is attempted per provider.
 
 `X-Privacy: strict` permits **only Groq and Cloudflare**, excludes training
-providers, and otherwise follows the same filters. This is the deliberately
-conservative policy locked for this project, not a claim that every provider
-with `strict: false` trains on data. Unknown policy values are JSON `null`.
+providers, and otherwise follows the same filters. Unknown policy values are JSON `null`.
 Groq may retain reliability/abuse logs unless account ZDR is enabled.
 
 Before calling, the gateway checks credentials (recording missing env names),
@@ -83,14 +81,15 @@ listed GPT OSS models 30, OpenRouter **`:free` only** 20, listed SambaNova
 models 20, Cloudflare non-paid text default 300 (no models yet verified).
 **No local cap is configured for undocumented limits**. Daily values are
 catalog metadata, not locally enforced; actual provider/account quotas remain
-authoritative. RPM and cooldown state reset on restart. Run one server/worker;
-requests are serialized to make the local budget/RPM pre-check race-free.
+authoritative. RPM and cooldown state reset on restart. Run one server/worker.
+A short lock protects the budget/cooldown check and RPM slot reservation;
+upstream HTTP calls run concurrently outside that lock.
 
 Optional `TWT_DAILY_BUDGET_USD` is a finite nonnegative number. Once recorded
 UTC-day spend reaches it, paid models are skipped, while free models remain
 eligible. Paid models with unknown prices are also skipped when a budget is
 configured. This is a **pre-check**, not a reservation or billing hard cap:
-the final request can cross the threshold, and external usage is not visible.
+in-flight requests can cross the threshold, and external usage is not visible.
 An exhausted waterfall returns an error with every skip/failure reason,
 including every missing credential env var. No mock completion is available.
 
@@ -103,10 +102,12 @@ taxes and subscription charges are not modeled. Unknown prices return
 `known_cost_usd` always retains the sum of known attempt costs, including failed
 attempts; `cost_complete` is false if any called attempt is unpriced or lacks
 usage. Budget checks count that known sum even when the total is incomplete.
-Free costs
-assume the documented free/evaluation tier; verify your account tier before
+Free costs assume the documented free/evaluation tier; verify your account tier before
 using a paid key. Account eligibility and remaining free quotas cannot be
 inferred from a model list. Reports show unknown-cost call counts separately.
+NVIDIA models are marked free-eligible and their prices are zeroed because
+NVIDIA documents free hosted prototyping access, not because the catalog proves
+this account has that entitlement. Account entitlement remains unverified.
 
 ## Trace schema and audits
 
@@ -131,9 +132,9 @@ Session IDs must be stable for one task and different for unrelated tasks.
 Without a session ID, tool signatures are not compared across requests.
 Providers that omit usage cannot yield a reliable usage/cost audit; missing
 counts are null, never invented token estimates. Reports separately count
-unknown-usage calls. Token totals describe the final successful completion;
-attempt payloads preserve any usage returned by unsuccessful providers too.
-Reports instead aggregate spend and tokens per actual attempt's provider/model,
+unknown-usage calls. Trace-level token fields describe the final successful
+completion; attempts retain usage from unsuccessful providers too.
+Report totals aggregate spend and tokens per actual attempt's provider/model,
 including failed attempts. Group calls count upstream attempts, not skips;
 group flag counts count affected traces once per provider/model, while overall
 flag counts count traces once. Traces with only skips contribute no spend rows.
@@ -222,8 +223,7 @@ GET https://api.tokenfactory.nebius.com/v1/models -> 401
   compatible model-discovery path/schema unverified. Discovery and therefore
   routing remain blocked even with keys until verified; no model is invented.
 * **Nebius:** authenticated models/prices/limits and applicable privacy contract
-  blocked; no fixed ID/price/quota is configured. The remembered historical
-  credit balance is not used as a current value.
+  blocked; no fixed ID/price/quota is configured.
 * A synchronized third-party price/capability entry is not authenticated proof.
   Unknowns stay null/unsupported. Missing keys and unsupported candidates are
   traceable errors, never simulated successful completions.
