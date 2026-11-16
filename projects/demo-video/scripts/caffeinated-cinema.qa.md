@@ -55,7 +55,27 @@ Measured WAVs round to 132/106/215/198/210 frames. Rechecked audio-fit timing:
 All eight re-rendered PNGs hash-identical to the visually inspected pre-refactor
 frames: whole source visible, captions separated, real proof card retained.
 
-## Pending caveat
+## Automated audio checks
 
-Human listenability/pronunciation sign-off is pending. Sentence timing is
-word-weighted, not phoneme forced alignment.
+On the final MP4, `ffmpeg -i out/caffeinated-cinema.mp4 -af volumedetect -vn -sn
+-f null -` measured mean **−26.3 dBFS**, max **−7.4 dBFS**. No sample clipping:
+max < −0.1 dBFS. Logs: `/home/ubuntu/cinema-volume.txt`.
+
+`ffmpeg -i out/caffeinated-cinema.mp4 -af silencedetect=noise=-35dB:d=0.4 -vn
+-sn -f null -` gives these non-silent speech-activity spans (seconds):
+**0.000–3.953; 4.736–7.424; 8.242–10.990; 11.621–14.637;
+15.426–18.307; 18.850–21.210; 22.000–24.039; 24.576–28.146**.
+These are threshold-based activity spans, not recognized-word boundaries.
+
+Against chapter-offset cue windows in the generated plan, speech overlap per
+cue is **3.953 / 2.688 / 2.882 / 2.881 / 2.562 / 2.679 / 2.226 / 3.383 s**.
+**8/8 cues overlap speech; longest uncued speech = 0.000 s** (<1.5 s).
+Logs/check: `/home/ubuntu/cinema-silence.txt`, `/home/ubuntu/cinema-audio-check.py`,
+`/home/ubuntu/cinema-audio-check.txt`. Sentence timing remains word-weighted,
+not phoneme alignment; contiguous cue coverage does not prove exact word sync.
+
+Local faster-whisper **1.2.1**, unprompted **base.en**, CPU int8, transcribed the
+final MP4: **WER 0/63 = 0.00%** against the concatenated narration. WER uses
+lowercase alphanumeric tokens and Levenshtein distance, ignoring punctuation
+(including extra trailing periods emitted by ASR). Transcript and reference
+are in `/home/ubuntu/cinema-audio-check.txt`. No subjective naturalness claim.

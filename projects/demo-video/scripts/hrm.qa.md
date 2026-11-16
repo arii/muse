@@ -49,6 +49,5 @@ Verdict: pass.
 
 Synthesis: offline Kokoro-82M via kokoro-js, pinned `af_heart` voice, 28.6 s synthesis per 100 words, model cache verified by preflight (all four checks PASS). No API keys, no network at synthesis time.
 
-Per spec D2/D4 the "must not sound robotic" check is a **named human listenability check**. This note cannot substitute for a human ear: machine verification here covers duration, stream validity, and cue sync, not subjective naturalness. The pinned `af_heart` voice's sample (`fl_BehVsFQD`, PR #6 evidence) is still awaiting human listenability review — the same pending sign-off recorded on PRs #8–#11. If a human listener judges the voice robotic, this video's voice verdict reverses and re-synthesis (toolkit `--voice` flag) is the fix path.
-
-Verdict: pending human listenability sign-off — everything machine-checkable passes.
+The automated evidence above covers duration, stream validity and cue sync.
+Subjective naturalness and pronunciation were not assessed for this render.

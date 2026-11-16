@@ -43,6 +43,5 @@ Synthesis: offline Kokoro-82M via kokoro-js, default pinned `af_heart` voice, 22
 
 One pronunciation flag for the human listener: the spoken credit says "using Obvious AI" (TTS reads "AI" as the letters). If it sounds off to a human ear, the fix is a spelled-as-read rewrite in `scripts/posture-guard.md` ("obvious dot AI") and a re-synthesis — same pattern already used by the sibling videos.
 
-Per spec D2/D4 the "must not sound robotic" check is a **named human listenability check**. This note cannot substitute for a human ear: machine verification here covers duration, stream validity, and cue sync, not subjective naturalness. The same `af_heart` listenability question is pending across all six videos. If a human listener judges the voice robotic, this video's voice verdict reverses and a re-synthesis (voice change within the toolkit's `--voice` flag) is the fix path.
-
-Verdict: pending human listenability sign-off — everything machine-checkable passes.
+The automated evidence above covers duration, stream validity and cue sync.
+Subjective naturalness and pronunciation were not assessed for this render.

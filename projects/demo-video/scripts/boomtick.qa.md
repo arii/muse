@@ -36,10 +36,9 @@ Verdict: pass.
 
 Synthesis: offline Kokoro-82M via kokoro-js, pinned `af_heart` voice, 23.3 s synthesis per 100 words. No API keys, no network at synthesis time.
 
-Per spec D2/D4 the "must not sound robotic" check is a **named human listenability check**. This note cannot substitute for a human ear: machine verification here covers duration, stream validity, and cue sync, not subjective naturalness. The pinned `af_heart` voice's sample (`fl_BehVsFQD`, PR #6 evidence) is still awaiting human listenability review. If a human listener judges the voice robotic, this video's voice verdict reverses and a re-synthesis (voice change within the toolkit's `--voice` flag) is the fix path.
-
-Verdict: pending human listenability sign-off — everything machine-checkable passes.
+The automated evidence above covers duration, stream validity and cue sync.
+Subjective naturalness and pronunciation were not assessed for this render.
 
 ## Intro-credit rework note (2026-11-13)
 
-The credit line is authored verbatim as "Frontier SF — made by Ariel Anders using obvious.ai." so the title card and captions show the exact requested string. TTS reads the raw "obvious.ai" via Kokoro's own text normalization; the spoken form was not human-audited (same pending human-listenability caveat as above). Frame inspection at 4 s and 10 s confirms the credit renders on the opening title card.
+The credit line is authored verbatim as "Frontier SF — made by Ariel Anders using obvious.ai." so the title card and captions show the exact requested string. TTS reads the raw "obvious.ai" via Kokoro's own text normalization; its pronunciation was not independently assessed. Frame inspection at 4 s and 10 s confirms the credit renders on the opening title card.

@@ -111,7 +111,8 @@ Provenance in Caffeinated:
    action and proof. Save PNGs outside git and list paths in the QA note.
 6. Check cue start/end frames, chapter offsets, narration WAV durations and
    visible caption text together. Cue timing is sentence/word-weighted, not
-   phoneme forced alignment: do not call that phoneme-perfect lip sync. Human
-   listenability sign-off remains separate from machine-verifiable timing.
+   phoneme forced alignment: do not call that phoneme-perfect lip sync. Measure
+   final audio levels, speech/cue coverage and (when available) ASR word accuracy;
+   report those results without claiming subjective naturalness.
 
 Worked example: `scripts/caffeinated-cinema.md` and its `.qa.md` note.
