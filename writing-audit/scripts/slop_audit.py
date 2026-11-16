@@ -162,6 +162,12 @@ def shell_findings(source):
     seen = {}
     branches = []
     for index, (number, tokens) in enumerate(lines):
+        if tokens[0] in {"then", "do"}:
+            tokens = tokens[1:]
+            if tokens and tokens[0] == ";":
+                tokens = tokens[1:]
+            if not tokens:
+                continue
         separator = tokens[0] in {"else", "elif", "fi"}
         for _, alternatives in branches[:-1] if separator else branches:
             alternatives[-1].append(tokens)

@@ -64,6 +64,12 @@ class DetectorTests(unittest.TestCase):
         source = "curl --retry 1 'host' || curl --retry 2 'host'\n"
         self.assertEqual(1, len(audit.audit_source(source, "sample.sh", ["fallback-chain"])))
 
+    def test_shell_branch_keyword_lines(self):
+        for first in ("then\n shared", "then; shared"):
+            source = f"if first\n{first}\nelse\n shared\nfi\n"
+            with self.subTest(first=first):
+                self.assertEqual(1, len(audit.audit_source(source, "sample.sh", ["dead-fallback"])))
+
     def test_over_defensive(self):
         self.assert_detector("over-defensive", "if a:\n if b:\n  if c:\n   if d:\n    run()\n",
                              "if a:\n if b:\n  run()\n")
