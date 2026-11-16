@@ -59,6 +59,7 @@ class Gateway:
         started = self.clock()
         original_body = dict(body)
         body = {**body, "stream": False}
+        body.pop("stream_options", None)
         trace = {"trace_id": str(uuid.uuid4()), "timestamp": now(), "route": body.get("model", "default"),
                  "privacy": privacy, "session_id": session, "provider": None, "model": None,
                  "attempts": [], "http_status": 503, "latency_ms": 0, "prompt_tokens": None,

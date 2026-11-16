@@ -74,3 +74,18 @@ def test_known_cost_survives_incomplete_waterfall(store, monkeypatch, first_usag
         assert headers["X-Cost-Usd"] == "unknown" and trace["cost_usd"] is None
     monkeypatch.setenv("TWT_DAILY_BUDGET_USD", str(expected))
     assert run(store, configuration, lambda r: pytest.fail("known spend must exhaust budget"))[1] == 503
+
+
+def test_stream_options_removed_from_upstream(store, monkeypatch):
+    configuration = setup(store, monkeypatch, 1)
+    body = {**REQUEST, "stream_options": {"include_usage": True}}
+
+    def handler(request):
+        sent = json.loads(request.content)
+        assert sent["stream"] is False and "stream_options" not in sent
+        return httpx.Response(200, json=reply())
+    _, status, headers = run(store, configuration, handler, body)
+    assert status == 200
+    trace = store.trace(headers["X-Trace-Id"])
+    assert trace["request"]["stream_options"] == {"include_usage": True}
+    assert "stream_options" not in trace["attempts"][0]["request"]
