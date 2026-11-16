@@ -4,25 +4,13 @@ on:
     branches: [main]
     paths:
       - "projects/grasping-2026/**"
-      - "writing-audit/**"
       - ".github/workflows/ci.yml"
   pull_request:
     paths:
       - "projects/grasping-2026/**"
-      - "writing-audit/**"
       - ".github/workflows/ci.yml"
 
 jobs:
-  slop-audit-tests:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - name: Test code audit detectors
-        run: python3 -m unittest discover -s writing-audit/scripts -p 'test_slop_audit.py' -v
-
   test:
     runs-on: ubuntu-latest
     defaults:

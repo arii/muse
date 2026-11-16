@@ -1,0 +1,27 @@
+name: Writing audit
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'writing-audit/**'
+      - '.github/workflows/writing-audit.yml'
+  pull_request:
+    paths:
+      - 'writing-audit/**'
+      - '.github/workflows/writing-audit.yml'
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+permissions:
+  contents: read
+jobs:
+  slop-audit-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Test code audit detectors
+        run: python3 -m unittest discover -s writing-audit/scripts -p 'test_slop_audit.py' -v
