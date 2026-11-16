@@ -105,7 +105,7 @@ class Gateway:
                 candidates = [m for m in candidates if m["free"]]
             if body.get("tools"):
                 candidates = [m for m in candidates if m["tools"]]
-            if body.get("response_format"):
+            if body.get("response_format") and body["response_format"].get("type") != "text":
                 capability = "json_schema" if body["response_format"].get("type") == "json_schema" else "json"
                 candidates = [m for m in candidates if m.get(capability)]
             if not candidates:

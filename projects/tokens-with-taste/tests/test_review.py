@@ -89,3 +89,13 @@ def test_stream_options_removed_from_upstream(store, monkeypatch):
     trace = store.trace(headers["X-Trace-Id"])
     assert trace["request"]["stream_options"] == {"include_usage": True}
     assert "stream_options" not in trace["attempts"][0]["request"]
+
+
+@pytest.mark.parametrize("format_type,expected", [("text", 200), ("json_object", 503), ("json_schema", 503)])
+def test_text_format_does_not_need_json_support(store, monkeypatch, format_type, expected):
+    configuration = setup(store, monkeypatch, 1)
+    model = store.models()[0]
+    model.update(json=False, json_schema=False)
+    store.replace_models("p0", [model])
+    body = {**REQUEST, "response_format": {"type": format_type}}
+    assert run(store, configuration, lambda r: httpx.Response(200, json=reply()), body)[1] == expected
