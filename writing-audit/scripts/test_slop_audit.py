@@ -98,6 +98,10 @@ class CLITests(unittest.TestCase):
             git("add", str(path))
             git("-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "fixture")
             path.write_text("# TODO old\nvalue = 1\n# FIXME new\n")
+            for setting in ("diff.noprefix", "diff.mnemonicPrefix", "color.ui"):
+                git("config", setting, "always" if setting == "color.ui" else "true")
+                with self.subTest(setting=setting):
+                    self.assertEqual({3}, audit.changed_lines("HEAD", root).get(path.resolve(), set()))
             changed = audit.changed_lines("HEAD", root)
             findings = audit.audit_source(path.read_text(), path)
             self.assertEqual([3], [f.line for f in findings if f.line in changed[path.resolve()]])

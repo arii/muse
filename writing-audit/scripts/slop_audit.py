@@ -211,7 +211,8 @@ def audit_source(source, filename, enabled=DETECTORS):
 
 def changed_lines(base, root):
     output = subprocess.check_output(
-        ["git", "-c", "core.quotePath=false", "diff", "--no-ext-diff", "--no-renames", "--unified=0", base, "--"],
+        ["git", "-c", "core.quotePath=false", "diff", "--no-ext-diff", "--no-color",
+         "--src-prefix=a/", "--dst-prefix=b/", "--no-renames", "--unified=0", base, "--"],
         cwd=root, text=True)
     changed, current = {}, None
     for line in output.splitlines():
