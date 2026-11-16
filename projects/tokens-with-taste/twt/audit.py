@@ -84,17 +84,20 @@ def report(traces):
     failures = Counter()
     all_flags = Counter()
     for trace in traces:
-        key = (trace["route"], trace["provider"], trace["model"])
-        row = groups.setdefault(key, {"calls": 0, "spend_usd": 0, "unknown_cost_calls": 0, "unknown_usage_calls": 0,
-                                      "prompt_tokens": 0, "completion_tokens": 0, "reasoning_tokens": 0,
-                                      "flags": Counter()})
-        row["calls"] += 1
-        row["spend_usd"] += trace["cost_usd"] or 0
-        row["unknown_cost_calls"] += trace["cost_usd"] is None
-        row["unknown_usage_calls"] += trace["prompt_tokens"] is None or trace["completion_tokens"] is None
-        for field in ("prompt_tokens", "completion_tokens", "reasoning_tokens"):
-            row[field] += trace[field] or 0
-        row["flags"].update(trace["flags"])
+        attempts = [a for a in trace["attempts"] if a["called"]]
+        for attempt in attempts:
+            key = (trace["route"], attempt["provider"], attempt["model"])
+            row = groups.setdefault(key, {"calls": 0, "spend_usd": 0, "unknown_cost_calls": 0, "unknown_usage_calls": 0,
+                                          "prompt_tokens": 0, "completion_tokens": 0, "reasoning_tokens": 0,
+                                          "flags": Counter()})
+            row["calls"] += 1
+            row["spend_usd"] += attempt["cost_usd"] or 0
+            row["unknown_cost_calls"] += attempt["cost_usd"] is None
+            row["unknown_usage_calls"] += attempt["prompt_tokens"] is None or attempt["completion_tokens"] is None
+            for field in ("prompt_tokens", "completion_tokens", "reasoning_tokens"):
+                row[field] += attempt[field] or 0
+        for key in {(trace["route"], a["provider"], a["model"]) for a in attempts}:
+            groups[key]["flags"].update(trace["flags"])
         all_flags.update(trace["flags"])
         for attempt in trace["attempts"]:
             if attempt["called"] and attempt["reason"] != "success":

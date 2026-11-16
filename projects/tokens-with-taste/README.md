@@ -133,6 +133,10 @@ Providers that omit usage cannot yield a reliable usage/cost audit; missing
 counts are null, never invented token estimates. Reports separately count
 unknown-usage calls. Token totals describe the final successful completion;
 attempt payloads preserve any usage returned by unsuccessful providers too.
+Reports instead aggregate spend and tokens per actual attempt's provider/model,
+including failed attempts. Group calls count upstream attempts, not skips;
+group flag counts count affected traces once per provider/model, while overall
+flag counts count traces once. Traces with only skips contribute no spend rows.
 
 ## Catalog sources
 

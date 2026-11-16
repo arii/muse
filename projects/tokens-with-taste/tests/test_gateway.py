@@ -301,7 +301,7 @@ def test_api_validation_and_models(store, monkeypatch):
                 assert listing.json()["data"][0]["id"] == "p0/chat"
                 for body in [[], {}, {"messages": []}, {"messages": [1], "response_format": []}]:
                     assert (await api.post("/v1/chat/completions", json=body)).status_code == 400
-                assert (await api.post("/v1/chat/completions", content="invalid")).status_code == 400
+                assert (await api.post("/v1/chat/completions", content="invalid", headers={"Content-Type": "application/json"})).status_code == 400
                 assert (await api.post("/v1/chat/completions", json=REQUEST, headers={"X-Privacy": "typo"})).status_code == 400
                 response = await api.post("/v1/chat/completions", json=REQUEST, headers={"X-Privacy": "strict"})
                 assert response.status_code == 200 and response.headers["X-Trace-Id"]

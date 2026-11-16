@@ -5,6 +5,7 @@ import httpx
 import pytest
 
 from twt.gateway import create_app
+from twt.audit import report
 from test_gateway import REQUEST, reply, run, setup
 
 
@@ -99,3 +100,30 @@ def test_text_format_does_not_need_json_support(store, monkeypatch, format_type,
     store.replace_models("p0", [model])
     body = {**REQUEST, "response_format": {"type": format_type}}
     assert run(store, configuration, lambda r: httpx.Response(200, json=reply()), body)[1] == expected
+
+
+def test_report_charges_each_attempt_provider(store, monkeypatch):
+    configuration = setup(store, monkeypatch)
+
+    def handler(request):
+        if request.url.host == "p0.test":
+            return httpx.Response(500, json=reply(prompt=100, completion=50))
+        return httpx.Response(200, json=reply())
+    run(store, configuration, handler)
+    result = report(store.traces())
+    rows = {row["provider"]: row for row in result["groups"]}
+    assert rows["p0"]["spend_usd"] == pytest.approx(.20)
+    assert rows["p1"]["spend_usd"] == pytest.approx(.05)
+    assert rows["p0"]["prompt_tokens"] == 100
+    assert rows["p1"]["prompt_tokens"] == 10
+    assert sum(row["spend_usd"] for row in rows.values()) == pytest.approx(store.spend_today())
+    assert result["flag_counts"]["FALLBACK_CASCADE"] == 1
+
+
+def test_report_unknown_and_skipped_attempts(store, monkeypatch):
+    configuration = setup(store, monkeypatch)
+    monkeypatch.delenv("TEST_KEY_0")
+    run(store, configuration, lambda r: httpx.Response(500, json={}))
+    rows = report(store.traces())["groups"]
+    assert len(rows) == 1 and rows[0]["provider"] == "p1"
+    assert rows[0]["calls"] == 1 and rows[0]["unknown_cost_calls"] == 1

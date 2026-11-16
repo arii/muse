@@ -129,9 +129,10 @@ def test_cli_report_inspect_flagged_and_models(store, monkeypatch, capsys):
     assert len(capsys.readouterr().out.strip().splitlines()) == 2
     main(["--db", db, "report"])
     result = json.loads(capsys.readouterr().out)
-    assert result["groups"][0]["calls"] == 2
-    assert result["groups"][0]["prompt_tokens"] == 66000
-    assert result["groups"][0]["spend_usd"] == pytest.approx(66.4)
+    successful = next(g for g in result["groups"] if g["provider"] == "p1")
+    assert successful["calls"] == 2
+    assert successful["prompt_tokens"] == 66000
+    assert successful["spend_usd"] == pytest.approx(66.4)
     assert len(result["fixes"]) == 5 and "p0" in result["fixes"]["FALLBACK_CASCADE"]
     main(["--db", db, "report", "--since", "2999-01-01"])
     assert json.loads(capsys.readouterr().out)["groups"] == []
