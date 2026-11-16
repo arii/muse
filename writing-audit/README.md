@@ -88,3 +88,99 @@ The full paragraph-by-paragraph method lives in the Muse skill
 ## License
 
 MIT
+
+## Code-slop audit
+
+`scripts/slop_audit.py` is the stdlib-only Python 3.10+ companion for code
+review. It scans Python and shell (`.sh`, `.bash`, `.zsh`, or extensionless
+shell shebangs), skips `.git`, `venv`, `.venv`, `env`, `node_modules` and
+`__pycache__`, and prints findings grouped by detector with `file:line` and
+a final per-detector summary. No paths means the current directory.
+
+```bash
+python3 writing-audit/scripts/slop_audit.py .
+python3 writing-audit/scripts/slop_audit.py --diff origin/main
+python3 writing-audit/scripts/slop_audit.py src --detectors fallback-chain,swallowed-exception
+python3 writing-audit/scripts/slop_audit.py --disable near-duplicate
+python3 -m unittest discover -s writing-audit/scripts -p 'test_slop_audit.py' -v
+```
+
+Exit status: **1** for findings, **0** when clean, **2** for CLI, Git or
+file errors. Invalid Python is a `parse-error` finding, not a silent skip.
+`--diff BASE` compares BASE to the working tree (including staged and
+unstaged edits to tracked files), reporting only new-side changed lines;
+untracked files require adding to Git first. Deleted lines are not audited.
+Use a merge base explicitly if that is the desired comparison.
+
+The six independent, selectable review heuristics are:
+
+| Detector | Flags |
+| --- | --- |
+| `fallback-chain` | Similar try/handler ASTs or the same shell command with near-identical arguments after `||` (0.88 similarity) |
+| `swallowed-exception` | Bare, Exception or BaseException handlers containing only pass, None or ellipsis |
+| `dead-fallback` | Statements immediately after return/raise/continue/break; identical if/else bodies; analogous shell control transfers and branches |
+| `near-duplicate` | Python statement-list blocks of at least four statements, AST-normalized for names and literal values; four-line shell blocks normalized for numeric variations |
+| `over-defensive` | Four nested if guards or four hasattr/getattr/is-not-None guards on one name per Python function; four nested shell ifs |
+| `agent-leftover` | TODO/FIXME/HACK/XXX comments without an issue reference such as #123 or owner/repo#123 |
+
+These are review prompts, not proofs of poor code. Duplication is checked
+within each file, not across files; small repeated idioms are intentionally
+ignored. Python strings/docstrings are not comments. Shell analysis is
+line-based, not a complete shell parser: complex heredocs, command
+substitutions and multiline constructs may need manual review. Broad
+handlers which log or re-raise are not considered swallowed exceptions.
+
+Suppress a finding **on the reported line**, specifying a real reason:
+
+```python
+except Exception:  # slop: disable=swallowed-exception -- cleanup must not mask the original error
+    pass
+```
+
+Multiple detector names may be comma-separated. Missing reasons or unknown
+names produce an unsuppressible `suppression` finding, even when that
+detector is disabled. Suppressions do not cover entire files or blocks.
+The hand-written `projects/grasping-2026/planning/primitives.py` acceptance
+fixture requires no suppressions.
+
+### Pre-merge checks
+
+For repositories using pre-commit, add this local hook to
+`.pre-commit-config.yaml` (pre-commit itself is optional, not a tool dependency):
+
+```yaml
+repos:
+  - repo: local
+    hooks:
+      - id: slop-audit
+        name: Code-slop audit
+        entry: python3 writing-audit/scripts/slop_audit.py
+        language: system
+        types_or: [python, shell]
+```
+
+For a diff-only GitHub Actions pre-merge gate, use the standalone
+`slop-workflow.yml.draft` template, or add this job to an existing workflow
+triggered on `pull_request`:
+
+```yaml
+jobs:
+  slop-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Audit changed code
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: python3 writing-audit/scripts/slop_audit.py --diff "$BASE"
+```
+
+Mark this job as a required status check in branch protection. Existing
+repository CI runs the detector unit tests, not a whole-repository slop
+gate: existing findings should be reviewed before enabling that gate.

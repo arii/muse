@@ -1,0 +1,20 @@
+# Copy to .github/workflows/slop-audit.yml to enable the pre-merge gate.
+name: Code Slop Audit
+on: pull_request
+permissions:
+  contents: read
+jobs:
+  slop-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Audit changed code
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: python3 writing-audit/scripts/slop_audit.py --diff "$BASE"
