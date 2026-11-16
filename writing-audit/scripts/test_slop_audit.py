@@ -32,6 +32,34 @@ class DetectorTests(unittest.TestCase):
         self.assertIn(detector, {f.detector for f in audit.audit_source(positive, filename)})
         self.assertNotIn(detector, {f.detector for f in audit.audit_source(negative, filename)})
 
+    def test_skipped_shell_lines_preserve_analysis_boundaries(self):
+        skipped = "printf $'it\\'s'\n"
+        block = "download --timeout 10 remote\ntransform --quality 10 input\narchive --level 10 output\nupload --retries 10 result\n"
+        parts = block.splitlines(keepends=True)
+        sources = (
+            "if check; then\n echo common\n" + skipped + "else\n echo common\nfi\n",
+            block + "".join(parts[:2]) + skipped + "".join(parts[2:]),
+            "return 0\n" + skipped,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            script = Path(directory) / "valid.sh"
+            for source in sources:
+                with self.subTest(source=source):
+                    script.write_text(source)
+                    stdout, stderr = io.StringIO(), io.StringIO()
+                    with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                        status = audit.main([str(script)])
+                    self.assertEqual(0, status)
+                    self.assertIn("total=0", stdout.getvalue())
+                    line = source.splitlines().index(skipped.strip()) + 1
+                    self.assertEqual(f"{script}:{line}: skipped: shell line not tokenizable\n", stderr.getvalue())
+
+    def test_shell_analysis_resumes_after_skipped_line(self):
+        source = "printf $'it\\'s'\nif check; then\n shared\nelse\n shared\nfi\n"
+        with contextlib.redirect_stderr(io.StringIO()):
+            findings = audit.audit_source(source, "sample.sh", ["dead-fallback"])
+        self.assertEqual([("dead-fallback", 2)], [(f.detector, f.line) for f in findings])
+
     def test_fallback_chain(self):
         self.assert_detector("fallback-chain", "try:\n    fetch(timeout=10)\nexcept OSError:\n    fetch(timeout=20)\n",
                              "try:\n    fetch()\nexcept OSError:\n    raise\n")

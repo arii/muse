@@ -1,10 +1,10 @@
 # writing-audit
 
-Systematic writing audit tools. Two steps, always in order.
+Audit prose with deterministic checks and a per-page checklist.
 
 ## The two steps
 
-**Step 1 — Deterministic analysis.** Run the script on the page:
+**Step 1: Deterministic analysis.** Run the script on the page:
 
 ```bash
 python3 scripts/audit.py <file.md>
@@ -19,13 +19,13 @@ python3 scripts/audit_corpus.py <file1> <file2> ... --json
 ```
 
 It reports sentences, paragraphs, and distinctive claims repeated
-*across* pages — redundancy a per-page audit cannot see. HTML tags are
+across pages. HTML tags are
 stripped so markdown and HTML pages compare as prose.
 
-Stdlib only, no installs needed. Same input gives same output every time.
-Output is flags for review, not verdicts. Exit code is 1 when a
+The scripts use the Python standard library. Review each flag in context.
+Exit code is 1 when a
 severity=error finding exists (banned terms, prompt leakage, banned
-subtitles), else 0 — so CI can fail the build on errors.
+subtitles), else 0.
 
 ## Terminology database
 
@@ -36,18 +36,16 @@ companion. Extend per project by adding rules to the JSON.
 
 ## CI
 
-`github-workflow.yml.draft` is a GitHub Actions workflow that runs the
-audit on PRs touching docs and fails on errors. The connector cannot write
-under `.github/workflows/`, so commit it manually at
-`.github/workflows/writing-audit.yml`.
+Copy [`github-workflow.yml.draft`](github-workflow.yml.draft) to
+`.github/workflows/writing-audit.yml` to audit PRs touching docs and fail
+on errors.
 
-**Step 2 — Agent checklist.** Copy `checklist-template.md` for each page
+**Step 2: Agent checklist.** Copy `checklist-template.md` for each page
 reviewed and fill every item: paragraph walk, terminology, duplication,
 no-value sentences, voice, framing, headers, holistic. Check off what
 passes, flag what fails with a note, record a PASS or FLAG verdict.
 
-Never skip step 1. Never present step 1 output as the audit. The audit is
-both steps.
+The full paragraph-by-paragraph method lives in the Muse skill `writing-audit`.
 
 ## What the script flags
 
@@ -62,22 +60,6 @@ both steps.
 - Repeated time claims (two days / 48 hours said 3+ times)
 - First person pronouns (technical docs use system voice)
 - Standout boxes and admonitions
-
-Every flag is a review prompt, not a verdict.
-
-## The checklist
-
-The full paragraph-by-paragraph method lives in the Muse skill
-`writing-audit`. In short:
-
-1. Run the script.
-2. Walk the document paragraph by paragraph, every sentence, in order.
-   Each paragraph must be required, not already said, accurate or
-   hallucinated, citable, and adding value.
-3. Apply the terminology database.
-4. Check duplication (within-page and corpus-level), no-value sentences, voice, framing, headers,
-   and formatting.
-5. Holistic pass last: flow, density, and the author's voice.
 
 ## Upgrades
 
@@ -116,32 +98,31 @@ Detectors:
 
 | Detector | Flags |
 | --- | --- |
-| `fallback-chain` | Similar try/handler ASTs or the same shell command with near-identical arguments after `||` (0.88 similarity) |
+| `fallback-chain` | Similar try/handler ASTs or the same shell command with near-identical arguments after `||` |
 | `swallowed-exception` | Bare, Exception or BaseException handlers containing only pass, None or ellipsis |
 | `dead-fallback` | Statements immediately after return/raise/continue/break; identical if/else bodies; analogous shell control transfers and branches |
-| `near-duplicate` | Python statement-list blocks of at least four statements, AST-normalized for names and literal values; four-line shell blocks normalized for numeric variations |
-| `over-defensive` | Four nested if guards or four hasattr/getattr/is-not-None guards on one name per Python function; four nested shell ifs |
+| `near-duplicate` | Python statement-list blocks AST-normalized for names and literal values; shell blocks normalized for numeric variations |
+| `over-defensive` | Nested if guards or repeated hasattr/getattr/is-not-None guards on one name per Python function; nested shell ifs |
 | `agent-leftover` | TODO/FIXME/HACK/XXX comments without an issue reference such as #123 or owner/repo#123 |
 
 Thresholds are named module constants: `SIMILARITY_RATIO=0.88`,
 `GUARD_THRESHOLD=4`, `DUPLICATE_BLOCK_SIZE=4`,
 `PYTHON_DUPLICATE_MIN_CHARS=200` (normalized AST dump) and
 `SHELL_DUPLICATE_MIN_CHARS=100` (normalized shell text).
-Duplication is checked
-within each file, not across files; small repeated idioms are intentionally
-ignored. Python strings/docstrings are not comments. Shell analysis is
-line-based, not a complete shell parser: complex heredocs, command
-substitutions and multiline constructs may need manual review. Python's shlex
+Duplication checks operate within each file and exclude blocks below those
+thresholds. Python comment analysis uses comment tokens. Shell analysis
+processes individual lines; review complex heredocs, command substitutions
+and multiline constructs manually. Python's shlex
 cannot tokenize all valid Bash, including ANSI-C strings with escaped apostrophes
-such as `echo $'it\'s'`. Untokenizable lines are skipped with a stderr warning
-`file:line: skipped: shell line not tokenizable`, not a finding; the warning
-does not change the exit code, even with every detector disabled. Broad
-handlers which log or re-raise are not considered swallowed exceptions.
+such as `echo $'it\'s'`. Untokenizable lines emit the stderr warning
+`file:line: skipped: shell line not tokenizable` and leave the exit status
+unchanged, even with every detector disabled. They also end open branch
+comparisons and interrupt contiguous-block and control-transfer checks.
 
 Suppress a finding **on the reported line**, specifying a real reason:
 
 ```python
-except Exception:  # slop: disable=swallowed-exception -- cleanup must not mask the original error
+except Exception:  # slop: disable=swallowed-exception -- preserve the original error during cleanup
     pass
 ```
 
@@ -170,6 +151,5 @@ repos:
 For a diff-only GitHub Actions pre-merge gate, use the standalone
 [`slop-workflow.yml.draft`](slop-workflow.yml.draft) template.
 
-Mark this job as a required status check in branch protection. Existing
-repository CI runs the detector unit tests, not a whole-repository slop
-gate: existing findings should be reviewed before enabling that gate.
+Mark the audit job as a required status check in branch protection after
+reviewing existing findings. Repository CI currently runs detector unit tests.

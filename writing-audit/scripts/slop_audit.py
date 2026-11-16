@@ -174,16 +174,15 @@ def shell_text(line):
 
 
 def shell_findings(source, filename):
-    lines = []
-    for number, tokens in shell_lines(source):
-        if tokens is None:
-            print(f"{filename}:{number}: skipped: shell line not tokenizable", file=sys.stderr)
-        else:
-            lines.append((number, tokens))
+    lines = list(shell_lines(source))
     raw_lines = source.splitlines()
     seen = {}
     branches = []
     for index, (number, tokens) in enumerate(lines):
+        if tokens is None:
+            print(f"{filename}:{number}: skipped: shell line not tokenizable", file=sys.stderr)
+            branches.clear()
+            continue
         operators = [i for i, (_, operator) in enumerate(tokens) if operator]
         tokens = [value for value, _ in tokens]
         body_line = shell_text(raw_lines[number - 1])
@@ -217,10 +216,10 @@ def shell_findings(source, filename):
                 yield "fallback-chain", number, "near-identical command after ||"
         if tokens[0] in {"return", "exit", "continue", "break"} and index + 1 < len(lines):
             following, next_tokens = lines[index + 1]
-            if next_tokens[0][0] not in {"fi", "done", "}", "else", "elif", "esac", ";;"}:
+            if next_tokens is not None and next_tokens[0][0] not in {"fi", "done", "}", "else", "elif", "esac", ";;"}:
                 yield "dead-fallback", following, "unreachable command after control transfer"
         block = lines[index:index + DUPLICATE_BLOCK_SIZE]
-        if len(block) != DUPLICATE_BLOCK_SIZE or any(t[0][0] in {"if", "then", "else", "fi", "done", "}"} for _, t in block):
+        if len(block) != DUPLICATE_BLOCK_SIZE or any(t is None or t[0][0] in {"if", "then", "else", "fi", "done", "}"} for _, t in block):
             continue
         key = tuple(re.sub(r"\d+", "N", shell_text(raw_lines[n - 1])) for n, _ in block)
         if sum(map(len, key)) < SHELL_DUPLICATE_MIN_CHARS:
