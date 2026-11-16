@@ -173,11 +173,11 @@ def shell_text(line):
     return "".join(result)
 
 
-def shell_findings(source):
+def shell_findings(source, filename):
     lines = []
     for number, tokens in shell_lines(source):
         if tokens is None:
-            yield "parse-error", number, "shell line not tokenizable"
+            print(f"{filename}:{number}: skipped: shell line not tokenizable", file=sys.stderr)
         else:
             lines.append((number, tokens))
     raw_lines = source.splitlines()
@@ -267,7 +267,7 @@ def audit_source(source, filename, enabled=DETECTORS):
         else:
             raw.extend(python_findings(tree))
     else:
-        raw.extend(shell_findings(source))
+        raw.extend(shell_findings(source, filename))
     return sorted({Finding(d, str(filename), line, message) for d, line, message in raw
                    if (d in enabled or d in {"suppression", "parse-error"})
                    and d not in suppressions.get(line, set())})

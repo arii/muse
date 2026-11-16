@@ -106,7 +106,7 @@ python3 -m unittest discover -s writing-audit/scripts -p 'test_slop_audit.py' -v
 ```
 
 Exit status: **1** for findings, **0** when clean, **2** for CLI, Git or
-file errors. Invalid Python and untokenizable shell lines produce `parse-error` findings.
+file errors. Invalid Python produces a `parse-error` finding.
 `--diff BASE` compares BASE to the working tree (including staged and
 unstaged edits to tracked files), reporting only new-side changed lines;
 untracked files require adding to Git first. Deleted lines are not audited.
@@ -131,7 +131,11 @@ Duplication is checked
 within each file, not across files; small repeated idioms are intentionally
 ignored. Python strings/docstrings are not comments. Shell analysis is
 line-based, not a complete shell parser: complex heredocs, command
-substitutions and multiline constructs may need manual review. Broad
+substitutions and multiline constructs may need manual review. Python's shlex
+cannot tokenize all valid Bash, including ANSI-C strings with escaped apostrophes
+such as `echo $'it\'s'`. Untokenizable lines are skipped with a stderr warning
+`file:line: skipped: shell line not tokenizable`, not a finding; the warning
+does not change the exit code, even with every detector disabled. Broad
 handlers which log or re-raise are not considered swallowed exceptions.
 
 Suppress a finding **on the reported line**, specifying a real reason:

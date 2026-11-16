@@ -10,10 +10,23 @@ import slop_audit as audit
 
 
 class DetectorTests(unittest.TestCase):
-    def test_unterminated_shell_quote_is_reported(self):
-        found = audit.audit_source('echo "unfinished\necho done\n', "sample.sh")
-        self.assertIn(audit.Finding("parse-error", "sample.sh", 1,
-                                    "shell line not tokenizable"), found)
+    def test_unterminated_shell_quote_warns_without_a_finding(self):
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            found = audit.audit_source('echo "unfinished\necho done\n', "sample.sh")
+        self.assertEqual(found, [])
+        self.assertIn("sample.sh:1: skipped: shell line not tokenizable", stderr.getvalue())
+
+    def test_ansi_c_apostrophe_exits_clean_with_warning(self):
+        with tempfile.TemporaryDirectory() as directory:
+            script = Path(directory) / "valid.sh"
+            script.write_text("echo $'it\\'s'\n")
+            stdout, stderr = io.StringIO(), io.StringIO()
+            with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                status = audit.main([str(script), "--disable", ",".join(audit.DETECTORS)])
+            self.assertEqual(status, 0)
+            self.assertIn(f"{script}:1: skipped: shell line not tokenizable", stderr.getvalue())
+            self.assertIn("total=0", stdout.getvalue())
 
     def assert_detector(self, detector, positive, negative, filename="sample.py"):
         self.assertIn(detector, {f.detector for f in audit.audit_source(positive, filename)})
