@@ -59,6 +59,8 @@ class DetectorTests(unittest.TestCase):
             source = f"curl --retry 1 host {operator} curl --retry 2 host\n"
             with self.subTest(operator=operator):
                 self.assertEqual([], audit.audit_source(source, "sample.sh", ["fallback-chain"]))
+        source = 'curl --retry 1 host" || curl --retry 2 host"\n'
+        self.assertEqual([], audit.audit_source(source, "sample.sh", ["fallback-chain"]))
         source = "curl --retry 1 'host' || curl --retry 2 'host'\n"
         self.assertEqual(1, len(audit.audit_source(source, "sample.sh", ["fallback-chain"])))
 

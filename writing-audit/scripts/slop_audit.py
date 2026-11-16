@@ -114,12 +114,43 @@ def python_findings(tree):
                 seen[key] = body[0].lineno
 
 
+class ShellToken(str):
+    def __new__(cls, value, operator=False):
+        token = super().__new__(cls, value)
+        token.operator = operator
+        return token
+
+
+def protect_shell_punctuation(line):
+    marker = "\ue000"
+    while marker in line:
+        marker += "\ue000"
+    replacements = {char: f"{marker}{index}{marker}" for index, char in enumerate("();<>|&")}
+    quote, escaped, result = None, False, []
+    for char in line:
+        protected = quote is not None or escaped
+        if escaped:
+            escaped = False
+        elif char == "\\" and quote != "'":
+            escaped = True
+        elif char in "\"'" and (quote is None or quote == char):
+            quote = char if quote is None else None
+        result.append(replacements.get(char, char) if protected else char)
+    return "".join(result), replacements
+
+
 def shell_lines(source):
     for number, line in enumerate(source.splitlines(), 1):
-        lexer = shlex.shlex(line, posix=False, punctuation_chars=True)
+        protected, replacements = protect_shell_punctuation(line)
+        lexer = shlex.shlex(protected, posix=True, punctuation_chars=True)
         lexer.whitespace_split = True
         try:
-            tokens = list(lexer)
+            tokens = []
+            for value in lexer:
+                operator = value == "||"
+                for char, replacement in replacements.items():
+                    value = value.replace(replacement, char)
+                tokens.append(ShellToken(value, operator))
         except ValueError:
             continue
         if tokens:
@@ -145,8 +176,9 @@ def shell_findings(source):
             if len(alternatives) > 1 and alternatives[0] and all(
                     body == alternatives[0] for body in alternatives[1:]):
                 yield "dead-fallback", start, "identical shell branch bodies"
-        if "||" in tokens:
-            split = tokens.index("||")
+        operators = [i for i, token in enumerate(tokens) if token.operator]
+        if operators:
+            split = operators[0]
             left, right = tokens[:split], tokens[split + 1:]
             if left and right and left[0] == right[0] and similar(" ".join(left), " ".join(right)):
                 yield "fallback-chain", number, "near-identical command after ||"
