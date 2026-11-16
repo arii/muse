@@ -18,6 +18,11 @@ from dataclasses import dataclass
 DETECTORS = ("fallback-chain", "swallowed-exception", "dead-fallback",
              "near-duplicate", "over-defensive", "agent-leftover")
 SKIP = {".git", ".venv", "venv", "env", "node_modules", "__pycache__"}
+SIMILARITY_RATIO = 0.88
+GUARD_THRESHOLD = 4
+DUPLICATE_BLOCK_SIZE = 4
+PYTHON_DUPLICATE_MIN_CHARS = 200
+SHELL_DUPLICATE_MIN_CHARS = 100
 
 
 @dataclass(frozen=True, order=True)
@@ -42,7 +47,7 @@ def signature(body, normalized=False):
 
 
 def similar(left, right):
-    return difflib.SequenceMatcher(None, left, right, autojunk=False).ratio() >= 0.88
+    return difflib.SequenceMatcher(None, left, right, autojunk=False).ratio() >= SIMILARITY_RATIO
 
 
 def scope_nodes(node):
@@ -74,7 +79,7 @@ def python_findings(tree):
             while len(child.body) == 1 and isinstance(child.body[0], ast.If):
                 depth += 1
                 child = child.body[0]
-            if depth >= 4:
+            if depth >= GUARD_THRESHOLD:
                 yield "over-defensive", node.lineno, f"{depth} nested if guards"
         for _, value in ast.iter_fields(node):
             if isinstance(value, list) and value and all(isinstance(s, ast.stmt) for s in value):
@@ -96,17 +101,17 @@ def python_findings(tree):
                     if isinstance(target, ast.Name):
                         checks[target.id] += 1
             for name, count in checks.items():
-                if count >= 4:
+                if count >= GUARD_THRESHOLD:
                     yield "over-defensive", node.lineno, f"{count} defensive checks on {name}"
     seen = {}
     for node in ast.walk(tree):
         for _, body in ast.iter_fields(node):
-            if not isinstance(body, list) or len(body) < 4 or not all(isinstance(s, ast.stmt) for s in body):
+            if not isinstance(body, list) or len(body) < DUPLICATE_BLOCK_SIZE or not all(isinstance(s, ast.stmt) for s in body):
                 continue
             if any(isinstance(s, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) for s in body):
                 continue
             key = signature(body, normalized=True)
-            if len(key) < 200:
+            if len(key) < PYTHON_DUPLICATE_MIN_CHARS:
                 continue
             if key in seen:
                 yield "near-duplicate", body[0].lineno, f"normalized block repeats line {seen[key]}"
@@ -114,20 +119,9 @@ def python_findings(tree):
                 seen[key] = body[0].lineno
 
 
-class ShellToken(str):
-    def __new__(cls, value, operator=False):
-        token = super().__new__(cls, value)
-        token.operator = operator
-        return token
-
-
-def protect_shell_punctuation(line):
-    marker = "\ue000"
-    while marker in line:
-        marker += "\ue000"
-    replacements = {char: f"{marker}{index}{marker}" for index, char in enumerate("();<>|&")}
-    quote, escaped, result = None, False, []
-    for char in line:
+def quote_aware_chars(text):
+    quote, escaped = None, False
+    for index, char in enumerate(text):
         protected = quote is not None or escaped
         if escaped:
             escaped = False
@@ -135,6 +129,16 @@ def protect_shell_punctuation(line):
             escaped = True
         elif char in "\"'" and (quote is None or quote == char):
             quote = char if quote is None else None
+        yield index, char, protected
+
+
+def protect_shell_punctuation(line):
+    marker = "\ue000"
+    while marker in line:
+        marker += "\ue000"
+    replacements = {char: f"{marker}{index}{marker}" for index, char in enumerate("();<>|&")}
+    result = []
+    for _, char, protected in quote_aware_chars(line):
         result.append(replacements.get(char, char) if protected else char)
     return "".join(result), replacements
 
@@ -150,23 +154,18 @@ def shell_lines(source):
                 operator = value == "||"
                 for char, replacement in replacements.items():
                     value = value.replace(replacement, char)
-                tokens.append(ShellToken(value, operator))
+                tokens.append((value, operator))
         except ValueError:
+            yield number, None
             continue
         if tokens:
             yield number, tokens
 
 
 def shell_text(line):
-    quote, escaped, result = None, False, []
-    for char in line.strip():
-        if escaped:
-            escaped = False
-        elif char == "\\" and quote != "'":
-            escaped = True
-        elif char in "\"'" and (quote is None or quote == char):
-            quote = char if quote is None else None
-        elif char.isspace() and quote is None:
+    result = []
+    for _, char, protected in quote_aware_chars(line.strip()):
+        if char.isspace() and not protected:
             if result and result[-1] != " ":
                 result.append(" ")
             continue
@@ -175,17 +174,26 @@ def shell_text(line):
 
 
 def shell_findings(source):
-    lines = list(shell_lines(source))
+    lines = []
+    for number, tokens in shell_lines(source):
+        if tokens is None:
+            yield "parse-error", number, "shell line not tokenizable"
+        else:
+            lines.append((number, tokens))
     raw_lines = source.splitlines()
     seen = {}
     branches = []
     for index, (number, tokens) in enumerate(lines):
+        operators = [i for i, (_, operator) in enumerate(tokens) if operator]
+        tokens = [value for value, _ in tokens]
         body_line = shell_text(raw_lines[number - 1])
         if tokens[0] in {"then", "do"}:
             body_line = re.sub(r"^(then|do)\b\s*;?\s*", "", body_line)
             tokens = tokens[1:]
+            operators = [i - 1 for i in operators if i > 0]
             if tokens and tokens[0] == ";":
                 tokens = tokens[1:]
+                operators = [i - 1 for i in operators if i > 0]
             if not tokens:
                 continue
         separator = tokens[0] in {"else", "elif", "fi"}
@@ -193,8 +201,8 @@ def shell_findings(source):
             alternatives[-1].append(body_line)
         if tokens[0] == "if":
             branches.append([number, [[]]])
-            if len(branches) == 4:
-                yield "over-defensive", number, "four nested shell if guards"
+            if len(branches) == GUARD_THRESHOLD:
+                yield "over-defensive", number, f"{GUARD_THRESHOLD} nested shell if guards"
         elif tokens[0] in {"else", "elif"} and branches:
             branches[-1][1].append([])
         elif tokens[0] == "fi" and branches:
@@ -202,7 +210,6 @@ def shell_findings(source):
             if len(alternatives) > 1 and alternatives[0] and all(
                     body == alternatives[0] for body in alternatives[1:]):
                 yield "dead-fallback", start, "identical shell branch bodies"
-        operators = [i for i, token in enumerate(tokens) if token.operator]
         if operators:
             split = operators[0]
             left, right = tokens[:split], tokens[split + 1:]
@@ -210,15 +217,15 @@ def shell_findings(source):
                 yield "fallback-chain", number, "near-identical command after ||"
         if tokens[0] in {"return", "exit", "continue", "break"} and index + 1 < len(lines):
             following, next_tokens = lines[index + 1]
-            if next_tokens[0] not in {"fi", "done", "}", "else", "elif", "esac", ";;"}:
+            if next_tokens[0][0] not in {"fi", "done", "}", "else", "elif", "esac", ";;"}:
                 yield "dead-fallback", following, "unreachable command after control transfer"
-        block = lines[index:index + 4]
-        if len(block) != 4 or any(t[0] in {"if", "then", "else", "fi", "done", "}"} for _, t in block):
+        block = lines[index:index + DUPLICATE_BLOCK_SIZE]
+        if len(block) != DUPLICATE_BLOCK_SIZE or any(t[0][0] in {"if", "then", "else", "fi", "done", "}"} for _, t in block):
             continue
         key = tuple(re.sub(r"\d+", "N", shell_text(raw_lines[n - 1])) for n, _ in block)
-        if sum(map(len, key)) < 100:
+        if sum(map(len, key)) < SHELL_DUPLICATE_MIN_CHARS:
             continue
-        if key in seen and number >= seen[key] + 4:
+        if key in seen and number >= seen[key] + DUPLICATE_BLOCK_SIZE:
             yield "near-duplicate", number, f"text block repeats line {seen[key]}"
         else:
             seen.setdefault(key, number)
@@ -233,17 +240,8 @@ def comments(source, python):
             return []
     result = []
     for number, line in enumerate(source.splitlines(), 1):
-        # Track quotes so hashes in quoted strings are not comments.
-        quote = None
-        escaped = False
-        for i, char in enumerate(line):
-            if escaped:
-                escaped = False
-            elif char == "\\" and quote != "'":
-                escaped = True
-            elif char in "\"'" and (quote is None or quote == char):
-                quote = char if quote is None else None
-            elif char == "#" and quote is None and (i == 0 or line[i - 1].isspace()):
+        for i, char, protected in quote_aware_chars(line):
+            if char == "#" and not protected and (i == 0 or line[i - 1].isspace()):
                 result.append((number, line[i:]))
                 break
     return result
@@ -350,7 +348,7 @@ def main(argv=None):
         return 2
     counts = Counter(f.detector for f in findings)
     for detector in (*DETECTORS, "suppression", "parse-error"):
-        group = sorted(f for f in findings if f.detector == detector)
+        group = [f for f in findings if f.detector == detector]
         if group:
             print(f"\n{detector} ({len(group)}):")
             for finding in group:

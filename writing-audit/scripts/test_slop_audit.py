@@ -10,6 +10,11 @@ import slop_audit as audit
 
 
 class DetectorTests(unittest.TestCase):
+    def test_unterminated_shell_quote_is_reported(self):
+        found = audit.audit_source('echo "unfinished\necho done\n', "sample.sh")
+        self.assertIn(audit.Finding("parse-error", "sample.sh", 1,
+                                    "shell line not tokenizable"), found)
+
     def assert_detector(self, detector, positive, negative, filename="sample.py"):
         self.assertIn(detector, {f.detector for f in audit.audit_source(positive, filename)})
         self.assertNotIn(detector, {f.detector for f in audit.audit_source(negative, filename)})
