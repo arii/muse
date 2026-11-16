@@ -14,9 +14,9 @@
 // not accidental (CHAPTER_MIN_MS).
 
 import type { Chapter, Visual, VideoScript } from "../src/script-types";
-import { deriveCues, splitSentences } from "../src/timing";
+import { deriveCues, FPS, msToFrames, splitSentences } from "../src/timing";
 import { spellAsRead } from "./numbers";
-import { parseReplay } from "../src/replay";
+import { fitReplaySegments, parseReplay } from "../src/replay";
 import {
   CHAPTER_MIN_MS,
   CHAPTER_PAD_MS,
@@ -124,19 +124,19 @@ function parseChapter(header: string, lines: string[]): Chapter {
   }
   flush();
 
-  if (visual === "replay") {
-    try {
-      parseReplay(terminal);
-    } catch (error) {
-      throw new PlanError(`Chapter "${header}": ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-
   // Numbers spelled as read: the narration string is the verbatim TTS input
   // and the caption text is cut from it, so they cannot drift. Cues are
   // sentence-level, word-weighted, so captions track the spoken pace.
   const narration = spellAsRead(paragraphs.join(" "));
   const durationMs = estimateChapterMs({ narration });
+  if (visual === "replay") {
+    try {
+      const replay = parseReplay(terminal);
+      fitReplaySegments(replay.segments, msToFrames(durationMs), FPS);
+    } catch (error) {
+      throw new PlanError(`Chapter "${header}": ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
   const sentences = paragraphs.flatMap((p) => splitSentences(p).map(spellAsRead));
   return {
     name: header,

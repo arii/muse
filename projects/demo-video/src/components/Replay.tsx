@@ -25,6 +25,8 @@ import { msToFrames } from "../timing";
 export const replayClipFile = (videoId: string, spec: string): string =>
   `replay/${videoId}/${spec}`;
 
+const REPLAY_CAPTION_BAND_PX = 120;
+
 export const Replay: React.FC<{ chapter: Chapter; videoId: string }> = ({
   chapter,
   videoId,
@@ -40,11 +42,11 @@ export const Replay: React.FC<{ chapter: Chapter; videoId: string }> = ({
         <Sequence key={i} from={segment.from} durationInFrames={segment.durationInFrames}>
           <OffthreadVideo
             src={src}
-            trimBefore={Math.round(segment.start * fps)}
-            trimAfter={Math.round(segment.end * fps)}
+            trimBefore={segment.trimBefore}
+            trimAfter={segment.trimAfter}
             playbackRate={segment.playbackRate}
             muted
-            style={{ width: "100%", height: "calc(100% - 120px)", objectFit: "contain" }}
+            style={{ width: "100%", height: `calc(100% - ${REPLAY_CAPTION_BAND_PX}px)`, objectFit: "contain" }}
           />
         </Sequence>
       )) : <OffthreadVideo

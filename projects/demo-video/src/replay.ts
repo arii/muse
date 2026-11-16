@@ -26,16 +26,28 @@ export function fitReplaySegments(segments: ReplaySegment[], frames: number, fps
   if (!Number.isInteger(frames) || frames < segments.length || !Number.isFinite(fps) || fps <= 0) {
     throw new Error("Replay chapter must have at least one frame per segment and positive fps");
   }
-  const weights = segments.map(s => (s.end - s.start) / s.speed);
+  const sourceSegments = segments.map(segment => {
+    const trimBefore = Math.round(segment.start * fps);
+    const trimAfter = Math.round(segment.end * fps);
+    if ((segment.end - segment.start) * fps < 1 || trimAfter <= trimBefore) {
+      throw new Error(`Replay segment ${segment.start}-${segment.end} spans less than one source frame at ${fps} fps`);
+    }
+    return { ...segment, trimBefore, trimAfter };
+  });
+  const weights = sourceSegments.map(s => (s.trimAfter - s.trimBefore) / fps / s.speed);
   const total = weights.reduce((sum, weight) => sum + weight, 0);
   if (!Number.isFinite(total) || total <= 0) throw new Error("Replay cut duration must be finite and positive");
   let cursor = 0, elapsed = 0;
-  return segments.map((segment, i) => {
+  return sourceSegments.map((segment, i) => {
     elapsed += weights[i]!;
-    const endFrame = i === segments.length - 1 ? frames : Math.min(frames - (segments.length - i - 1), Math.max(cursor + 1, Math.round(elapsed / total * frames)));
+    const proportionalEnd = Math.round(elapsed / total * frames);
+    const earliestEnd = cursor + 1;
+    const latestEnd = frames - (segments.length - i - 1);
+    const clampedEnd = Math.min(latestEnd, Math.max(earliestEnd, proportionalEnd));
+    const endFrame = i === segments.length - 1 ? frames : clampedEnd;
     const durationInFrames = endFrame - cursor;
     const from = cursor;
     cursor = endFrame;
-    return { ...segment, from, durationInFrames, playbackRate: (segment.end - segment.start) * fps / durationInFrames };
+    return { ...segment, from, durationInFrames, playbackRate: (segment.trimAfter - segment.trimBefore) / durationInFrames };
   });
 }

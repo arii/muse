@@ -23,3 +23,20 @@ test("segment validation fails at plan time, including empty and malformed block
   }
   assert.throws(() => fitReplaySegments([{ start: 0, end: 1, speed: 1 }], 0, 30));
 });
+
+test("fractional cut rates use the same rounded frames as video trims", () => {
+  const segment = fitReplaySegments(parseReplay(["clip.mp4", "1.01-2.02"]).segments, 60, 30)[0]!;
+  assert.equal(segment.trimBefore, 30);
+  assert.equal(segment.trimAfter, 61);
+  assert.equal(segment.playbackRate, 31 / 60);
+  const tight = fitReplaySegments(parseReplay(["clip.mp4", "0-100", "100-101", "101-102"]).segments, 3, 30);
+  assert.deepEqual(tight.map(s => s.durationInFrames), [1, 1, 1]);
+});
+
+test("sub-frame ranges fail clearly before rendering, naming the chapter", () => {
+  for (const range of ["1.01-1.02", "1.01-1.04"]) {
+    assert.throws(() => fitReplaySegments(parseReplay(["clip.mp4", range]).segments, 60, 30), /less than one source frame at 30 fps/);
+    const script = `# Cinema\n## Fractional cut\n<!-- visual: replay -->\n\n\`\`\`replay\nclip.mp4\n${range}\n\`\`\`\n`;
+    assert.throws(() => compileScript(script), /Chapter "Fractional cut": Replay segment .*less than one source frame/);
+  }
+});
