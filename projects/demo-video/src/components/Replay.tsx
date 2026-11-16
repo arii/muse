@@ -14,14 +14,6 @@ import type { Chapter } from "../script-types";
 import { fitReplaySegments, parseReplay } from "../replay";
 import { msToFrames } from "../timing";
 
-// Chapter built from recorded live footage of the featured product running —
-// e.g. the user's own screen recording of the dashboard. The fence block in
-// the script names the clip file under public/replay/<videoId>/. The clip
-// plays muted so its ambient audio never competes with narration; a 16:9
-// source scales to the full 1280×720 frame with no crop. Cut the asset so it
-// covers the chapter's narration; a missing file fails the render explicitly
-// (Remotion), never silently.
-
 export const replayClipFile = (videoId: string, spec: string): string =>
   `replay/${videoId}/${spec}`;
 
