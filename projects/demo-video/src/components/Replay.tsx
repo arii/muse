@@ -2,13 +2,17 @@ import React from "react";
 import {
   AbsoluteFill,
   OffthreadVideo,
+  Sequence,
   interpolate,
   staticFile,
   useCurrentFrame,
+  useVideoConfig,
 } from "remotion";
 import { FONT, GOLD } from "../theme";
 import { fade, rise } from "../motion";
 import type { Chapter } from "../script-types";
+import { fitReplaySegments, parseReplay } from "../replay";
+import { msToFrames } from "../timing";
 
 // Chapter built from recorded live footage of the featured product running —
 // e.g. the user's own screen recording of the dashboard. The fence block in
@@ -26,20 +30,29 @@ export const Replay: React.FC<{ chapter: Chapter; videoId: string }> = ({
   videoId,
 }) => {
   const frame = useCurrentFrame();
-  const spec = chapter.terminal[0]?.trim();
-  if (!spec) {
-    throw new Error(
-      `Replay chapter "${chapter.slug}" needs a fenced clip line naming a file under public/replay/${videoId}/`
-    );
-  }
+  const { fps } = useVideoConfig();
+  const spec = parseReplay(chapter.terminal);
+  const segments = fitReplaySegments(spec.segments, msToFrames(chapter.durationMs), fps);
+  const src = staticFile(replayClipFile(videoId, spec.file));
   return (
     <AbsoluteFill style={{ backgroundColor: "black", fontFamily: FONT }}>
-      <OffthreadVideo
-        src={staticFile(replayClipFile(videoId, spec))}
+      {segments.length ? segments.map((segment, i) => (
+        <Sequence key={i} from={segment.from} durationInFrames={segment.durationInFrames}>
+          <OffthreadVideo
+            src={src}
+            trimBefore={Math.round(segment.start * fps)}
+            trimAfter={Math.round(segment.end * fps)}
+            playbackRate={segment.playbackRate}
+            muted
+            style={{ width: "100%", height: "calc(100% - 120px)", objectFit: "contain" }}
+          />
+        </Sequence>
+      )) : <OffthreadVideo
+        src={src}
         muted
         style={{ width: "100%", height: "100%", objectFit: "cover" }}
-      />
-      <div
+      />}
+      {!segments.length && <div
         style={{
           position: "absolute",
           top: 44,
@@ -56,7 +69,7 @@ export const Replay: React.FC<{ chapter: Chapter; videoId: string }> = ({
         }}
       >
         {chapter.name}
-      </div>
+      </div>}
       {/* subtle edge vignette so white dashboard chrome meets the caption bar cleanly */}
       <div
         style={{
