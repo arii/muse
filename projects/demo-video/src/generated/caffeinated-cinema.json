@@ -1,0 +1,121 @@
+{
+  "id": "caffeinated-cinema",
+  "title": "Caffeinated — Cinema from a real recording",
+  "chapters": [
+    {
+      "name": "Hook",
+      "slug": "hook",
+      "visual": "replay",
+      "narration": "Caffeinated follows a real swarm of artificial scientists.",
+      "bullets": [],
+      "terminal": [
+        "director.mp4",
+        "0-6"
+      ],
+      "cues": [
+        {
+          "text": "Caffeinated follows a real swarm of artificial scientists.",
+          "startMs": 0,
+          "endMs": 4400
+        }
+      ],
+      "durationMs": 4400
+    },
+    {
+      "name": "Trap",
+      "slug": "trap",
+      "visual": "replay",
+      "narration": "Local tweaks give way to rising measured boredom.",
+      "bullets": [],
+      "terminal": [
+        "director.mp4",
+        "6-9",
+        "9-19 x4"
+      ],
+      "cues": [
+        {
+          "text": "Local tweaks give way to rising measured boredom.",
+          "startMs": 0,
+          "endMs": 3533.333333333333
+        }
+      ],
+      "durationMs": 3533.333333333333
+    },
+    {
+      "name": "Snap",
+      "slug": "snap",
+      "visual": "replay",
+      "narration": "At the recorded snap, new labs begin scouting. Quiet stretches move faster, without inventing events.",
+      "bullets": [],
+      "terminal": [
+        "director.mp4",
+        "19-24",
+        "24-36 x4"
+      ],
+      "cues": [
+        {
+          "text": "At the recorded snap, new labs begin scouting.",
+          "startMs": 0,
+          "endMs": 3822
+        },
+        {
+          "text": "Quiet stretches move faster, without inventing events.",
+          "startMs": 3822,
+          "endMs": 7166.666666666667
+        }
+      ],
+      "durationMs": 7166.666666666667
+    },
+    {
+      "name": "Breakthrough",
+      "slug": "breakthrough",
+      "visual": "replay",
+      "narration": "Replicated discoveries lead to the recorded verdict. This is a highlight cut of the same run.",
+      "bullets": [],
+      "terminal": [
+        "director.mp4",
+        "36-40",
+        "40-46 x3",
+        "46-52"
+      ],
+      "cues": [
+        {
+          "text": "Replicated discoveries lead to the recorded verdict.",
+          "startMs": 0,
+          "endMs": 2888
+        },
+        {
+          "text": "This is a highlight cut of the same run.",
+          "startMs": 2888,
+          "endMs": 6600
+        }
+      ],
+      "durationMs": 6600
+    },
+    {
+      "name": "Proof",
+      "slug": "proof",
+      "visual": "replay",
+      "narration": "The proof card keeps the pilot honest. These small comparisons show no significant boredom benefit yet.",
+      "bullets": [],
+      "terminal": [
+        "director.mp4",
+        "54-64"
+      ],
+      "cues": [
+        {
+          "text": "The proof card keeps the pilot honest.",
+          "startMs": 0,
+          "endMs": 3063
+        },
+        {
+          "text": "These small comparisons show no significant boredom benefit yet.",
+          "startMs": 3063,
+          "endMs": 7000
+        }
+      ],
+      "durationMs": 7000
+    }
+  ],
+  "durationMs": 28700
+}

@@ -17,6 +17,7 @@
     "@remotion/cli": "4.0.540",
     "kokoro-js": "1.2.1",
     "mediabunny": "1.64.0",
+    "playwright-core": "1.65.1",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "remotion": "4.0.540"
@@ -32,6 +33,7 @@
     "typescript": "5.9.3"
   },
   "scripts": {
+    "capture": "tsx scripts/capture.ts",
     "setup": "tsx scripts/setup.ts",
     "plan": "tsx scripts/cli.ts plan",
     "tts": "tsx scripts/cli.ts tts",

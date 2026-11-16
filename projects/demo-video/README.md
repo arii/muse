@@ -116,3 +116,40 @@ exists but cannot be measured fails the render with a named error.
 
 `projects/grasping-2026/**` is off-limits to this toolkit: files there trigger
 the Python CI and Docker builds.
+
+## Cinema: deterministic capture
+
+```sh
+npm run capture -- --url 'http://127.0.0.1:5175/?cinema=1&capture=1' \
+  --fps 30 --size 1280x720 --out public/replay/my-demo/director.mp4 --stills 5,18
+# Or serve a static build, on an ephemeral 127.0.0.1 port only:
+npm run capture -- --serve /path/to/build --path '/?cinema=1&capture=1' \
+  --out public/replay/my-demo/director.mp4
+# The bin wrapper also accepts: demo-video capture <same flags>
+```
+
+`?cinema=1` hides ordinary UI, keeping canvas + director overlay.
+`?cinema=1&capture=1` exposes `window.__cinema = { ready, duration, render(t) }`;
+all state must be a pure function of `t` in seconds. Capture awaits readiness
+and renders each frame explicitly. Browser: `--browser-executable` →
+`CHROME_PATH` → toolkit cache. See `npm run capture -- --help` for flags and the
+[production guide](demo-video-production-guide-od-17.md) for defaults, lossless
+stills, containment, Caffeinated source references and production/QA guidance.
+
+## Replay highlight cuts
+
+Keep the existing single filename in a `replay` fence for normal-speed footage,
+or append source-time segments:
+
+````markdown
+```replay
+clip.mp4
+0-6
+6-40 x4
+40-52
+```
+````
+
+The filename alone keeps legacy playback. Segment fitting, relative speeds,
+validation and caption-safe layout are detailed in the
+[highlight-cut guide](demo-video-production-guide-od-17.md#the-compressed-highlight-cut-pattern).

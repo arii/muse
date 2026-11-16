@@ -18,10 +18,12 @@ import {
 import { BROWSER_CACHE_ROOTS, findBrowserExecutable } from "./browser";
 import { fitChapterToAudio } from "../src/timing";
 import type { VideoScript } from "../src/script-types";
+import { captureMain } from "./capture";
 
 export const USAGE = `demo-video — repo + narration script in, demo video out
 
 Usage (npm script aliases, run from projects/demo-video/):
+  npm run capture -- --url <url> --out <clip.mp4>  frame-stepped Cinema capture
   npm run plan -- <script.md>                compile a script, write src/generated/<id>.json
   npm run tts -- <script.md> [--voice <id>]  synthesize narration only
   npm run render -- <script.md> [flags]      plan -> tts -> render (or --silent)
@@ -126,6 +128,10 @@ function writePlan(script: VideoScript): string {
 }
 
 async function main(): Promise<void> {
+  if (process.argv[2] === "capture") {
+    await captureMain(process.argv.slice(3));
+    return;
+  }
   const args = parseArgs(process.argv.slice(2));
   if (args.help) {
     console.log(USAGE);
