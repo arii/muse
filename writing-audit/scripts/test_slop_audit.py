@@ -67,6 +67,15 @@ class DetectorTests(unittest.TestCase):
             self.assert_detector("agent-leftover", "# TODO implement\n", "# TODO owner/repo#123\n", filename)
             self.assertEqual([], audit.audit_source('echo="# TODO not a comment"\n', filename))
 
+    def test_defensive_checks_respect_scopes(self):
+        source = "def outer(x):\n    if x is not None:\n        run()\n"
+        source += "    def inner(x):\n        if x is not None:\n            run()\n" * 3
+        source += "    callback = lambda x: run() if x is not None else None\n"
+        self.assertEqual([], audit.audit_source(source, "sample.py", ["over-defensive"]))
+        positive = "def outer():\n    def inner(x):\n" + "        if x is not None:\n            run()\n" * 4
+        findings = audit.audit_source(positive, "sample.py", ["over-defensive"])
+        self.assertEqual([2], [f.line for f in findings])
+
     def test_suppressions(self):
         source = "try:\n    run()\nexcept Exception:  # slop: disable=swallowed-exception -- best-effort cleanup\n    pass\n"
         self.assertEqual([], audit.audit_source(source, "sample.py"))

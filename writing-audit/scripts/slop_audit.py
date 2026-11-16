@@ -45,6 +45,13 @@ def similar(left, right):
     return difflib.SequenceMatcher(None, left, right, autojunk=False).ratio() >= 0.88
 
 
+def scope_nodes(node):
+    yield node
+    for child in ast.iter_child_nodes(node):
+        if not isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)):
+            yield from scope_nodes(child)
+
+
 def python_findings(tree):
     for node in ast.walk(tree):
         if isinstance(node, ast.Try):
@@ -76,11 +83,11 @@ def python_findings(tree):
                         yield "dead-fallback", statement.lineno, "unreachable statement after control transfer"
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             checks = Counter()
-            for guard in ast.walk(node):
+            for guard in scope_nodes(node):
                 test = guard.test if isinstance(guard, (ast.If, ast.While, ast.IfExp)) else None
                 if test is None:
                     continue
-                for part in ast.walk(test):
+                for part in scope_nodes(test):
                     target = None
                     if isinstance(part, ast.Call) and isinstance(part.func, ast.Name) and part.func.id in {"hasattr", "getattr"} and part.args:
                         target = part.args[0]
