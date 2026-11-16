@@ -23,6 +23,10 @@ on:
       - "projects/grasping-2026/scripts/**"
       - "projects/grasping-2026/tests/**"
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest

@@ -1,14 +1,6 @@
-name: ci
+name: grasping-tests (manual)
 on:
-  push:
-    branches: [main]
-    paths:
-      - "projects/grasping-2026/**"
-      - ".github/workflows/ci.yml"
-  pull_request:
-    paths:
-      - "projects/grasping-2026/**"
-      - ".github/workflows/ci.yml"
+  workflow_dispatch:
 
 jobs:
   test:
