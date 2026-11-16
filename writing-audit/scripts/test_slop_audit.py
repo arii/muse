@@ -54,6 +54,14 @@ class DetectorTests(unittest.TestCase):
         positive = "if first; then\n shared\nelif second; then\n shared\nelse\n shared\nfi\n"
         self.assertEqual(1, len(audit.audit_source(positive, "sample.sh", ["dead-fallback"])))
 
+    def test_quoted_shell_operators(self):
+        for operator in ("'||'", '"||"'):
+            source = f"curl --retry 1 host {operator} curl --retry 2 host\n"
+            with self.subTest(operator=operator):
+                self.assertEqual([], audit.audit_source(source, "sample.sh", ["fallback-chain"]))
+        source = "curl --retry 1 'host' || curl --retry 2 'host'\n"
+        self.assertEqual(1, len(audit.audit_source(source, "sample.sh", ["fallback-chain"])))
+
     def test_over_defensive(self):
         self.assert_detector("over-defensive", "if a:\n if b:\n  if c:\n   if d:\n    run()\n",
                              "if a:\n if b:\n  run()\n")

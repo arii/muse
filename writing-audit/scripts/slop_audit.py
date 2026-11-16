@@ -116,7 +116,7 @@ def python_findings(tree):
 
 def shell_lines(source):
     for number, line in enumerate(source.splitlines(), 1):
-        lexer = shlex.shlex(line, posix=True, punctuation_chars=True)
+        lexer = shlex.shlex(line, posix=False, punctuation_chars=True)
         lexer.whitespace_split = True
         try:
             tokens = list(lexer)
