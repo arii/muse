@@ -63,9 +63,11 @@ def test_failover(store, monkeypatch, failure):
     assert status == 200 and payload["choices"]
     assert len(sent) == 2
     assert headers["X-Provider-Used"] == "p1"
-    assert float(headers["X-Cost-Usd"]) == pytest.approx(.05)
+    assert headers["X-Cost-Usd"] == "unknown"
     assert headers["X-Audit-Flags"] == "FALLBACK_CASCADE"
     trace = store.trace(headers["X-Trace-Id"])
+    assert trace["known_cost_usd"] == pytest.approx(.05)
+    assert trace["cost_complete"] is False
     assert trace["attempts"][0]["called"]
     assert trace["attempts"][1]["response"] == payload
     assert trace["request"]["stream"] is True

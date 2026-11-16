@@ -59,7 +59,7 @@ class Store:
 
     def spend_today(self):
         day = datetime.now(timezone.utc).date().isoformat()
-        return sum(t["cost_usd"] or 0 for t in self.traces(day))
+        return sum(t.get("known_cost_usd", t["cost_usd"]) or 0 for t in self.traces(day))
 
     def repeated_tools(self, session, signatures):
         if not session:

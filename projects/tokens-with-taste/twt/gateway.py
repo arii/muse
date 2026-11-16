@@ -63,7 +63,8 @@ class Gateway:
                  "privacy": privacy, "session_id": session, "provider": None, "model": None,
                  "attempts": [], "http_status": 503, "latency_ms": 0, "prompt_tokens": None,
                  "completion_tokens": None, "reasoning_tokens": None, "visible_tokens": None,
-                 "cost_usd": None, "flags": [], "request": original_body, "response": None}
+                 "cost_usd": None, "known_cost_usd": 0, "cost_complete": False,
+                 "flags": [], "request": original_body, "response": None}
         catalog = self.store.models()
         absent = set()
         response_payload = None
@@ -164,8 +165,6 @@ class Gateway:
                     continue
                 attempt["reason"] = "success"
                 trace.update(usage(payload))
-                if attempt["cost_usd"] is not None:
-                    trace["cost_usd"] = sum(a["cost_usd"] or 0 for a in trace["attempts"])
                 trace.update(provider=provider["id"], model=model["id"], http_status=response.status_code)
                 context = model["context_length"]
                 response_payload = payload
@@ -184,6 +183,10 @@ class Gateway:
             response_payload = {"error": {"message": message, "type": "no_provider_available"}}
             trace["http_status"] = 502 if any(a["called"] for a in trace["attempts"]) else 503
         trace["response"] = response_payload
+        called = [a for a in trace["attempts"] if a["called"]]
+        trace["known_cost_usd"] = sum(a["cost_usd"] for a in called if a["cost_usd"] is not None)
+        trace["cost_complete"] = bool(called) and all(a["cost_usd"] is not None for a in called)
+        trace["cost_usd"] = trace["known_cost_usd"] if trace["cost_complete"] else None
         trace["latency_ms"] = (self.clock() - started) * 1000
         trace["flags"] = flags_for(self.store, trace, context)
         self.store.save_trace(trace)

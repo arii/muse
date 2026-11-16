@@ -44,3 +44,33 @@ def test_loopback_json_request_allowed(store, monkeypatch, origin):
                     headers["Origin"] = origin
                 assert (await api.post("/v1/chat/completions", content=json.dumps(REQUEST), headers=headers)).status_code == 200
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("first_usage,last_usage,last_status,expected,complete", [
+    (True, False, 500, .05, False),
+    (True, False, 200, .05, False),
+    (False, True, 200, .05, False),
+    (True, True, 400, .10, True),
+    (True, True, 200, .10, True),
+])
+def test_known_cost_survives_incomplete_waterfall(store, monkeypatch, first_usage, last_usage, last_status, expected, complete):
+    configuration = setup(store, monkeypatch)
+
+    def handler(request):
+        first = request.url.host == "p0.test"
+        payload = reply()
+        if not (first_usage if first else last_usage):
+            del payload["usage"]
+        return httpx.Response(500 if first else last_status, json=payload)
+
+    _, _, headers = run(store, configuration, handler)
+    trace = store.trace(headers["X-Trace-Id"])
+    assert trace["known_cost_usd"] == pytest.approx(expected)
+    assert trace["cost_complete"] is complete
+    assert store.spend_today() == pytest.approx(expected)
+    if complete:
+        assert float(headers["X-Cost-Usd"]) == pytest.approx(expected)
+    else:
+        assert headers["X-Cost-Usd"] == "unknown" and trace["cost_usd"] is None
+    monkeypatch.setenv("TWT_DAILY_BUDGET_USD", str(expected))
+    assert run(store, configuration, lambda r: pytest.fail("known spend must exhaust budget"))[1] == 503

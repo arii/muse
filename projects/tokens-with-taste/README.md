@@ -99,7 +99,11 @@ Response headers: `X-Trace-Id`, `X-Provider-Used`, `X-Cost-Usd`,
 estimate, **not an invoice**: prompt tokens × input price + completion tokens
 × output price. Cache discounts, separate reasoning rates, media/request fees,
 taxes and subscription charges are not modeled. Unknown prices return
-`X-Cost-Usd: unknown` and SQLite `null`, never fabricated zero. Free costs
+`X-Cost-Usd: unknown` and SQLite `cost_usd: null`, never fabricated zero.
+`known_cost_usd` always retains the sum of known attempt costs, including failed
+attempts; `cost_complete` is false if any called attempt is unpriced or lacks
+usage. Budget checks count that known sum even when the total is incomplete.
+Free costs
 assume the documented free/evaluation tier; verify your account tier before
 using a paid key. Account eligibility and remaining free quotas cannot be
 inferred from a model list. Reports show unknown-cost call counts separately.
