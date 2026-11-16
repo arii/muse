@@ -2,10 +2,12 @@ import asyncio
 import os
 import time
 import uuid
+from ipaddress import ip_address
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
+from urllib.parse import urlsplit
 
 import httpx
 from fastapi import FastAPI, Request
@@ -14,6 +16,18 @@ from fastapi.responses import JSONResponse
 from .audit import flags_for, usage
 from .catalog import base_url, headers, missing, providers
 from .store import Store, now
+
+
+def loopback_origin(origin):
+    try:
+        parsed = urlsplit(origin)
+        if (parsed.scheme not in ("http", "https") or not parsed.hostname
+                or parsed.username or parsed.password or parsed.path or parsed.query or parsed.fragment):
+            return False
+        parsed.port
+        return parsed.hostname == "localhost" or ip_address(parsed.hostname).is_loopback
+    except ValueError:
+        return False
 
 
 def retry_seconds(value):
@@ -203,6 +217,11 @@ def create_app(store=None, client=None, configuration=None):
 
     @app.post("/v1/chat/completions")
     async def complete(request: Request):
+        origin = request.headers.get("origin")
+        if origin is not None and not loopback_origin(origin):
+            return JSONResponse({"error": {"message": "Only loopback origins are allowed"}}, status_code=403)
+        if request.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/json":
+            return JSONResponse({"error": {"message": "Content-Type must be application/json"}}, status_code=415)
         try:
             body = await request.json()
         except ValueError:
