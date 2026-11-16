@@ -43,6 +43,17 @@ class DetectorTests(unittest.TestCase):
         block = "download --timeout 10 remote\ntransform --quality 10 input\narchive --level 10 output\nupload --retries 10 result\n"
         self.assert_detector("near-duplicate", block + block.replace("10", "20"), block, "sample.sh")
 
+    def test_shell_complete_branches(self):
+        sources = (
+            "if first; then\n shared\n if inner; then\n  left\n fi\nelse\n shared\n if inner; then\n  right\n fi\nfi\n",
+            "if first; then\n shared\nelif second; then\n different\nelse\n shared\nfi\n",
+        )
+        for source in sources:
+            with self.subTest(source=source):
+                self.assertEqual([], audit.audit_source(source, "sample.sh", ["dead-fallback"]))
+        positive = "if first; then\n shared\nelif second; then\n shared\nelse\n shared\nfi\n"
+        self.assertEqual(1, len(audit.audit_source(positive, "sample.sh", ["dead-fallback"])))
+
     def test_over_defensive(self):
         self.assert_detector("over-defensive", "if a:\n if b:\n  if c:\n   if d:\n    run()\n",
                              "if a:\n if b:\n  run()\n")

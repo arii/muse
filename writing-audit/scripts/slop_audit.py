@@ -124,19 +124,20 @@ def shell_findings(source):
     seen = {}
     branches = []
     for index, (number, tokens) in enumerate(lines):
+        separator = tokens[0] in {"else", "elif", "fi"}
+        for _, alternatives in branches[:-1] if separator else branches:
+            alternatives[-1].append(tokens)
         if tokens[0] == "if":
-            branches.append([number, [], None])
+            branches.append([number, [[]]])
             if len(branches) == 4:
                 yield "over-defensive", number, "four nested shell if guards"
         elif tokens[0] in {"else", "elif"} and branches:
-            branches[-1][2] = []
+            branches[-1][1].append([])
         elif tokens[0] == "fi" and branches:
-            start, left, right = branches.pop()
-            if left and left == right:
+            start, alternatives = branches.pop()
+            if len(alternatives) > 1 and alternatives[0] and all(
+                    body == alternatives[0] for body in alternatives[1:]):
                 yield "dead-fallback", start, "identical shell branch bodies"
-        elif tokens[0] != "then" and branches:
-            branch = branches[-1]
-            (branch[1] if branch[2] is None else branch[2]).append(tokens)
         if "||" in tokens:
             split = tokens.index("||")
             left, right = tokens[:split], tokens[split + 1:]
