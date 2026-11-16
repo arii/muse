@@ -1,0 +1,207 @@
+"""Regression tests for the code audit (stdlib unittest)."""
+import contextlib
+import io
+from pathlib import Path
+import subprocess
+import tempfile
+import unittest
+
+import slop_audit as audit
+
+
+class DetectorTests(unittest.TestCase):
+    def test_unterminated_shell_quote_warns_without_a_finding(self):
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            found = audit.audit_source('echo "unfinished\necho done\n', "sample.sh")
+        self.assertEqual(found, [])
+        self.assertIn("sample.sh:1: skipped: shell line not tokenizable", stderr.getvalue())
+
+    def test_ansi_c_apostrophe_exits_clean_with_warning(self):
+        with tempfile.TemporaryDirectory() as directory:
+            script = Path(directory) / "valid.sh"
+            script.write_text("echo $'it\\'s'\n")
+            stdout, stderr = io.StringIO(), io.StringIO()
+            with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                status = audit.main([str(script), "--disable", ",".join(audit.DETECTORS)])
+            self.assertEqual(status, 0)
+            self.assertIn(f"{script}:1: skipped: shell line not tokenizable", stderr.getvalue())
+            self.assertIn("total=0", stdout.getvalue())
+
+    def assert_detector(self, detector, positive, negative, filename="sample.py"):
+        self.assertIn(detector, {f.detector for f in audit.audit_source(positive, filename)})
+        self.assertNotIn(detector, {f.detector for f in audit.audit_source(negative, filename)})
+
+    def test_skipped_shell_lines_preserve_analysis_boundaries(self):
+        skipped = "printf $'it\\'s'\n"
+        block = "download --timeout 10 remote\ntransform --quality 10 input\narchive --level 10 output\nupload --retries 10 result\n"
+        parts = block.splitlines(keepends=True)
+        sources = (
+            "if check; then\n echo common\n" + skipped + "else\n echo common\nfi\n",
+            block + "".join(parts[:2]) + skipped + "".join(parts[2:]),
+            "return 0\n" + skipped,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            script = Path(directory) / "valid.sh"
+            for source in sources:
+                with self.subTest(source=source):
+                    script.write_text(source)
+                    stdout, stderr = io.StringIO(), io.StringIO()
+                    with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                        status = audit.main([str(script)])
+                    self.assertEqual(0, status)
+                    self.assertIn("total=0", stdout.getvalue())
+                    line = source.splitlines().index(skipped.strip()) + 1
+                    self.assertEqual(f"{script}:{line}: skipped: shell line not tokenizable\n", stderr.getvalue())
+
+    def test_shell_analysis_resumes_after_skipped_line(self):
+        source = "printf $'it\\'s'\nif check; then\n shared\nelse\n shared\nfi\n"
+        with contextlib.redirect_stderr(io.StringIO()):
+            findings = audit.audit_source(source, "sample.sh", ["dead-fallback"])
+        self.assertEqual([("dead-fallback", 2)], [(f.detector, f.line) for f in findings])
+
+    def test_fallback_chain(self):
+        self.assert_detector("fallback-chain", "try:\n    fetch(timeout=10)\nexcept OSError:\n    fetch(timeout=20)\n",
+                             "try:\n    fetch()\nexcept OSError:\n    raise\n")
+        self.assert_detector("fallback-chain", "curl --retry 1 host || curl --retry 2 host\n",
+                             "build || report_failure\n", "sample.sh")
+
+    def test_swallowed_exception(self):
+        for handler in ("except:", "except Exception:", "except BaseException:"):
+            self.assert_detector("swallowed-exception", f"try:\n    run()\n{handler}\n    pass\n",
+                                 "try:\n    run()\nexcept ValueError:\n    pass\n")
+        self.assert_detector("swallowed-exception", "try:\n    run()\nexcept Exception:\n    ...\n",
+                             "try:\n    run()\nexcept Exception:\n    raise\n")
+
+    def test_dead_fallback(self):
+        self.assert_detector("dead-fallback", "def f():\n    return 1\n    recover()\n",
+                             "def f():\n    recover()\n    return 1\n")
+        self.assert_detector("dead-fallback", "if x:\n    run()\nelse:\n    run()\n",
+                             "if x:\n    run()\nelse:\n    recover()\n")
+        self.assert_detector("dead-fallback", "if test x; then\n  run\nelse\n  run\nfi\n",
+                             "if test x; then\n  run\nelse\n  recover\nfi\n", "sample.sh")
+        self.assert_detector("dead-fallback", "return 1\nrecover\n", "return 1\nfi\n", "sample.sh")
+
+    def test_near_duplicate(self):
+        first = "def first():\n    a = read('a')\n    b = transform(a)\n    save(b)\n    return b\n"
+        second = "def second():\n    x = read('b')\n    y = transform(x)\n    save(y)\n    return y\n"
+        self.assert_detector("near-duplicate", first + second, first)
+        block = "download --timeout 10 remote\ntransform --quality 10 input\narchive --level 10 output\nupload --retries 10 result\n"
+        self.assert_detector("near-duplicate", block + block.replace("10", "20"), block, "sample.sh")
+
+    def test_shell_complete_branches(self):
+        sources = (
+            "if first; then\n shared\n if inner; then\n  left\n fi\nelse\n shared\n if inner; then\n  right\n fi\nfi\n",
+            "if first; then\n shared\nelif second; then\n different\nelse\n shared\nfi\n",
+        )
+        for source in sources:
+            with self.subTest(source=source):
+                self.assertEqual([], audit.audit_source(source, "sample.sh", ["dead-fallback"]))
+        positive = "if first; then\n shared\nelif second; then\n shared\nelse\n shared\nfi\n"
+        self.assertEqual(1, len(audit.audit_source(positive, "sample.sh", ["dead-fallback"])))
+
+    def test_quoted_shell_operators(self):
+        for operator in ("'||'", '"||"'):
+            source = f"curl --retry 1 host {operator} curl --retry 2 host\n"
+            with self.subTest(operator=operator):
+                self.assertEqual([], audit.audit_source(source, "sample.sh", ["fallback-chain"]))
+        source = 'curl --retry 1 host" || curl --retry 2 host"\n'
+        self.assertEqual([], audit.audit_source(source, "sample.sh", ["fallback-chain"]))
+        source = "curl --retry 1 'host' || curl --retry 2 'host'\n"
+        self.assertEqual(1, len(audit.audit_source(source, "sample.sh", ["fallback-chain"])))
+
+    def test_shell_branch_keyword_lines(self):
+        for first in ("then\n shared", "then; shared"):
+            source = f"if first\n{first}\nelse\n shared\nfi\n"
+            with self.subTest(first=first):
+                self.assertEqual(1, len(audit.audit_source(source, "sample.sh", ["dead-fallback"])))
+
+    def test_shell_duplicates_preserve_quotes(self):
+        source = 'if first; then\n echo "$HOME"\nelse\n echo \'$HOME\'\nfi\n'
+        self.assertEqual([], audit.audit_source(source, "sample.sh", ["dead-fallback"]))
+        block = 'echo "$HOME" --long-argument-one\necho "$USER" --long-argument-two\necho "$PATH" --long-argument-three\necho "$PWD" --long-argument-four\n'
+        self.assertEqual([], audit.audit_source(block + block.replace('"', "'"), "sample.sh", ["near-duplicate"]))
+        self.assertEqual(1, len(audit.audit_source(source.replace("'$HOME'", '"$HOME"'), "sample.sh", ["dead-fallback"])))
+
+    def test_over_defensive(self):
+        self.assert_detector("over-defensive", "if a:\n if b:\n  if c:\n   if d:\n    run()\n",
+                             "if a:\n if b:\n  run()\n")
+        self.assert_detector("over-defensive", "def f(x):\n" + "    if x is not None:\n        run()\n" * 4,
+                             "def f(x):\n    if x is not None:\n        run()\n")
+        self.assert_detector("over-defensive", "def f(x):\n" + "    if hasattr(x, 'a'):\n        run()\n" * 4,
+                             "def f(x):\n    if getattr(x, 'a', None):\n        run()\n")
+
+    def test_agent_leftover(self):
+        for filename in ("sample.py", "sample.sh"):
+            self.assert_detector("agent-leftover", "# TODO implement\n", "# TODO owner/repo#123\n", filename)
+            self.assertEqual([], audit.audit_source('echo="# TODO not a comment"\n', filename))
+
+    def test_defensive_checks_respect_scopes(self):
+        source = "def outer(x):\n    if x is not None:\n        run()\n"
+        source += "    def inner(x):\n        if x is not None:\n            run()\n" * 3
+        source += "    callback = lambda x: run() if x is not None else None\n"
+        self.assertEqual([], audit.audit_source(source, "sample.py", ["over-defensive"]))
+        positive = "def outer():\n    def inner(x):\n" + "        if x is not None:\n            run()\n" * 4
+        findings = audit.audit_source(positive, "sample.py", ["over-defensive"])
+        self.assertEqual([2], [f.line for f in findings])
+
+    def test_suppressions(self):
+        source = "try:\n    run()\nexcept Exception:  # slop: disable=swallowed-exception -- best-effort cleanup\n    pass\n"
+        self.assertEqual([], audit.audit_source(source, "sample.py"))
+        invalid = source.replace(" -- best-effort cleanup", "")
+        self.assertEqual({"suppression", "swallowed-exception"}, {f.detector for f in audit.audit_source(invalid, "sample.py")})
+        self.assertEqual({"suppression"}, {f.detector for f in audit.audit_source(invalid, "sample.py", [])})
+        self.assertEqual([], audit.audit_source('s = "# slop: disable=invalid"\n', "sample.py"))
+
+    def test_empty_and_invalid(self):
+        for name in ("sample.py", "sample.sh"):
+            self.assertEqual([], audit.audit_source("", name))
+        self.assertEqual("parse-error", audit.audit_source("def invalid(\n", "sample.py")[0].detector)
+
+
+class CLITests(unittest.TestCase):
+    def test_paths_selection_skips_and_errors(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "sample.py").write_text("# TODO implement\n")
+            (root / "venv").mkdir()
+            (root / "venv" / "bad.py").write_text("invalid Python !")
+            with contextlib.redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(1, audit.main([directory]))
+                self.assertEqual(0, audit.main([directory, "--disable", "agent-leftover"]))
+                self.assertEqual(1, audit.main([directory, "--detectors", "agent-leftover"]))
+            self.assertIn("agent-leftover=1", output.getvalue())
+            with contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(2, audit.main([str(root / "missing")]))
+                with self.assertRaises(SystemExit):
+                    audit.main([directory, "--detectors", "invalid"])
+
+    def test_diff_changed_lines(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            def git(*args):
+                return subprocess.check_output(["git", "-C", str(root), *args], stderr=subprocess.STDOUT)
+            git("init")
+            path = root / "space name.py"
+            path.write_text("# TODO old\nvalue = 1\n")
+            git("add", str(path))
+            git("-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "fixture")
+            path.write_text("# TODO old\nvalue = 1\n# FIXME new\n")
+            for setting in ("diff.noprefix", "diff.mnemonicPrefix", "color.ui"):
+                git("config", setting, "always" if setting == "color.ui" else "true")
+                with self.subTest(setting=setting):
+                    self.assertEqual({3}, audit.changed_lines("HEAD", root).get(path.resolve(), set()))
+            changed = audit.changed_lines("HEAD", root)
+            findings = audit.audit_source(path.read_text(), path)
+            self.assertEqual([3], [f.line for f in findings if f.line in changed[path.resolve()]])
+            command = ["python3", str(Path(audit.__file__).resolve()), "--diff", "HEAD"]
+            result = subprocess.run(command, cwd=root, text=True, capture_output=True)
+            self.assertEqual(1, result.returncode)
+            self.assertIn("agent-leftover=1", result.stdout)
+            self.assertNotIn("space name.py:1:", result.stdout)
+            path.unlink()
+            self.assertEqual(set(), audit.changed_lines("HEAD", root).get(path.resolve(), set()))
+
+
+if __name__ == "__main__":
+    unittest.main()
