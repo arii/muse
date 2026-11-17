@@ -205,7 +205,7 @@ function startGame() {
         if (remaining.length === 0) {
           completed = true;
           clearInput();
-          document.exitPointerLock();
+          if (document.pointerLockElement) document.exitPointerLock();
           win.hidden = false;
           document.querySelector('#restart').focus();
         }
