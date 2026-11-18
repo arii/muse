@@ -4,7 +4,7 @@ import json
 from datetime import datetime, timezone
 
 from .audit import inspect_trace, report
-from .catalog import sync
+from .catalog import catalog_models, configured_providers, sync
 from .store import Store
 
 
@@ -47,7 +47,7 @@ def main(argv=None):
             except Exception as error:
                 parser.exit(1, f"Catalog sync failed ({type(error).__name__}: {error}); existing catalog retained.\n")
         elif args.command == "models":
-            rows = [m for m in store.models() if m["chat"] and (not args.free or m["free"])
+            rows = [m for m in catalog_models(store, configured_providers()) if m["chat"] and (not args.free or m["free"])
                     and (not args.tools or m["tools"])]
             print("PROVIDER\tMODEL\tFREE\tTOOLS\tJSON\tCONTEXT\tRPM\tINPUT_USD/TOKEN\tOUTPUT_USD/TOKEN")
             for m in rows:

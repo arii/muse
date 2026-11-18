@@ -8,14 +8,31 @@ import httpx
 LITELLM_SHA = "d034fb681ca296a0f082a224043eda62a2ce82d4"
 PRICE_URL = f"https://raw.githubusercontent.com/BerriAI/litellm/{LITELLM_SHA}/model_prices_and_context_window.json"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/models"
+OLLAMA_URL = "http://127.0.0.1:11434"
 
 
 def providers():
     return json.loads(files("twt").joinpath("providers.json").read_text())["providers"]
 
 
+def configured_providers():
+    model = os.environ.get("TWT_OLLAMA_MODEL")
+    if model:
+        return [{"id": "ollama", "base_url": f"{OLLAMA_URL}/v1", "local_model": model,
+                 "strict": True, "trains_on_free_tier": False}]
+    return providers()
+
+
+def catalog_models(store, configuration):
+    local_model = next((p["local_model"] for p in configuration if "local_model" in p), None)
+    if local_model:
+        return [m for m in store.models() if m["provider"] == "ollama" and m["id"] == local_model]
+    return [m for m in store.models() if m["provider"] != "ollama"]
+
+
 def missing(provider):
-    return [key for key in [provider["key_env"], *provider.get("required_env", [])] if not os.environ.get(key)]
+    keys = [provider["key_env"]] if "key_env" in provider else []
+    return [key for key in [*keys, *provider.get("required_env", [])] if not os.environ.get(key)]
 
 
 def base_url(provider):
@@ -23,6 +40,8 @@ def base_url(provider):
 
 
 def headers(provider):
+    if "key_env" not in provider:
+        return {}
     return {"Authorization": f"Bearer {os.environ[provider['key_env']]}"}
 
 
@@ -84,11 +103,43 @@ def normalize(provider, row, prices, router):
     }
 
 
+async def require_local_ollama(client):
+    response = await client.get(f"{OLLAMA_URL}/api/status")
+    response.raise_for_status()
+    status = response.json()
+    cloud = status.get("cloud") if isinstance(status, dict) else None
+    if not isinstance(cloud, dict) or cloud.get("disabled") is not True:
+        raise ValueError("Ollama cloud must be disabled (OLLAMA_NO_CLOUD=1)")
+
+
+async def sync_ollama(store, client, model):
+    await require_local_ollama(client)
+    source = f"{OLLAMA_URL}/api/show"
+    response = await client.post(source, json={"model": model})
+    response.raise_for_status()
+    details = response.json()
+    capabilities = details.get("capabilities") if isinstance(details, dict) else None
+    if (not isinstance(capabilities, list) or "completion" not in capabilities
+            or details.get("remote_model") or details.get("remote_host")):
+        raise ValueError(f"Ollama model {model!r} must be an installed local chat model")
+    store.replace_models("ollama", [{
+        "provider": "ollama", "id": model, "chat": True, "tools": "tools" in capabilities,
+        "json": False, "json_schema": False, "context_length": None,
+        "input_price": 0.0, "output_price": 0.0, "free": True, "rpm": None, "daily": None,
+        "synced_source": source, "metadata_source": source, "price_source": "local",
+    }])
+    return ["ollama: synced 1 model"]
+
+
 async def sync(store, client=None, configuration=None):
+    configuration = configured_providers() if configuration is None else configuration
+    local_model = next((p["local_model"] for p in configuration if "local_model" in p), None)
     owned = client is None
-    client = client or httpx.AsyncClient(timeout=60, follow_redirects=True)
+    client = client or httpx.AsyncClient(timeout=60, follow_redirects=not local_model, trust_env=not local_model)
     messages = []
     try:
+        if local_model:
+            return await sync_ollama(store, client, local_model)
         response = await client.get(PRICE_URL)
         response.raise_for_status()
         prices = response.json()
@@ -98,7 +149,7 @@ async def sync(store, client=None, configuration=None):
         router = {m["id"]: m for m in router_rows}
         messages.append(f"LiteLLM {LITELLM_SHA}: {len(prices)} entries")
         messages.append(f"OpenRouter public catalog: {len(router)} models (no key)")
-        for provider in configuration or providers():
+        for provider in configuration:
             absent = missing(provider)
             if provider["id"] == "openrouter":
                 rows = router_rows

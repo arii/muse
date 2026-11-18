@@ -14,7 +14,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from .audit import flags_for, usage
-from .catalog import base_url, headers, missing, providers
+from .catalog import base_url, catalog_models, configured_providers, headers, missing, require_local_ollama
 from .store import Store, now
 
 
@@ -73,7 +73,7 @@ class Gateway:
     def __init__(self, store, client, configuration=None, clock=time.monotonic):
         self.store = store
         self.client = client
-        self.providers = configuration if configuration is not None else providers()
+        self.providers = configuration if configuration is not None else configured_providers()
         self.clock = clock
         self.calls = defaultdict(deque)
         self.cooldowns = {}
@@ -90,7 +90,7 @@ class Gateway:
                  "completion_tokens": None, "reasoning_tokens": None, "visible_tokens": None,
                  "cost_usd": None, "known_cost_usd": 0, "cost_complete": False,
                  "flags": [], "request": original_body, "response": None}
-        catalog = self.store.models()
+        catalog = catalog_models(self.store, self.providers)
         absent = set()
         response_payload = None
         context = None
@@ -126,6 +126,12 @@ class Gateway:
                 continue
             model = min(candidates, key=lambda m: (not m["free"], m["input_price"] if m["input_price"] is not None else float("inf"), m["id"]))
             attempt["model"] = model["id"]
+            if "local_model" in provider:
+                try:
+                    await require_local_ollama(self.client)
+                except (httpx.HTTPError, ValueError):
+                    attempt["reason"] = "local Ollama unavailable or cloud not disabled; check OLLAMA_NO_CLOUD=1"
+                    continue
             key = (provider["id"], model["id"])
             async with self.lock:
                 if budget is not None and not model["free"] and (
@@ -209,7 +215,8 @@ class Gateway:
 
 def create_app(store=None, client=None, configuration=None):
     storage = store or Store()
-    http = client or httpx.AsyncClient(timeout=30)
+    configuration = configured_providers() if configuration is None else configuration
+    http = client or httpx.AsyncClient(timeout=30, trust_env=not any("local_model" in p for p in configuration))
     gateway = Gateway(storage, http, configuration)
 
     @asynccontextmanager
@@ -226,7 +233,7 @@ def create_app(store=None, client=None, configuration=None):
     async def models():
         return {"object": "list", "data": [
             {"id": f"{m['provider']}/{m['id']}", "object": "model", "owned_by": m["provider"]}
-            for m in storage.models() if m["chat"]]}
+            for m in catalog_models(storage, gateway.providers) if m["chat"]]}
 
     @app.post("/v1/chat/completions")
     async def complete(request: Request):

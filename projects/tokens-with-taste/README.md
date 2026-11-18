@@ -30,6 +30,31 @@ Gateway: **127.0.0.1:8000/v1**, including `GET /v1/models` and
 or `provider/id` restricts selection to that model. `stream` is always forced
 to `false`. This is a single-process local tool, not a public authenticated proxy.
 
+### Run without API keys (Ollama)
+
+Install [Ollama](https://ollama.com/download) (verified with 0.17.7). Start it
+on `127.0.0.1:11434` with `OLLAMA_NO_CLOUD=1`. If Ollama runs as a background
+service, [configure that service and restart it](https://docs.ollama.com/faq#how-do-i-disable-ollamas-cloud-features)
+instead of starting a second server.
+
+```sh
+ollama pull qwen2.5:0.5b
+export TWT_OLLAMA_MODEL=qwen2.5:0.5b
+twt sync
+twt serve
+# From another terminal, send the same curl request as above.
+```
+
+Use the same `TWT_OLLAMA_MODEL` for both sync and serve. This selects only the
+named local model, even if hosted credentials are set. Sync requires the model
+to support chat; the gateway verifies cloud is disabled before sending prompts
+and never falls back to a hosted provider in this mode. Tools are offered only
+if Ollama advertises them; structured output is not enabled in local mode.
+Reported API cost is zero when usage is known; this excludes local compute.
+Unset `TWT_OLLAMA_MODEL` to restore the hosted waterfall.
+
+### Audit commands
+
 ```sh
 twt sync                           # live REST discovery + metadata, no fake responses
 twt models --free --tools          # chat, free-eligible, tool-capable intersection
@@ -50,14 +75,14 @@ automatic trace deletion or redaction.
 
 ## Routing, limits and costs
 
-Standard order: **Google, Groq, NVIDIA, Mistral, OpenRouter, SambaNova,
+Hosted order: **Google, Groq, NVIDIA, Mistral, OpenRouter, SambaNova,
 Cloudflare, Nebius**. Default routes select only verified free-eligible models
 at the first seven providers; Nebius is the paid fallback. Unknown free-tier
 eligibility is not assumed. Explicit model requests may select a paid model.
 Within a provider, selection is deterministic: free first, then lowest known
 input price, then ID. One matching model is attempted per provider.
 
-`X-Privacy: strict` permits **only Groq and Cloudflare**, excludes training
+`X-Privacy: strict` permits **only Groq and Cloudflare** in hosted mode, excludes training
 providers, and otherwise follows the same filters. Unknown policy values are JSON `null`.
 Groq may retain reliability/abuse logs unless account ZDR is enabled.
 
@@ -141,7 +166,7 @@ flag counts count traces once. Traces with only skips contribute no spend rows.
 
 ## Catalog sources
 
-`twt sync` always fetches [OpenRouter's public catalog](https://openrouter.ai/api/v1/models)
+`twt sync` in hosted mode fetches [OpenRouter's public catalog](https://openrouter.ai/api/v1/models)
 and the [pinned LiteLLM map](https://raw.githubusercontent.com/BerriAI/litellm/d034fb681ca296a0f082a224043eda62a2ce82d4/model_prices_and_context_window.json).
 Pin: **d034fb681ca296a0f082a224043eda62a2ce82d4**. It then polls credentialed
 provider `/models` endpoints; NVIDIA and SambaNova lists also work publicly.
