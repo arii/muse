@@ -50,6 +50,8 @@ named local model, even if hosted credentials are set. Sync requires the model
 to support chat; the gateway verifies cloud is disabled before sending prompts
 and never falls back to a hosted provider in this mode. Tools are offered only
 if Ollama advertises them; structured output is not enabled in local mode.
+Context audits use the running model's context limit when available and the
+model's advertised maximum otherwise.
 Reported API cost is zero when usage is known; this excludes local compute.
 Unset `TWT_OLLAMA_MODEL` to restore the hosted waterfall.
 

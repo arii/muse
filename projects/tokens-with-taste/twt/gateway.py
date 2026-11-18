@@ -14,7 +14,10 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from .audit import flags_for, usage
-from .catalog import base_url, catalog_models, configured_providers, headers, missing, require_local_ollama
+from .catalog import (
+    base_url, catalog_models, configured_providers, headers, missing,
+    ollama_running_context, require_local_ollama,
+)
 from .store import Store, now
 
 
@@ -187,6 +190,8 @@ class Gateway:
                 trace.update(usage(payload))
                 trace.update(provider=provider["id"], model=model["id"], http_status=response.status_code)
                 context = model["context_length"]
+                if "local_model" in provider:
+                    context = await ollama_running_context(self.client, model["id"]) or context
                 response_payload = payload
                 break
             except httpx.TimeoutException:

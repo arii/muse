@@ -112,6 +112,31 @@ async def require_local_ollama(client):
         raise ValueError("Ollama cloud must be disabled (OLLAMA_NO_CLOUD=1)")
 
 
+def ollama_model_name(model):
+    name = model.casefold().removeprefix("registry.ollama.ai/")
+    if name.count("/") == 1:
+        name = name.removeprefix("library/")
+    return name if ":" in name.rsplit("/", 1)[-1] else f"{name}:latest"
+
+
+async def ollama_running_context(client, model):
+    try:
+        response = await client.get(f"{OLLAMA_URL}/api/ps", timeout=1)
+        response.raise_for_status()
+        payload = response.json()
+    except (httpx.HTTPError, ValueError):
+        return None
+    rows = payload.get("models") if isinstance(payload, dict) else None
+    name = ollama_model_name(model)
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict) or not isinstance(row.get("model"), str):
+            continue
+        context = row.get("context_length")
+        if ollama_model_name(row["model"]) == name and type(context) is int and context > 0:
+            return context
+    return None
+
+
 async def sync_ollama(store, client, model):
     await require_local_ollama(client)
     source = f"{OLLAMA_URL}/api/show"

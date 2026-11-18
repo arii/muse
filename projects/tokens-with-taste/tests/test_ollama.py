@@ -13,7 +13,8 @@ MODEL = "test-chat:latest"
 REQUEST = {"model": "default", "messages": [{"role": "user", "content": "Hello"}]}
 
 
-def test_ollama_local_only(store, monkeypatch):
+@pytest.mark.parametrize("runtime_available", [True, False])
+def test_ollama_local_only(store, monkeypatch, runtime_available):
     monkeypatch.setenv("TWT_OLLAMA_MODEL", MODEL)
     monkeypatch.setenv("TWT_DAILY_BUDGET_USD", "0")
     monkeypatch.setenv("GROQ_API_KEY", "not-used")
@@ -26,12 +27,19 @@ def test_ollama_local_only(store, monkeypatch):
         seen.append(request.url.path)
         if request.url.path == "/api/status":
             return httpx.Response(200, json={"cloud": {"disabled": cloud_disabled}})
+        if request.url.path == "/api/ps":
+            if not runtime_available:
+                return httpx.Response(503)
+            return httpx.Response(200, json={"models": [
+                {"model": "unrelated:latest", "context_length": 128},
+                {"model": "registry.ollama.ai/library/test-chat", "context_length": 1024},
+            ]})
         body = json.loads(request.content)
         assert body["model"] == MODEL
         if request.url.path == "/api/show":
             return httpx.Response(200, json={
                 "capabilities": ["completion", "tools"],
-                "model_info": {"general.architecture": "test_arch", "test_arch.context_length": 1024},
+                "model_info": {"general.architecture": "test_arch", "test_arch.context_length": 4096},
             })
         assert body["stream"] is False
         return httpx.Response(200, json=reply(prompt=900))
@@ -49,7 +57,7 @@ def test_ollama_local_only(store, monkeypatch):
                 assert response.status_code == 200
                 assert response.headers["X-Provider-Used"] == "ollama"
                 assert response.headers["X-Cost-Usd"] == "0.0"
-                assert response.headers["X-Audit-Flags"] == "CONTEXT_BLOAT"
+                assert response.headers["X-Audit-Flags"] == ("CONTEXT_BLOAT" if runtime_available else "")
                 trace = store.trace(response.headers["X-Trace-Id"])
                 assert trace["model"] == MODEL and trace["cost_complete"]
                 rejected = await api.post("/v1/chat/completions", json={**REQUEST, "model": "other:latest"})
@@ -61,7 +69,7 @@ def test_ollama_local_only(store, monkeypatch):
                 assert len(trace["attempts"]) == 1 and not trace["attempts"][0]["called"]
 
     asyncio.run(scenario())
-    assert seen == ["/api/status", "/api/show", "/api/status", "/v1/chat/completions", "/api/status"]
+    assert seen == ["/api/status", "/api/show", "/api/status", "/v1/chat/completions", "/api/ps", "/api/status"]
 
 
 @pytest.mark.parametrize("details", [
