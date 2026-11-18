@@ -29,9 +29,12 @@ def test_ollama_local_only(store, monkeypatch):
         body = json.loads(request.content)
         assert body["model"] == MODEL
         if request.url.path == "/api/show":
-            return httpx.Response(200, json={"capabilities": ["completion", "tools"]})
+            return httpx.Response(200, json={
+                "capabilities": ["completion", "tools"],
+                "model_info": {"general.architecture": "test_arch", "test_arch.context_length": 1024},
+            })
         assert body["stream"] is False
-        return httpx.Response(200, json=reply())
+        return httpx.Response(200, json=reply(prompt=900))
 
     async def scenario():
         nonlocal cloud_disabled
@@ -46,6 +49,7 @@ def test_ollama_local_only(store, monkeypatch):
                 assert response.status_code == 200
                 assert response.headers["X-Provider-Used"] == "ollama"
                 assert response.headers["X-Cost-Usd"] == "0.0"
+                assert response.headers["X-Audit-Flags"] == "CONTEXT_BLOAT"
                 trace = store.trace(response.headers["X-Trace-Id"])
                 assert trace["model"] == MODEL and trace["cost_complete"]
                 rejected = await api.post("/v1/chat/completions", json={**REQUEST, "model": "other:latest"})

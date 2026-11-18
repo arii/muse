@@ -122,9 +122,13 @@ async def sync_ollama(store, client, model):
     if (not isinstance(capabilities, list) or "completion" not in capabilities
             or details.get("remote_model") or details.get("remote_host")):
         raise ValueError(f"Ollama model {model!r} must be an installed local chat model")
+    info = details.get("model_info")
+    architecture = info.get("general.architecture") if isinstance(info, dict) else None
+    context = info.get(f"{architecture}.context_length") if isinstance(architecture, str) else None
     store.replace_models("ollama", [{
         "provider": "ollama", "id": model, "chat": True, "tools": "tools" in capabilities,
-        "json": False, "json_schema": False, "context_length": None,
+        "json": False, "json_schema": False,
+        "context_length": context if type(context) is int and context > 0 else None,
         "input_price": 0.0, "output_price": 0.0, "free": True, "rpm": None, "daily": None,
         "synced_source": source, "metadata_source": source, "price_source": "local",
     }])
