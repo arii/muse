@@ -45,6 +45,11 @@ COPY pyproject.toml requirements.lock ./
 # against CPU torch; the CPU-index build is required.)
 RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu "torch==2.14.1+cpu" "torchvision==0.29.2"
 RUN pip install --no-cache-dir -r requirements.lock
+COPY env/ ./env/
+COPY perception/ ./perception/
+COPY planning/ ./planning/
+COPY scripts/ ./scripts/
+COPY README.md ./
 # Non-editable install, no deps (lockfile already resolved them):
 # packages land in site-packages, no fragile editable path links.
 RUN pip install --no-cache-dir --no-deps ".[rl]"
