@@ -7,6 +7,7 @@ repo holds curated pushes of work in progress.
 ## Layout
 
 - `projects/` — project snapshots (code, Dockerfiles, CI).
+  - [Tokens with Taste](https://github.com/arii/boomtick/tree/main/tokens-with-taste) — maintained in arii/boomtick.
   - `projects/grasping-2026/` — language-conditioned grasping in simulation
     (VLM → SAM → grasp synthesis → motion planning → MuJoCo). See its
     README for the pipeline and container instructions.
